@@ -24,8 +24,7 @@ It introduces the following concepts:
 
 - Interfaces: an abstract layer of interactions with different entities
 - Commands: a set of Actions focused on one Interface, version agnostic.
-- Macros: a complex set of Actions or Commands spanned across one or more 
-		  Interfaces
+- Macros: a complex set of Actions or Commands spanned across one or more Interfaces
 
 Documentation
 =============
@@ -35,8 +34,7 @@ http://go/indexing
 Interfaces
 ==========
 
-- SSH: Run commands remotely through SSH. File transfers
-       supported as well.
+- SSH: Run commands remotely through SSH. File transfers supported as well.
 - Shell: For executing local commands on the test runner
 - iControl: Access iControl API.
 - EM/iControl: Access EM daemon API over icontrol.
@@ -101,10 +99,8 @@ Commands
 Macros
 ======
 
-- install: perform image installs, with or without hotfixes, of any supported
-		version.
-- confgen: reconfigure a TMOS based device. Currently up to LTM module. Module
-		specific configuration is not implemented.
+- install: perform image installs, with or without hotfixes, of any supported version.
+- confgen: reconfigure a TMOS based device. Currently up to LTM module. Module specific configuration is not implemented.
 - keyswap: swap SSH keys with a target device
 - webcert: push the test certificate signed by the internal authority "F5 Test"
 - irackprofile: query iRack for static information like IP, hostnames, licenses
