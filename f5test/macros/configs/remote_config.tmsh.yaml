@@ -1,0 +1,975 @@
+%YAML 1.1
+---
+
+provision:
+    module to license:
+        apm: ltm
+        woml: ltm
+        ltm: ltm
+        wam: wa
+        psm: afw
+        asm: asm
+        lc:  lc
+        gtm: gtm
+        em:  em
+        wom: woc
+    
+    keys base:
+        bigip:
+            ltm: nominal
+        em:
+            em: dedicated
+
+    keys extra:
+        bigip:
+            #- asm: minimum
+            #- woml: minimum
+            #- wam: minimum
+            #- psm: minimum
+            - gtm: minimum
+            - wom: minimum
+            - lc:  minimum
+            # Doesn't work on Viprion
+            #- apm: minimum
+
+    template: |
+        sys provision %(provision.key)s {
+           level %(provision.level)s
+        }
+
+mgmt: |
+    sys httpd {
+        auth-pam-idle-timeout 21600
+    }
+    sys management-ip %(ltm.ip)s/%(ltm.netmask)s { }
+    sys management-route default {
+       gateway %(ltm.gateway)s
+    }
+
+vlan:
+    common: |
+        net vlan internal {
+            tag 4094
+            interfaces {
+                1.1 { }
+            }
+        }
+        net vlan external {
+            tag 4093
+            interfaces {
+                1.2 { }
+            }
+        }
+    
+    # No interfaces on VMWare images
+    SKI23: |
+        net vlan internal {
+           tag 4094
+        }
+        net vlan external {
+           tag 4093
+        }
+
+    # 8400 interfaces start from slot 2
+    D84: |
+        net vlan internal {
+            tag 4094
+            interfaces {
+                2.1 { }
+            }
+        }
+        net vlan external {
+            tag 4093
+            interfaces {
+                2.2 { }
+            }
+        }
+
+    # Wanjet has a different naming scheme
+    wanjet: |
+        net vlan internal {
+            tag 4094
+            interfaces {
+                lan { }
+            }
+        }
+        net vlan external {
+            tag 4093
+            interfaces {
+                wan { }
+            }
+        }
+
+    # Viprions need the cluster number
+    cluster: |
+        net vlan internal {
+            tag 4094
+            interfaces {
+                1/2.1 { }
+            }
+        }
+        net vlan external {
+            tag 4093
+            interfaces {
+                1/2.2 { }
+            }
+        }
+
+self: |
+    net self %(INTERNAL.A)d.%(INTERNAL.B)d.%(self.ip_base_int.C)d.%(self.ip_base_int.D)d/16 {
+        vlan internal
+        allow-service default
+    }
+    net self %(EXTERNAL.A)d.%(EXTERNAL.B)d.%(self.ip_base_ext.C)d.%(self.ip_base_ext.D)d/16 {
+        vlan external
+        allow-service {
+            tcp:443
+        }
+    }
+
+stp: |
+    # no stp config
+
+self allow: |
+    net self-allow {
+        defaults {
+            ospf:any
+            tcp:161
+            tcp:22
+            tcp:4353
+            tcp:443
+            tcp:53
+            udp:1026
+            udp:161
+            udp:4353
+            udp:520
+            udp:53
+        }
+    }
+
+dns:
+    nameservers:
+        - 172.27.1.1
+        - 172.27.2.1
+    search:
+        - mgmt.pdsea.f5net.com
+    
+    template: |
+        sys dns {
+           name-servers { %(dns.nameservers)s }
+           search { %(dns.search)s }
+        }
+
+ntp:
+    servers:
+        - ntp.f5net.com
+
+    template: |
+        sys ntp {
+           servers { %(ntp.servers)s }
+        }
+
+network failover: |
+    sys failover {
+        redundant enabled
+        network-failover enabled
+        peer-mgmt-addr %(peer.ip)s
+        multicast-peer  {
+            v { }
+        }
+    }
+
+failover: |
+    sys failover {
+       redundant enabled
+       standby-link-down-time 0
+       unit %(self.unit)d
+    }
+    sys state-mirroring {
+       addr %(INTERNAL.A)d.%(INTERNAL.B)d.%(self.ip_base_int.C)d.%(self.ip_base_int.D)d
+       peer-addr %(INTERNAL.A)d.%(INTERNAL.B)d.%(peer.ip_base_int.C)d.%(peer.ip_base_int.D)d
+    }
+    sys config-sync {
+        auto-detect enabled
+        user-password-encrypted ".TAEEjeouF9XL:^*H;7T0,a8>9fY8CdK=bWgBM@lWJV.fpW"
+    }
+
+system:
+    gui setup: disabled
+
+    template: |
+        sys global-settings {
+           gui-setup %(gui.setup)s
+           hostname %(system.hostname)s
+           mgmt-dhcp disabled
+        }
+        auth user root {
+           description "created by confgen"
+           encrypted-password "$1$f5site02$sGndAUM76pW9LJkJ1a8Kn/"
+           shell bash
+        }
+
+default users:
+    admin: \$1\$f5site02\$sGndAUM76pW9LJkJ1a8Kn/
+    root:  \$1\$f5site02\$sGndAUM76pW9LJkJ1a8Kn/
+
+# Supposed to be used only on 9.3.1's as param for f5passwd
+legacy users:
+    admin: f5site02
+    root: f5site02
+
+users:
+    administrator: |
+        auth user a {
+           encrypted-password "$1$f5site02$lULDkZ4/wBvcXq1Ek6y0l/"
+           description "created by confgen"
+           shell none
+           role admin
+           partition-access all
+        }
+
+    app editor: |
+        auth user ae {
+           encrypted-password "$1$vRQcqYwb$NDINoZ.vWFzZGNKz7U1OH1"
+           description "created by confgen"
+           shell none
+           partition-access all
+           role application-editor
+        }
+    
+    guest: |
+        auth user g {
+           encrypted-password "$1$xydP.XP2$H/8ZCMK8x1bO98BicY1Nu1"
+           description "created by confgen"
+           shell none
+           partition-access all
+           role guest
+        }
+
+    manager: |
+        auth user m {
+           encrypted-password "$1$7./o3QLs$3RqiEdEHiZuyxkgop1Jk7/"
+           description "created by confgen"
+           shell none
+           partition-access all
+           role manager
+        }
+
+    none: |
+        auth user na {
+           encrypted-password "$1$SE1LUl14$h9DgJgyBj85qMTUH0BETS."
+           description "created by confgen"
+           shell none
+           partition-access all
+           role no-access
+        }
+
+    operator: |
+        auth user o {
+           encrypted-password "$1$MJpXbttf$Rsj59bAcZ.Ai5T3plsAch1"
+           description "created by confgen"
+           shell none
+           partition-access all
+           role operator
+        }
+
+    policy editor: |
+        auth user pe {
+           encrypted-password "$1$RupVOhhK$.pqBAmmo10Nuec8WRkYWZ/"
+           description "created by confgen"
+           shell none
+           partition-access all
+           role web-application-security-editor
+        }
+
+    resource admin: |
+        auth user ra {
+           encrypted-password "$1$gw.uIEgm$djZNQWkbSinj8LT4NOZzG0"
+           description "created by confgen"
+           shell none
+           partition-access all
+           role resource-admin
+        }
+
+    user manager: |
+        auth user um {
+           encrypted-password "$1$zVNK/Bdd$HMVk5yTUnlpowyi7BNmh9."
+           description "created by confgen"
+           shell none
+           partition-access all
+           role user-manager
+        }
+
+partition name template: LTM%(ltm.id)dPartition%(partition.index)d
+
+partition template:
+    folders: |
+        # -------------------------------------------------------------------------
+        auth partition %(partition.name)s {
+            description "This is partition number %(partition.index)d"
+        }
+        sys folder /%(partition.name)s {
+            device-group none
+            inherited-devicegroup true
+            inherited-traffic-group true
+            traffic-group /Common/traffic-group-1
+        }
+        cli admin-partitions {
+            update-partition %(partition.name)s
+        }
+    partitions: |
+        # -------------------------------------------------------------------------
+        auth partition %(partition.name)s {
+            description "This is partition number %(partition.index)d"
+        }
+        cli admin-partitions {
+            update-partition %(partition.name)s
+        }
+
+node template:
+    - |
+        ltm node /%(partition.name)s/%(INTERNAL.A)d.%(INTERNAL.B)d.%(node.C)d.%(node.D)d {
+           address %(INTERNAL.A)d.%(INTERNAL.B)d.%(node.C)d.%(node.D)d
+           #limit %(node.index)d
+           #ratio %(node.index)d
+        }
+
+pool member protocols:
+    - http
+    - http
+    - https
+
+pool member template: |
+    /%%(partition.name)s/%%(INTERNAL.A)d.%%(INTERNAL.B)d.%(node.C)d.%(node.D)d:%(pool.proto)s {
+        address %%(INTERNAL.A)d.%%(INTERNAL.B)d.%(node.C)d.%(node.D)d
+        %%(pool.monitor_enable)smonitor %(pool.proto)s
+        #session user-enabled
+    }
+
+pool template:
+    - |
+        ltm pool /%(partition.name)s/LTM%(ltm.id)dPool-%(pool.index)03d {
+            members {
+                %(pool.members)s
+            }
+            %(pool.monitor_enable)smonitor /Common/http
+        }
+        
+vip template:
+    - |
+        ltm virtual /%(partition.name)s/LTM%(ltm.id)dVIP-%(vip.index)03d {
+            destination /%(partition.name)s/%(EXTERNAL.A)d.%(EXTERNAL.B)d.%(vip.C)d.%(vip.D)d:http
+            snat automap
+            ip-protocol tcp
+            profiles {
+                /Common/http { }
+                /Common/tcp { }
+            }
+            pool /%(partition.name)s/LTM%(ltm.id)dPool-%(pool.index)03d
+        }
+        ltm virtual-address /%(partition.name)s/%(EXTERNAL.A)d.%(EXTERNAL.B)d.%(vip.C)d.%(vip.D)d {
+            address %(EXTERNAL.A)d.%(EXTERNAL.B)d.%(vip.C)d.%(vip.D)d
+            mask 255.255.255.255
+            traffic-group /Common/traffic-group-1
+        }
+
+    - |
+        ltm virtual /%(partition.name)s/LTM%(ltm.id)dVIP-%(vip.index)03d {
+            destination /%(partition.name)s/%(EXTERNAL.A)d.%(EXTERNAL.B)d.%(vip.C)d.%(vip.D)d:https
+            snat automap
+            ip-protocol tcp
+            profiles {
+                /Common/clientssl {
+                    context clientside
+                }
+                /Common/http { }
+                /Common/tcp { }
+            }
+            pool /%(partition.name)s/LTM%(ltm.id)dPool-%(pool.index)03d
+        }
+        ltm virtual-address /%(partition.name)s/%(EXTERNAL.A)d.%(EXTERNAL.B)d.%(vip.C)d.%(vip.D)d {
+            address %(EXTERNAL.A)d.%(EXTERNAL.B)d.%(vip.C)d.%(vip.D)d
+            mask 255.255.255.255
+            traffic-group /Common/traffic-group-1
+        }
+
+    - |
+        ltm virtual /%(partition.name)s/LTM%(ltm.id)dVIP-%(vip.index)03d {
+            destination /%(partition.name)s/%(EXTERNAL.A)d.%(EXTERNAL.B)d.%(vip.C)d.%(vip.D)d:https
+            snat automap
+            ip-protocol tcp
+            profiles {
+                /Common/serverssl {
+                    context serverside
+                }
+                /Common/clientssl {
+                    context clientside
+                }
+                /Common/http { }
+                /Common/tcp { }
+            }
+            pool /%(partition.name)s/LTM%(ltm.id)dPool-%(pool.index)03d
+        }
+        ltm virtual-address /%(partition.name)s/%(EXTERNAL.A)d.%(EXTERNAL.B)d.%(vip.C)d.%(vip.D)d {
+            address %(EXTERNAL.A)d.%(EXTERNAL.B)d.%(vip.C)d.%(vip.D)d
+            mask 255.255.255.255
+            traffic-group /Common/traffic-group-1
+        }
+
+profiles:
+    clientssl:
+        min version: 9.3.1
+        require module: ltm
+        text: |
+            ltm profile client-ssl myclientssl {
+               defaults-from clientssl
+            }
+
+    serverssl:
+        min version: 9.3.1
+        require module: ltm
+        text: |
+            ltm profile server-ssl myserverssl {
+               defaults-from serverssl
+            }
+
+    http:
+        min version: 9.3.1
+        require module: ltm
+        text: |
+            ltm profile http myhttp {
+               defaults-from http
+            }
+
+    ftp:
+        min version: 9.3.1
+        require module: ltm
+        text: |
+            ltm profile ftp myftp {
+               defaults-from ftp
+            }
+
+    iiop:
+        min version: 9.3.1
+        require module: ea
+        text: |
+            ltm profile iiop myiiop {
+               defaults-from iiop
+            }
+
+    radius:
+        min version: 10.1.0
+        require module: ltm
+        text: |
+            ltm profile radius myradiuslb {
+               defaults-from radiusLB
+            }
+
+    rtsp:
+        min version: 9.3.1
+        require module: ea
+        text: |
+            ltm profile rtsp myrtsp {
+               defaults-from rtsp
+            }
+
+    sip:
+        min version: 9.4.3
+        require module: ltm
+        text: |
+            ltm profile sip mysip {
+               defaults-from sip
+            }
+
+    smtp:
+    # XXX: Broken in 11.0.3119
+        min version: 9.4.5
+        max version: 10.2.0
+        require module: ltm
+        text: |
+            ltm profile smtp mysmtp {
+               defaults-from smtp
+            }
+
+    isession_101:
+        min version: 10.0.1
+        max version: 10.0.1
+        require module: ltm
+        text: |
+            ltm profile isession myisession {
+               defaults-from isession
+            }
+
+    isession_110:
+    # XXX: Broken in 11.0.3119
+        min version: 10.1.0
+        max version: 10.2.0
+        require module: ltm
+        text: |
+            ltm profile isession myisession {
+               defaults-from isession
+            }
+
+    oneconnect:
+        min version: 9.3.1
+        require module: ltm
+        text: |
+            ltm profile one-connect myoneconnect {
+               defaults-from oneconnect
+            }
+
+    stats:
+        min version: 9.3.1
+        require module: ltm
+        text: |
+            ltm profile statistics mystats {
+               defaults-from stats
+            }
+    stream:
+        min version: 9.3.1
+        require module: ltm
+        text: |
+            ltm profile stream mystream {
+               defaults-from stream
+            }
+
+    xml:
+        min version: 9.3.1
+        max version: 10.1.0
+        require module: ea
+        text: |
+            ltm profile xml myxml {
+               defaults-from xml
+            }
+
+    ntlm:
+        min version: 10.0.1
+        require module: ltm
+        text: |
+            ltm profile ntlm myntlm {
+               defaults-from ntlm
+            }
+
+    diameter:
+        min version: 10.1.0
+        require module: ltm
+        text: |
+            ltm profile diameter mydiameter {
+               defaults-from diameter
+            }
+
+    persist:
+        min version: 9.3.1
+        require module: ltm
+        text: |
+            ltm persistence cookie mypersist_cookie {
+               defaults-from cookie
+            }
+            ltm persistence dest-addr mypersist_dest {
+               defaults-from dest_addr
+            }
+            ltm persistence hash mypersist_hash {
+               defaults-from hash
+            }
+            ltm persistence msrdp mypersist_rdp {
+               defaults-from msrdp
+            }
+            ltm persistence source-addr mypersist_src {
+               defaults-from source_addr
+            }
+            ltm persistence ssl mypersist_ssl {
+               defaults-from ssl
+            }
+            ltm persistence universal mypersist_univ {
+               defaults-from universal
+            }
+
+    persist_931:
+        min version: 9.3.1
+        max version: 9.3.1
+        require module: ltm
+        text: |
+            ltm persistence sip mypersist_sip {
+               defaults-from sip
+            }
+    
+    persist_943:
+        min version: 9.4.3
+        require module: ltm
+        text: |
+            ltm persistence sip mypersist_sip {
+               defaults-from sip_info
+            }
+
+    fastL4:
+        min version: 9.3.1
+        require module: ltm
+        text: |
+            ltm profile fastL4 myfastl4 {
+               defaults-from fastL4
+            }
+
+    fasthttp:
+        min version: 9.3.1
+        require module: ltm
+        text: |
+            ltm profile fasthttp myfasthttp {
+               defaults-from fasthttp
+            }
+
+    httpclass:
+        min version: 9.3.1
+        require module: asm
+        text: |
+            ltm profile httpclass myhttpclass {
+               defaults-from httpclass
+            }
+
+    tcp:
+        min version: 9.3.1
+        text: |
+            ltm profile tcp mytcp {
+               defaults-from tcp
+            }
+
+    udp:
+        min version: 9.3.1
+        require module: ltm
+        text: |
+            ltm profile udp myudp {
+               defaults-from udp
+            }
+
+    sctp:
+        min version: 9.3.1
+        require module: ltm
+        text: |
+            ltm profile sctp mysctp {
+               defaults-from sctp
+            }
+
+    connectivity:
+    # XXX: Immature feature in 10.3.0. Disable it for now.
+        min version: 11.1.0
+        text: |
+            ltm profile connectivity myconnectivity {
+               defaults-from connectivity
+            }
+
+    webtop:
+    # XXX: Immature feature in 10.3.0. Disable it for now.
+    # 0107127c:3: customization group (mywebtop_na_customization) in webtop (mywebtop_na) does not exists.
+        min version: 11.1.0
+        text: |
+            webtop mywebtop_na {
+               customization group mywebtop_na_customization
+            }
+            webtop mywebtop_wa {
+               web applications start uri "http://foo.net"
+               customization group mywebtop_wa_customization
+            }
+
+
+    auth-ocsp:
+    # XXX: 9.3.1 has a buggy "auth ocsp" scheme. Disable all profiles.
+        min version: 9.4.3
+        require feature: security_ssl_client_verify_ocsp
+        text: |
+            ltm auth ssl-ocsp mysslocsp_config {}
+
+            ltm auth profile mysslocsp {
+               configuration mysslocsp_config
+               defaults-from ssl_ocsp
+            }
+
+    auth-sslldap:
+        min version: 9.3.1
+        require feature: security_ta_ldap
+        text: |
+            ltm auth ssl-cc-ldap mysslldap_config {
+               user-base dn=com
+               user-key test
+               servers { localhost }
+            }
+            ltm auth profile mysslldap {
+               defaults-from ssl_cc_ldap
+               configuration mysslldap_config
+               type ssl-cc-ldap
+               credential-source http-basic-auth
+            }
+
+    auth-tacacs:
+        min version: 9.3.1
+        require feature: security_ta_tacacs
+        text: |
+            ltm auth tacacs mytacacs_config {
+               secret test
+               service test
+               servers { localhost }
+            }
+            ltm auth profile mytacacs {
+               defaults-from tacacs
+               configuration mytacacs_config
+               type tacacs
+               credential-source http-basic-auth
+            }
+
+    auth-radius:
+        min version: 9.3.1
+        require feature: security_ta_radius
+        text: |
+            ltm auth radius myradius_config {}
+            ltm auth profile myradius {
+               defaults-from radius
+               configuration myradius_config
+               type radius
+               credential-source http-basic-auth
+            }
+
+    auth-ldap:
+        min version: 9.3.1
+        require feature: security_ta_ldap
+        text: |
+            ltm auth ldap myldap_config {
+               search-base-dn "test tree"
+               servers { localhost }
+            }
+            ltm auth profile myldap {
+               defaults-from ldap
+               configuration myldap_config
+               type ldap
+               credential-source http-basic-auth
+            }
+
+    auth-crldp:
+        min version: 9.4.3
+        require feature: security_ssl_crldp
+        text: |
+            ltm auth ssl-crldp mycrldp_config {}
+            ltm auth profile mycrldp {
+               defaults-from tacacs
+               configuration mycrldp_config
+               type ssl-crldp
+               credential-source http-basic-auth
+            }
+
+    auth-kerberos:
+    # XXX: This is broken. CR136501. Disable it for now.
+        #min version: 9.4.5
+        min version: 11.0.0
+        require feature: security_ta_krbdelegate
+        text: |
+            ltm auth kerberos-delegation mykerberos_config {
+               server-principal testserver
+               client-principal testclient
+            }
+            ltm auth profile mykerberos {
+               defaults-from krbdelegate
+               configuration mykerberos_config
+               type krbdelegate
+               credential-source http-basic-auth
+            }
+
+    monitor:
+        min version: 9.3.1
+        require module: ltm
+        text: |
+            ltm monitor external monitor_external {
+               defaults-from external
+               run sample_monitor
+            }
+            ltm monitor ftp monitor_ftp {
+               defaults-from ftp
+            }
+
+    traffic class:
+        min version: 10.0.1
+        text: |
+            ltm traffic-class mytraffic_class {
+                classification something
+                destination-address 2.1.1.1
+                destination-mask 255.255.0.0
+                destination-port 9900
+                source-address 1.1.1.1
+                source-mask 255.255.255.0
+                source-port 8800
+            }
+
+    rate class:
+    # XXX: 10.0.1 supports it but it has a BUG
+        min version: 10.1.0
+        text: |
+            net rate-shaping class myshape_fred {
+                ceiling 500kbps
+                drop-policy fred
+                max-burst 10mb
+                queue pfifo
+                rate 100kbps
+            }
+            net rate-shaping class myshape_red {
+                ceiling 500kbps
+                drop-policy red
+                max-burst 10mb
+                queue pfifo
+                rate 100kbps
+            }
+            net rate-shaping class myshape_tail {
+                ceiling 500kbps
+                drop-policy tail
+                max-burst 10mb
+                queue sfq
+                rate 100kbps
+            }
+
+    snat:
+        min version: 9.3.1
+        require module: ltm
+        text: |
+            ltm snat mysnat {
+                translation 1.1.1.1
+                origins {
+                    0.0.0.0/0
+                }
+            }
+            ltm snat-translation 1.1.1.1 { }
+
+    snatpool:
+        min version: 9.3.1
+        text: |
+            ltm snatpool mysnat_pool {
+                members {
+                    1.1.1.2
+                    1.1.1.3
+                }
+            }
+            ltm snat-translation 1.1.1.2 { }
+            ltm snat-translation 1.1.1.3 { }
+
+
+    nat:
+        min version: 9.3.1
+        require module: ltm
+        text: |
+            ltm nat 1.1.1.4 {
+                originating-address 2.1.1.1
+            }
+
+    class:
+        min version: 10.1.0
+        text: |
+            ltm data-group internal mydatagroup_string {
+                records {
+                    name1 {
+                        data val1
+                    }
+                    name2 {
+                        data val2
+                    }
+                }
+                type string
+            }
+            ltm data-group internal mydatagroup_integer {
+                records {
+                    1 {
+                        data val1
+                    }
+                    100 {
+                        data val2
+                    }
+                }
+                type integer
+            }
+            ltm data-group internal mydatagroup_address {
+                records {
+                    1.1.1.1/32 {
+                        data ip1
+                    }
+                    1.1.1.2/32 {
+                        data ip2
+                    }
+                    1.1.2.0/24 {
+                        data net1
+                    }
+                }
+                type ip
+            }
+
+    rule:
+        min version: 9.4.3
+        require feature: ltm_rule_L7
+        text: |
+            ltm rule myirule {
+               when HTTP_REQUEST {
+                    if {not [info exists tmm_auth_http_sids(radius)]} {
+                        set tmm_auth_sid [AUTH::start pam default_radius]
+                        set tmm_auth_http_sids(radius) $tmm_auth_sid
+                        if {[info exists tmm_auth_subscription]} {
+                            AUTH::subscribe $tmm_auth_sid
+                        }
+                    } else {
+                        set tmm_auth_sid $tmm_auth_http_sids(radius)
+                    }
+                    AUTH::username_credential $tmm_auth_sid [HTTP::username]
+                    AUTH::password_credential $tmm_auth_sid [HTTP::password]
+                    AUTH::authenticate $tmm_auth_sid
+            
+                    if {not [info exists tmm_auth_http_collect_count]} {
+                        HTTP::collect
+                        set tmm_auth_http_successes 0
+                        set tmm_auth_http_collect_count 1
+                    } else {
+                        incr tmm_auth_http_collect_count
+                    }
+                }
+                when AUTH_RESULT {
+                    if {not [info exists tmm_auth_http_sids(radius)] or \
+                        ($tmm_auth_http_sids(radius) != [AUTH::last_event_session_id]) or \
+                        (not [info exists tmm_auth_http_collect_count])} {
+                        return
+                    }
+                    if {[AUTH::status] == 0} {
+                        incr tmm_auth_http_successes
+                    }
+                    # If multiple auth sessions are pending and
+                    # one failure results in termination and this is a failure
+                    # or enough successes have now occurred
+                    if {([array size tmm_auth_http_sids] > 1) and \
+                        ((not [info exists tmm_auth_http_sufficient_successes] or \
+                         ($tmm_auth_http_successes >= $tmm_auth_http_sufficient_successes)))} {
+                        # Abort the other auth sessions
+                        foreach {type sid} [array get tmm_auth_http_sids] {
+                            unset tmm_auth_http_sids($type)
+                            if {($type ne "radius") and ($sid != -1)} {
+                                AUTH::abort $sid
+                                incr tmm_auth_http_collect_count -1
+                            }
+                        }
+                    }
+                    # If this is the last outstanding auth then either
+                    # release or respond to this session
+                    incr tmm_auth_http_collect_count -1
+                    if {$tmm_auth_http_collect_count == 0} {
+                        unset tmm_auth_http_collect_count
+                        if { [AUTH::status] == 0 } {
+                            HTTP::release
+                        } else {
+                            HTTP::respond 401
+                        }
+                    }
+                }
+            }
+    
+    route domain:
+        min version: 10.0.1
+        text: |
+            net route-domain /Common/test_rd {
+               id 5
+               description "test route domain"
+            }
+
+monitors: |
+    ltm default-node-monitor {
+        rule icmp
+    }
+
+# vim: ft=yaml

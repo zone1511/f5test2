@@ -1,0 +1,117 @@
+$extends:
+    - base.yaml
+
+isbvt: 0
+
+devices:
+    
+    em-1:
+        address:                <your em address>
+        admin password:         f5site02
+        #lock admin password:    emtest02
+        root password:          f5site02
+
+    bigip-1:
+        address:                <your bigip address>
+        admin password:         f5site02
+        #lock admin password:    emtest02
+        root password:          f5site02
+
+stages:
+    installation:
+    #############
+        on duts:
+            devices:
+                - em-1
+            product:        em
+            version:        ninkasi
+            #build:          2030.0
+            #hotfix:         hf1
+            essential config: yes
+            #format volumes: true
+    
+        on bigip:
+            devices:
+                - bigip-1
+            product:        bigip
+            version:        10.2.2
+            #hotfix:         hf2
+            essential config: yes
+            #format volumes: true
+            #custom iso:     /vol/3/...
+            #custom hotfix iso: /vol/3/...
+    
+    configuration:
+    ##############
+        on duts:
+            devices:
+                - em-1
+            partitions: 0
+    
+        on bigips:
+            devices:
+                - bigip-1
+            partitions: 3
+
+    keyswap:
+    ########
+        on all:
+            devices:
+                - ^all
+
+    debugswitches:
+    ##############
+        on some:
+            devices:
+                #- bigip-6800-2
+            mcp: on
+            icontrol: on
+
+    emdiscovery:
+    ############
+        on em pair:
+            discover:
+                - ^all
+            devices:
+                - em-1
+
+selenium:
+    win-vm-1-ff:
+        address:    http://172.27.58.30:4444/wd/hub
+        browser:    firefox
+        platform:   ANY
+
+    win-vm-1-ie:
+        address:    http://172.27.58.30:4444/wd/hub
+        browser:    internet explorer
+        platform:   WINDOWS
+
+    win-vm-1-ch:
+        address:    http://172.27.58.30:4444/wd/hub
+        browser:    chrome
+        platform:   ANY
+
+    ionutdb01-ff:
+        default:    true
+        address:    http://172.27.58.1:4444/wd/hub
+        browser:    firefox
+        platform:   ANY
+
+    ionutdb01-ch:
+        address:    http://172.27.58.1:4444/wd/hub
+        browser:    chrome
+        platform:   ANY
+
+    sea-w-iturturica-ie:
+        address:    http://sea-w-iturturica:4444/wd/hub
+        browser:    internet explorer
+        platform:   WINDOWS
+
+testopia:
+    address:    http://mgmtdata.mgmt.pdsea.f5net.com
+    username:   i.turturica@f5.com
+    password:   f5site02
+    uri:        /xmlrpc.cgi
+    
+    testplan:   12
+    product:    Enterprise Manager

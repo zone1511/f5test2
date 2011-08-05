@@ -1,0 +1,190 @@
+from .base import IcontrolCommand
+from ..base import CachedCommand, WaitableCommand
+from ...utils import Version
+from ...interfaces.config import ConfigInterface
+from ...defaults import ADMIN_USERNAME, ROOT_USERNAME
+from ...interfaces.icontrol import IcontrolInterface, AuthFailed 
+from ...interfaces.icontrol.driver import UnknownMethod, IControlFault 
+import time
+
+import logging
+LOG = logging.getLogger(__name__) 
+ 
+
+get_version = None
+class GetVersion(CachedCommand, IcontrolCommand):
+    """Get the active software version."""
+    
+    def __init__(self, build=False, *args, **kwargs):
+        super(GetVersion, self).__init__(*args, **kwargs)
+        self.build = build
+
+    def __repr__(self):
+        parent = super(GetVersion, self).__repr__()
+        opt = {}
+        opt['build'] = self.build
+        return parent + "(build=%(build)s)" % opt
+
+    def setup(self):
+        ic = self.api
+        version = ic.System.SystemInfo.get_version()
+        if self.build:
+            build = ic.Management.DBVariable.query(variables=['version.build'])[0]['value']
+            version = "%s %s" % (version, build)
+        return Version(version)
+
+
+get_platform = None
+class GetPlatform(CachedCommand, IcontrolCommand):
+    """Get the platform ID."""
+    
+    def setup(self):
+        ic = self.api
+        return ic.System.SystemInfo.get_system_information()['platform']
+
+
+set_password = None
+class SetPassword(WaitableCommand, IcontrolCommand):
+    """Resets the password for admin and root accounts.
+    
+    @param adminpassword: new password the admin user
+    @type adminpassword: str
+    @param rootpassword: new password the root user
+    @type rootpassword: str
+    """
+
+    def __init__(self, adminpassword=None, rootpassword=None, lock=True, 
+                 *args, **kwargs):
+        super(SetPassword, self).__init__(*args, **kwargs)
+        
+        self.lock = lock
+        self.new_admin_password = adminpassword
+        self.new_root_password = rootpassword
+
+    def setup(self):
+        """- Change the active partition to 'Common'.
+           - Set passwords to both 'admin' and 'root' accounts.
+        """
+        config = ConfigInterface()
+        if self.new_admin_password:
+            adminpassword = self.new_admin_password
+        else:
+            assert self.ifc.device
+            adminpassword = config.get_device_admin_creds(self.ifc.device, 
+                                                        lock=self.lock).password
+        if self.new_root_password:
+            rootpassword = self.new_root_password
+        else:
+            assert self.ifc.device
+            rootpassword = config.get_device_root_creds(self.ifc.device, 
+                                                        lock=self.lock).password
+
+        access = config.get_device(device=self.ifc.device, all_passwords=True)
+        
+        for password in access.get_admin_creds().password:
+            ic = IcontrolInterface(address=access.address, 
+                                   password=password).open()
+            try:
+                try:
+                    ic.Management.Partition.set_active_partition(
+                                                      active_partition='Common')
+                except UnknownMethod:
+                    LOG.debug('%s must be a 9.3.1.', access.address)
+                ic.Management.UserManagement.change_password(
+                    user_names=[ADMIN_USERNAME, ROOT_USERNAME],
+                    passwords=[adminpassword, rootpassword])
+                LOG.info('Passwords on %s set.', access.address)
+                return True
+            except AuthFailed:
+                LOG.info('Bad password "%s" for %s.', password, access.address)
+                continue
+        
+        LOG.warning('Password on %s not set.', access.address)
+        return False
+
+
+reboot = None
+class Reboot(IcontrolCommand):
+    """Reboot the system.
+    
+    @param post_sleep: number of seconds to sleep after reboot
+    @type interface: int
+    """
+    
+    def __init__(self, post_sleep=60, *args, **kwargs):
+        super(Reboot, self).__init__(*args, **kwargs)
+        self.post_sleep = post_sleep
+
+    def setup(self):
+        ic = self.api
+        uptime_before = None
+        try:
+            uptime_before = ic.System.SystemInfo.get_uptime()
+        except:
+            LOG.debug('get_uptime() not available (probably a 9.3.1)')
+            pass
+        ic.System.Services.reboot_system(seconds_to_reboot=0)
+
+        LOG.debug('Reboot post sleep')
+        time.sleep(self.post_sleep)
+        
+        return uptime_before
+
+
+has_rebooted = None
+class HasRebooted(WaitableCommand, IcontrolCommand):
+    """Get the uptime.
+    
+    @param post_sleep: number of seconds to sleep after reboot
+    @type interface: int
+    """
+    
+    def __init__(self, uptime, *args, **kwargs):
+        super(HasRebooted, self).__init__(*args, **kwargs)
+        self.uptime = uptime
+
+    def setup(self):
+        ic = self.api
+        try:
+            return ic.System.SystemInfo.get_uptime() < self.uptime
+        except:
+            return True
+
+
+is_service_up = None
+class IsServiceUp(WaitableCommand, IcontrolCommand):
+    """Returns the state of TOMCAT service.
+    """
+    
+    def __init__(self, service, *args, **kwargs):
+        super(IsServiceUp, self).__init__(*args, **kwargs)
+        self.service = service
+
+    def setup(self):
+        ic = self.api
+        service = 'SERVICE_' + self.service
+        status = ic.System.Services.get_service_status(
+                                                services=[service])[0]
+        return status['status'] == 'SERVICE_STATUS_UP'
+
+
+file_exists = None
+class FileExists(WaitableCommand, IcontrolCommand):
+    """Checks the existence of a remote file.
+    """
+    
+    def __init__(self, filename, *args, **kwargs):
+        super(FileExists, self).__init__(*args, **kwargs)
+        self.filename = filename
+
+    def setup(self):
+        ic = self.api
+        try:
+            ic.System.ConfigSync.download_file(file_name=self.filename,
+                                               chunk_size=10, file_offset=0)
+            return True
+        except IControlFault, e:
+            if 'Error opening file for read operations' in e.faultstring:
+                return False
+            raise
+

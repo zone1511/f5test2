@@ -1,0 +1,58 @@
+TestRun report
+==============
+
+Ran {{ result.testsRun }} tests (errors={{ result.errors|length }}, failures={{ result.failures|length }}, skips={{ result.skipped|length }})
+
+Session logs: {{ sessionurl }}
+{%- if config.testopia._testrun %}
+Testopia run: {{ config.testopia.address }}/tr_show_run.cgi?run_id={{ config.testopia._testrun }}
+{%- endif %}
+
+
+Errors:
+=======
+{%- for error in result.errors -%}
+{% if error.0.address -%}
+{% set file, module, method = error.0.address() -%}
+{% set tc = "%s:%s" % (module, method) -%}
+{% if config.testopia._tcs -%}
+	{% set tcid = config.testopia._tcs[tc].case_id -%}
+{% endif %}
+* {{ tc }} {% if tcid %}http://mgmtdata.mgmt.pdsea.f5net.com/tr_show_case.cgi?case_id={{ tcid }}{% endif %}
+{{ error.1.strip()|indent(2, true) }}
+{% endif -%}
+{% endfor %}
+
+Failures:
+=========
+{%- for failure in result.failures -%}
+{% set file, module, method = failure.0.address() -%}
+{% set tc = "%s:%s" % (module, method) -%}
+{% if config.testopia._tcs -%}
+	{% set tcid = config.testopia._tcs[tc].case_id -%}
+{% endif %}
+* {{ tc }} {% if tcid %}http://mgmtdata.mgmt.pdsea.f5net.com/tr_show_case.cgi?case_id={{ tcid }}{% endif %}
+{{ failure.1.strip()|indent(2, true) }}
+{% endfor %}
+
+Skipped:
+=========
+{%- for skip in result.skipped -%}
+{% set file, module, method = skip.0.address() -%}
+{% set tc = "%s:%s" % (module, method) -%}
+{% if config.testopia._tcs -%}
+	{% set tcid = config.testopia._tcs[tc].case_id -%}
+{% endif %}
+* {{ tc }} {% if tcid %}http://mgmtdata.mgmt.pdsea.f5net.com/tr_show_case.cgi?case_id={{ tcid }}{% endif %}
+{{ skip.1|string|indent(2, true) }}
+{% endfor %}
+
+DUTs info:
+==========
+{%- for dut in duts %}
+ - {{ dut.device.alias }} - {{ dut.device.address }}: {{ dut.platform }} {{ dut.version }} {% if config._reports.cores[dut.device.alias] %}[CORED]{% endif %}
+{%- endfor %}
+
+Test Runner:
+============
+{{ test_runner_ip }} 

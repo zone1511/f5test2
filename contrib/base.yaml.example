@@ -1,0 +1,24 @@
+paths:
+    root ca:    /vol/3/share/em-selenium/root_ca
+    build:      /build
+    logs:       /vol/3/share/em-selenium/testruns
+    sessionurl: http://%(runner)s/testruns/%(session)s
+    datastore:  /vol/3/share/em-selenium/datastore
+    windatastore:  \\wendy.olympus.f5net.com\vols\3\share\em-selenium\datastore
+
+testdata:
+    internet proxy: 172.27.58.1:8080
+
+labmanager:
+    address: labmanager.pdsea.f5net.com
+
+irack:
+    address:    irack.mgmt.pdsea.f5net.com
+    username:   [YOUR IRACK USERNAME]
+    apikey:     [YOUR IRACK API KEY]
+
+# Project and Build are determined automatically. Override here if necessary.
+bvtinfo:
+    name:       em-bvt
+    url:        http://bvtinfo.att.pdsea.f5net.com/bvtinfo/api/submit_result/
+    result_url: http://mgmtdata.mgmt.pdsea.f5net.com/tr_show_run.cgi?run_id=%(run_id)s

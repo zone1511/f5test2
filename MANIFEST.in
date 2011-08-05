@@ -1,0 +1,6 @@
+include README.rst
+include MANIFEST.in
+
+include setup3lib.py
+include f5test/noseplugins/templates/*.tmpl
+include f5test/macros/configs/*.yaml

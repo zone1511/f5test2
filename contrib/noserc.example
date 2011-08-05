@@ -1,0 +1,8 @@
+[nosetests]
+verbosity=1
+log-config=[ABSOLUTE PATH TO SANDBOX]/logging.conf
+tc-file=[ABSOLUTE PATH TO SANDBOX]/suite.yaml
+tc-format=yaml
+nologcapture=1
+all-modules=1
+exe=1

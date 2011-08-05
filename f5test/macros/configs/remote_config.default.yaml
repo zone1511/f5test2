@@ -1,0 +1,1129 @@
+%YAML 1.1
+---
+
+provision:
+    module to license:
+        apm: ltm
+        woml: ltm
+        ltm: ltm
+        wam: wa
+        psm: afw
+        asm: asm
+        lc:  lc
+        gtm: gtm
+        em:  em
+        wom: woc
+    
+    keys base:
+        bigip:
+            ltm: nominal
+        em:
+            em: dedicated
+
+    keys extra:
+        bigip:
+            - asm: minimum
+            #- woml: minimum
+            - wam: minimum
+            - psm: minimum
+            - gtm: minimum
+            - wom: minimum
+            - lc:  minimum
+            # Doesn't work on Viprion
+            #- apm: minimum
+
+    template: |
+        provision %(provision.key)s {
+           level %(provision.level)s
+        }
+
+mgmt: |
+    mgmt %(ltm.ip)s {
+       netmask %(ltm.netmask)s
+    }
+    mgmt route default inet {
+       gateway %(ltm.gateway)s
+    }
+
+vlan:
+    common: |
+        vlan internal {
+           tag 4094
+           interfaces 1.1
+        }
+        vlan external {
+           tag 4093
+           interfaces 1.2
+        }
+    
+    # No interfaces on VMWare images
+    SKI23: |
+        vlan internal {
+           tag 4094
+        }
+        vlan external {
+           tag 4093
+        }
+
+    # 8400 interfaces start from slot 2
+    D84: |
+        vlan internal {
+           tag 4094
+           interfaces 2.1
+        }
+        vlan external {
+           tag 4093
+           interfaces 2.2
+        }
+
+    # Wanjet has a different naming scheme
+    wanjet: |
+        vlan internal {
+           tag 4094
+           interfaces lan
+        }
+        vlan external {
+           tag 4093
+           interfaces wan
+        }
+
+    # Viprions need the cluster number
+    cluster: |
+        vlan internal {
+           tag 4094
+           interfaces 1/2.1
+        }
+        vlan external {
+           tag 4093
+           interfaces 1/2.2
+        }
+
+self: |
+    self %(INTERNAL.A)d.%(INTERNAL.B)d.%(self.ip_base_int.C)d.%(self.ip_base_int.D)d {
+       netmask 255.255.0.0
+       vlan internal
+       allow default
+    }
+    self %(EXTERNAL.A)d.%(EXTERNAL.B)d.%(self.ip_base_ext.C)d.%(self.ip_base_ext.D)d {
+       netmask 255.255.0.0
+       vlan external
+    }
+
+stp: |
+    stp {
+       config name none
+    }
+
+self allow: |
+    self allow {
+       default
+          tcp domain
+          udp 1026
+          tcp ssh
+          tcp snmp
+          proto ospf
+          tcp 4353
+          udp domain
+          tcp https
+          udp efs
+          udp 4353
+          udp snmp
+    }
+
+dns:
+    nameservers:
+        - 172.27.1.1
+        - 172.27.2.1
+    search:
+        - mgmt.pdsea.f5net.com
+    
+    template: |
+        dns {
+           nameservers
+              %(dns.nameservers)s
+           search
+              %(dns.search)s
+        }
+
+ntp:
+    servers:
+        - ntp.f5net.com
+
+    template: |
+        ntp {
+           servers %(ntp.servers)s
+        }
+
+network failover: |
+    failover {
+       %(failover.active)s
+       network failover enable
+       peer mgmt addr %(peer.ip)s
+       multicast peer v {
+             addr 224.0.0.245
+             interface eth0
+             port 62960
+          }
+    }
+
+failover: |
+    failover {
+       redundant enable
+       standby link down time 0
+       unit %(self.unit)d
+    }
+    statemirror {
+       addr %(INTERNAL.A)d.%(INTERNAL.B)d.%(self.ip_base_int.C)d.%(self.ip_base_int.D)d
+       peer addr %(INTERNAL.A)d.%(INTERNAL.B)d.%(peer.ip_base_int.C)d.%(peer.ip_base_int.D)d
+    }
+    configsync {
+        auto detect enable
+        password crypt ".TAEEjeouF9XL:^*H;7T0,a8>9fY8CdK=bWgBM@lWJV.fpW"
+    }
+
+system:
+    gui setup: disable
+
+    template: |
+        system {
+           gui setup %(gui.setup)s
+           hostname %(system.hostname)s
+        }
+
+default users:
+    admin: \$1\$f5site02\$sGndAUM76pW9LJkJ1a8Kn/
+    root:  \$1\$f5site02\$sGndAUM76pW9LJkJ1a8Kn/
+
+# Supposed to be used only on 9.3.1's as param for f5passwd
+legacy users:
+    admin: f5site02
+    root: f5site02
+
+users:
+    administrator: |
+        user a {
+           password crypt "$1$f5site02$lULDkZ4/wBvcXq1Ek6y0l/"
+           description "a"
+           shell "/bin/false"
+           role administrator in all
+        }
+
+    app editor: |
+        user ae {
+           password crypt "$1$vRQcqYwb$NDINoZ.vWFzZGNKz7U1OH1"
+           description "ae"
+           shell "/bin/false"
+           role app editor in all
+        }
+    
+    guest: |
+        user g {
+           password crypt "$1$xydP.XP2$H/8ZCMK8x1bO98BicY1Nu1"
+           description "g"
+           shell "/bin/false"
+           role guest in all
+        }
+
+    manager: |
+        user m {
+           password crypt "$1$7./o3QLs$3RqiEdEHiZuyxkgop1Jk7/"
+           description "m"
+           shell "/bin/false"
+           role manager in all
+        }
+
+    none: |
+        user na {
+           password crypt "$1$SE1LUl14$h9DgJgyBj85qMTUH0BETS."
+           description "na"
+           shell "/bin/false"
+           role none in all
+        }
+
+    operator: |
+        user o {
+           password crypt "$1$MJpXbttf$Rsj59bAcZ.Ai5T3plsAch1"
+           description "o"
+           shell "/bin/false"
+           role operator in all
+        }
+
+    policy editor: |
+        user pe {
+           password crypt "$1$RupVOhhK$.pqBAmmo10Nuec8WRkYWZ/"
+           description "pe"
+           shell "/bin/false"
+           role policy editor in all
+        }
+
+    resource admin: |
+        user ra {
+           password crypt "$1$gw.uIEgm$djZNQWkbSinj8LT4NOZzG0"
+           description "ra"
+           shell "/bin/false"
+           role resource admin in all
+        }
+
+    user manager: |
+        user um {
+           password crypt "$1$zVNK/Bdd$HMVk5yTUnlpowyi7BNmh9."
+           description "um"
+           shell "/bin/false"
+           role user manager in all
+        }
+
+partition name template: LTM%(ltm.id)dPartition%(partition.index)d
+
+partition template: |
+    # -------------------------------------------------------------------------
+    partition %(partition.name)s {
+        description "This is partition number %(partition.index)d"
+    }
+    shell write partition %(partition.name)s
+
+node template:
+    - |
+        node %(INTERNAL.A)d.%(INTERNAL.B)d.%(node.C)d.%(node.D)d {
+           screen LTM%(ltm.id)dNode-%(node.index)03d
+           #limit %(node.index)d
+           #ratio %(node.index)d
+        }
+
+pool member protocols:
+    - http
+    - http
+    - https
+
+pool member template: |
+    member %%(INTERNAL.A)d.%%(INTERNAL.B)d.%(node.C)d.%(node.D)d:%(pool.proto)s %%(pool.monitor_enable)smonitor %(pool.proto)s
+
+pool template:
+    - |
+        pool LTM%(ltm.id)dPool-%(pool.index)03d {
+        %(pool.members)s
+        }
+        
+vip template:
+    - |
+        virtual LTM%(ltm.id)dVIP-%(vip.index)03d {
+           destination %(EXTERNAL.A)d.%(EXTERNAL.B)d.%(vip.C)d.%(vip.D)d:http
+           snat automap
+           ip protocol tcp
+           profile http tcp
+           pool LTM%(ltm.id)dPool-%(pool.index)03d
+        }
+    
+    - |
+        virtual LTM%(ltm.id)dVIP-%(vip.index)03d {
+           destination %(EXTERNAL.A)d.%(EXTERNAL.B)d.%(vip.C)d.%(vip.D)d:https
+           snat automap
+           ip protocol tcp
+           profile clientssl http tcp
+           pool LTM%(ltm.id)dPool-%(pool.index)03d
+        }
+    - |
+        virtual LTM%(ltm.id)dVIP-%(vip.index)03d {
+           destination %(EXTERNAL.A)d.%(EXTERNAL.B)d.%(vip.C)d.%(vip.D)d:https
+           snat automap
+           ip protocol tcp
+           profile clientssl serverssl http tcp
+           pool LTM%(ltm.id)dPool-%(pool.index)03d
+        }
+
+profiles:
+    clientssl:
+        min version: 9.3.1
+        require module: ltm
+        text: |
+            profile clientssl myclientssl {
+               defaults from clientssl
+               key default.key
+               cert default.crt
+               chain none
+               ca file none
+               ciphers "DEFAULT"
+               options  dont insert empty fragments
+               modssl methods disable
+               cache size 20000
+               cache timeout 3600
+               renegotiate max record delay 10
+               handshake timeout 60
+               alert timeout 60
+               peer cert mode ignore
+               unclean shutdown disable
+               strict resume disable
+               nonssl disable
+            }
+
+    serverssl:
+        min version: 9.3.1
+        require module: ltm
+        text: |
+            profile serverssl myserverssl {
+               defaults from serverssl
+               key none
+               cert none
+               peer cert mode ignore
+            }
+
+    http:
+        min version: 9.3.1
+        require module: ltm
+        text: |
+            profile http myhttp {
+               defaults from http
+               basic auth realm none
+               oneconnect transformations enable
+               header insert none
+               header erase none
+               fallback none
+               response selective chunk
+               lws width 80
+               lws separator none
+               redirect rewrite none
+               max header size 32768
+               max requests 0
+               pipelining enable
+               insert xforwarded for disable
+            }
+
+    ftp:
+        min version: 9.3.1
+        require module: ltm
+        text: |
+            profile ftp myftp {
+               defaults from ftp
+               translate extended enable
+               data port 20
+            }
+
+    iiop:
+        min version: 9.3.1
+        require module: ea
+        text: |
+            profile iiop myiiop {
+               defaults from iiop
+               persist request id enable
+               persist object key disable
+               abort on timeout disable
+               timeout 30
+            }
+
+    radius:
+        min version: 10.1.0
+        require module: ltm
+        text: |
+            profile radius myradiuslb {
+               defaults from radiusLB
+               persist avp none
+               clients none
+            }
+
+    rtsp:
+        min version: 9.3.1
+        require module: ea
+        text: |
+            profile rtsp myrtsp {
+               defaults from rtsp
+               idle timeout 300
+               max header size 4096
+               max queued data 32768
+               rtp service any
+               rtcp service any
+               unicast redirect disable
+               multicast redirect disable
+               session reconnect disable
+               real http persistence enable
+               proxy none
+            }
+
+    sip:
+        min version: 9.4.3
+        require module: ltm
+        text: |
+            profile sip mysip {
+               defaults from sip
+               max size 65535
+               terminate bye enable
+               insert via disable
+               secure via disable
+               insert record route disable
+            }
+
+    smtp:
+        min version: 9.4.5
+        require module: ltm
+        text: |
+            profile smtp mysmtp {
+               defaults from smtp
+               security enabled enable
+            }
+
+    isession_101:
+        min version: 10.0.1
+        max version: 10.0.1
+        require module: ltm
+        text: |
+            profile isession myisession {
+               defaults from isession
+               compression adaptive enable
+               compression deflate enable
+               compression lzo enable
+               compression null enable
+               connection reuse enable
+               endpoint pool none
+               mode enable
+               port transparency enable
+               target virtual none
+            }
+
+    isession_110:
+        min version: 10.1.0
+        require module: ltm
+        text: |
+            profile isession myisession {
+               defaults from isession
+               mode enable
+               connection reuse enable
+               compression null enable
+               compression deflate enable
+               compression deflate level 1
+               compression lzo enable
+               compression adaptive enable
+               deduplication enable
+               port transparency enable
+               target virtual match all
+            }
+
+    oneconnect:
+    # XXX: It's broken in 10.1+
+        min version: 9.3.1
+        max version: 10.0.1
+        require module: ltm
+        text: |
+            profile oneconnect myoneconnect {
+               defaults from oneconnect
+               source mask 0.0.0.0
+               max size 10000
+               max age 86400
+               max reuse 1000
+            }
+
+    stats:
+        min version: 9.3.1
+        require module: ltm
+        text: |
+            profile stats mystats {
+               defaults from stats
+               field1 none
+               field2 none
+               field3 none
+            }
+    stream:
+        min version: 9.3.1
+        require module: ltm
+        text: |
+            profile stream mystream {
+               defaults from stream
+               source none
+               target none
+            }
+
+    xml:
+        min version: 9.3.1
+        max version: 10.1.0
+        require module: ea
+        text: |
+            profile xml myxml {
+               defaults from xml
+               abort on error disable
+               max buffer 65536
+            }
+
+    ntlm:
+        min version: 10.0.1
+        require module: ltm
+        text: |
+            profile ntlm myntlm {
+               defaults from ntlm
+               insert cookie name "NTLMconnpool"
+               insert cookie passphrase "mypassphrase"
+               key by cookie disable
+               key by cookie name "mycookie"
+               key by domain disable
+               key by ipaddr disable
+               key by target disable
+               key by user enable
+               key by workstation disable
+            }
+
+    diameter:
+        min version: 10.1.0
+        require module: ltm
+        text: |
+            profile diameter mydiameter {
+               defaults from diameter
+               persist avp "Session-Id"
+               parent avp none
+               dest realm none
+               overwrite dest host enable
+            }
+
+    persist:
+        min version: 9.3.1
+        require module: ltm
+        text: |
+            profile persist mypersist_cookie {
+               defaults from cookie
+               mode cookie
+               cookie mode insert
+               cookie name none
+               cookie expiration 0d 00:00:00
+            }
+            profile persist mypersist_dest {
+               defaults from dest_addr
+               mode dest addr
+               timeout 180
+               mask none
+               across services disable
+               across virtuals disable
+               across pools disable
+            }
+            profile persist mypersist_hash {
+               defaults from hash
+               mode hash
+               timeout 180
+               across services disable
+               across virtuals disable
+               across pools disable
+               rule none
+            }
+            profile persist mypersist_rdp {
+               defaults from msrdp
+               mode msrdp
+               timeout 300
+               msrdp session directory enable
+               across services disable
+               across virtuals disable
+               across pools disable
+            }
+            profile persist mypersist_src {
+               defaults from source_addr
+               mode source addr
+               timeout 180
+               mask none
+               map proxies enable
+               across services disable
+               across virtuals disable
+               across pools disable
+            }
+            profile persist mypersist_ssl {
+               defaults from ssl
+               mode ssl
+               timeout 300
+               across services disable
+               across virtuals disable
+               across pools disable
+            }
+            profile persist mypersist_univ {
+               defaults from universal
+               mode universal
+               timeout 180
+               across services disable
+               across virtuals disable
+               across pools disable
+               rule none
+            }
+
+    persist_931:
+        min version: 9.3.1
+        max version: 9.3.1
+        require module: ltm
+        text: |
+            profile persist mypersist_sip {
+               defaults from sip
+               mode sip
+               timeout 180
+               across services disable
+               across virtuals disable
+               across pools disable
+            }
+    
+    persist_943:
+        min version: 9.4.3
+        require module: ltm
+        text: |
+            profile persist mypersist_sip {
+               defaults from sip_info
+               mode sip
+               timeout 180
+               across services disable
+               across virtuals disable
+               across pools disable
+            }
+
+    fastL4:
+        min version: 9.3.1
+        require module: ltm
+        text: |
+            profile fastL4 myfastl4 {
+               defaults from fastL4
+               reset on timeout enable
+               reassemble fragments disable
+               idle timeout 300
+               tcp handshake timeout 5
+               tcp close timeout 5
+               mss override 0
+               pva acceleration full
+               tcp timestamp preserve
+               tcp wscale preserve
+               tcp generate isn disable
+               tcp strip sack disable
+               ip tos to client pass
+               ip tos to server pass
+               link qos to client pass
+               link qos to server pass
+               rtt from client disable
+               rtt from server disable
+               loose initiation disable
+               loose close disable
+            }
+
+    fasthttp:
+        min version: 9.3.1
+        require module: ltm
+        text: |
+            profile fasthttp myfasthttp {
+               defaults from fasthttp
+               reset on timeout enable
+               idle timeout 300
+               mss override 0
+               client close timeout 5
+               server close timeout 5
+               conn pool max size 2048
+               conn pool min size 0
+               conn pool step 4
+               conn pool max reuse 0
+               conn pool idle timeout override disable
+               max header size 32768
+               max requests 0
+               insert xforwarded for disable
+               force http10 response disable
+               layer7 enable
+               conn pool replenish enable
+               unclean shutdown disable
+               header insert none
+            }
+
+    httpclass:
+        min version: 9.3.1
+        require module: asm
+        text: |
+            profile httpclass myhttpclass {
+               defaults from httpclass
+               pool none
+               asm disable
+               hosts none
+               paths none
+               headers none
+               cookies none
+            }
+
+    tcp:
+        min version: 9.3.1
+        text: |
+            profile tcp mytcp {
+               defaults from tcp
+               reset on timeout enable
+               time wait recycle enable
+               delayed acks enable
+               proxy mss disable
+               proxy options disable
+               deferred accept disable
+               selective acks enable
+               ecn disable
+               limited transmit enable
+               rfc1323 enable
+               slow start enable
+               bandwidth delay enable
+               nagle enable
+               ack on push disable
+               idle timeout 300
+               time wait 2000
+               fin wait 5
+               close wait 5
+               send buffer 32768
+               recv window 32768
+               keep alive interval 1800
+               max retrans syn 4
+               max retrans 8
+            }
+
+    udp:
+        min version: 9.3.1
+        require module: ltm
+        text: |
+            profile udp myudp {
+               defaults from udp
+               idle timeout 60
+               ip tos 0
+               link qos 0
+               datagram lb disable
+            }
+
+    sctp:
+        min version: 9.3.1
+        require module: ltm
+        text: |
+            profile sctp mysctp {
+               defaults from sctp
+               recv ordered enable
+               send partial enable
+               tcp shutdown enable
+               reset on timeout enable
+               out streams 2
+               in streams 2
+               send buffer 65536
+               recv window 65535
+               trans chunks 256
+               recv chunks 256
+               cookie expiration 60
+               init max retries 4
+               send max retries 8
+               proxy buffer low 4096
+               proxy buffer high 16384
+               idle timeout 300
+               heartbeat 30
+               ip tos 0
+               link qos 0
+               secret "default"
+            }
+
+    connectivity:
+    # XXX: Immature feature in 10.3.0. Disable it for now.
+        min version: 11.1.0
+        text: |
+            profile connectivity myconnectivity {
+               defaults from connectivity
+               tunnel myconnectivity
+               customization group myconnectivity_customization
+               compress buffer size 4096
+               compress cpusaver enable
+               compress cpusaver high 90
+               compress cpusaver low 75
+               compress gzip level 6
+               compress gzip memlevel 8192
+               compress gzip windowsize 16384
+            }
+
+    webtop:
+    # XXX: Immature feature in 10.3.0. Disable it for now.
+    # 0107127c:3: customization group (mywebtop_na_customization) in webtop (mywebtop_na) does not exists.
+        min version: 11.1.0
+        text: |
+            webtop mywebtop_na {
+               customization group mywebtop_na_customization
+            }
+            webtop mywebtop_wa {
+               web applications start uri "http://foo.net"
+               customization group mywebtop_wa_customization
+            }
+
+
+    auth-ocsp:
+    # XXX: 9.3.1 has a buggy "auth ocsp" scheme. Disable all profiles.
+        min version: 9.4.3
+        require feature: security_ssl_client_verify_ocsp
+        text: |
+            auth ssl ocsp mysslocsp_config {}
+
+            profile auth mysslocsp {
+               defaults from ssl_ocsp
+               config mysslocsp_config
+               type ssl ocsp
+               mode enable
+               credential source http basic auth
+               rule _sys_auth_ssl_cc_ldap
+               idle timeout 300
+            }
+
+    auth-sslldap:
+        min version: 9.3.1
+        require feature: security_ta_ldap
+        text: |
+            auth ssl cc ldap mysslldap_config {
+               user base "dn=com"
+               user key "test"
+               servers "localhost"
+            }
+            profile auth mysslldap {
+               defaults from ssl_cc_ldap
+               config mysslldap_config
+               type ssl cc ldap
+               mode enable
+               credential source http basic auth
+               rule _sys_auth_ssl_cc_ldap
+               idle timeout 300
+            }
+
+    auth-tacacs:
+        min version: 9.3.1
+        require feature: security_ta_tacacs
+        text: |
+            auth tacacs mytacacs_config {
+               secret "test"
+               service "test"
+               servers "localhost"
+            }
+            profile auth mytacacs {
+               defaults from tacacs
+               config mytacacs_config
+               type tacacs
+               mode enable
+               credential source http basic auth
+               rule _sys_auth_ssl_ocsp
+               idle timeout 300
+            }
+
+    auth-radius:
+        min version: 9.3.1
+        require feature: security_ta_radius
+        text: |
+            auth radius myradius_config {}
+            profile auth myradius {
+               defaults from radius
+               config myradius_config
+               type radius
+               mode enable
+               credential source http basic auth
+               rule _sys_auth_radius
+               idle timeout 300
+            }
+
+    auth-ldap:
+        min version: 9.3.1
+        require feature: security_ta_ldap
+        text: |
+            auth ldap myldap_config {
+               search base dn "test tree"
+               servers "localhost"
+            }
+            profile auth myldap {
+               defaults from ldap
+               config myldap_config
+               type ldap
+               mode enable
+               credential source http basic auth
+               rule _sys_auth_ldap
+               idle timeout 300
+            }
+
+    auth-crldp:
+        min version: 9.4.3
+        require feature: security_ssl_crldp
+        text: |
+            auth crldp mycrldp_config {}
+            profile auth mycrldp {
+               defaults from tacacs
+               config mycrldp_config
+               type ssl crldp
+               mode enable
+               credential source http basic auth
+               rule _sys_auth_ssl_crldp
+               idle timeout 300
+            }
+
+    auth-kerberos:
+    # XXX: This is broken. CR136501. Disable it for now.
+        #min version: 9.4.5
+        min version: 11.0.0
+        require feature: security_ta_krbdelegate
+        text: |
+            auth krbdelegate mykerberos_config {
+               server principal "testserver"
+               client principal "testclient"
+            }
+            profile auth mykerberos {
+               defaults from krbdelegate
+               config mykerberos_config
+               type krbdelegate
+               mode enable
+               credential source http basic auth
+               rule _sys_auth_krbdelegate
+               cookie name f5auth
+               cookie key "abc123"
+            }
+
+    monitor:
+        min version: 9.3.1
+        require module: ltm
+        text: |
+            monitor monitor_external {
+               defaults from external
+               run "sample_monitor"
+            }
+            monitor monitor_ftp {
+               defaults from ftp
+            }
+
+    traffic class:
+        min version: 10.0.1
+        text: |
+            traffic class mytraffic_class {
+               classification tag "something"
+               src ip 1.1.1.1
+               src mask 255.255.255.0
+               src port 8800
+               dst ip 2.1.1.1
+               dst mask 255.255.0.0
+               dst port 9900
+            }
+
+    rate class:
+    # XXX: 10.0.1 supports it but it has a BUG
+        min version: 10.1.0
+        text: |
+            rate class myshape_fred {
+               rate 100Kbps
+               ceiling 500Kbps
+               burst 10M
+               drop policy fred
+               type pfifo
+            }
+            rate class myshape_red {
+               rate 100Kbps
+               ceiling 500Kbps
+               burst 10M
+               drop policy red
+               type pfifo
+            }
+            rate class myshape_tail {
+               rate 100Kbps
+               ceiling 500Kbps
+               burst 10M
+               drop policy tail
+               type sfq
+            }
+
+    snat:
+        min version: 9.3.1
+        require module: ltm
+        text: |
+            snat mysnat {
+               translation 1.1.1.1
+               origin 0.0.0.0 mask 0.0.0.0
+            }
+
+    snatpool:
+        min version: 9.3.1
+        text: |
+            snatpool mysnat_pool {
+               member 1.1.1.2 1.1.1.3
+            }
+
+    nat:
+        min version: 9.3.1
+        require module: ltm
+        text: |
+            nat 1.1.1.4 to 2.1.1.1 {
+            }
+
+    class:
+        min version: 10.1.0
+        text: |
+            class mydatagroup_string {
+               {
+                  "name1" { "val1" }
+                  "name2" { "val2" }
+               }
+            }
+            class mydatagroup_integer {
+               {
+                  1 { "val1" }
+                  100 { "val2" }
+               }
+            }
+            class mydatagroup_address {
+               {
+                  host 1.1.1.1 { "ip1" }
+                  host 1.1.1.2 { "ip2" }
+                  network 1.1.2.1/24 { "net1" }
+               }
+            }
+
+    rule:
+        min version: 9.4.3
+        require feature: ltm_rule_L7
+        text: |
+            rule myirule {
+               when HTTP_REQUEST {
+                    if {not [info exists tmm_auth_http_sids(radius)]} {
+                        set tmm_auth_sid [AUTH::start pam default_radius]
+                        set tmm_auth_http_sids(radius) $tmm_auth_sid
+                        if {[info exists tmm_auth_subscription]} {
+                            AUTH::subscribe $tmm_auth_sid
+                        }
+                    } else {
+                        set tmm_auth_sid $tmm_auth_http_sids(radius)
+                    }
+                    AUTH::username_credential $tmm_auth_sid [HTTP::username]
+                    AUTH::password_credential $tmm_auth_sid [HTTP::password]
+                    AUTH::authenticate $tmm_auth_sid
+            
+                    if {not [info exists tmm_auth_http_collect_count]} {
+                        HTTP::collect
+                        set tmm_auth_http_successes 0
+                        set tmm_auth_http_collect_count 1
+                    } else {
+                        incr tmm_auth_http_collect_count
+                    }
+                }
+                when AUTH_RESULT {
+                    if {not [info exists tmm_auth_http_sids(radius)] or \
+                        ($tmm_auth_http_sids(radius) != [AUTH::last_event_session_id]) or \
+                        (not [info exists tmm_auth_http_collect_count])} {
+                        return
+                    }
+                    if {[AUTH::status] == 0} {
+                        incr tmm_auth_http_successes
+                    }
+                    # If multiple auth sessions are pending and
+                    # one failure results in termination and this is a failure
+                    # or enough successes have now occurred
+                    if {([array size tmm_auth_http_sids] > 1) and \
+                        ((not [info exists tmm_auth_http_sufficient_successes] or \
+                         ($tmm_auth_http_successes >= $tmm_auth_http_sufficient_successes)))} {
+                        # Abort the other auth sessions
+                        foreach {type sid} [array get tmm_auth_http_sids] {
+                            unset tmm_auth_http_sids($type)
+                            if {($type ne "radius") and ($sid != -1)} {
+                                AUTH::abort $sid
+                                incr tmm_auth_http_collect_count -1
+                            }
+                        }
+                    }
+                    # If this is the last outstanding auth then either
+                    # release or respond to this session
+                    incr tmm_auth_http_collect_count -1
+                    if {$tmm_auth_http_collect_count == 0} {
+                        unset tmm_auth_http_collect_count
+                        if { [AUTH::status] == 0 } {
+                            HTTP::release
+                        } else {
+                            HTTP::respond 401
+                        }
+                    }
+                }
+            }
+    
+    route domain:
+        min version: 10.0.1
+        text: |
+            route domain 5 {
+               description "test route domain"
+            }
+
+monitors: |
+    node * monitor icmp
+
+# vim: ft=yaml
