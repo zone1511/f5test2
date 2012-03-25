@@ -70,17 +70,17 @@ class Dictionary:
                 valueKid = valueKids[j]
                 valueKidName = valueKid.nodeName
                 if ("string" == valueKidName):
-                    str = String()
-                    str.read(valueKid)
-                    self.put(keyValue, str)
+                    string = String()
+                    string.read(valueKid)
+                    self.put(keyValue, string)
                 elif ("array" == valueKidName):
                     ary = Array()
                     ary.read(valueKid)
                     self.put(keyValue, ary)
                 elif ("dictionary" == valueKidName):
-                    dict = Dictionary()
-                    dict.read(valueKid)
-                    self.put(keyValue, dict)
+                    dictionary = Dictionary()
+                    dictionary.read(valueKid)
+                    self.put(keyValue, dictionary)
                 elif ("table" == valueKidName):
                     table = Table()
                     table.read(valueKid)
@@ -180,7 +180,7 @@ class Array:
     def __getitem__(self, index):
         return self.at(index)
     
-    def len(self):
+    def len(self): #@ReservedAssignment
         return len(self.data)
     
     def value(self):
@@ -225,9 +225,9 @@ class Array:
                 self.add(aTable)
             strings = findDescendents(value, "string")
             for j in range (len(strings)):
-                str = String()
-                str.read(strings[j])
-                self.add(str)
+                string = String()
+                string.read(strings[j])
+                self.add(string)
 
 # wraps a string
 class String:
@@ -235,7 +235,7 @@ class String:
     def __init__(self, val = ''):
         self.set(val)
     
-    def set(self, val):
+    def set(self, val): #@ReservedAssignment
         if isinstance(val, str):
             self.data = val
         else:

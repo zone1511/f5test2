@@ -36,7 +36,7 @@ class GetDeviceObjects(Query):
     @return: A table with the following columns: host_name, address, stat_type, instance_name.
     @rtype: list
     """
-    def __init__(self, address, type='node', username='admin', *args, **kwargs):
+    def __init__(self, address, type='node', username='admin', *args, **kwargs): #@ReservedAssignment
         # Queries were captured with mysql log slow queries.
         # Edit /var/lib/mysql/my.cnf:
         # [mysqld]
@@ -57,7 +57,7 @@ where deviceuser3_.login_name='%s'
 and (deviceuser3_.access_partition_uid is null 
     or deviceuser3_.access_partition_uid=partition1_.partition_uid 
     or partition1_.name='Common') 
-and mgmt_address = '%s'""" % (type, username, address)
+and access_address = '%s'""" % (type, username, address)
         elif type == 'pool_member':
             query = r"""
             select count(distinct deviceconf0_.device_config_item_uid) as count 
@@ -75,7 +75,7 @@ where deviceuser4_.login_name='%s'
 and (deviceuser4_.access_partition_uid is null 
     or deviceuser4_.access_partition_uid=partition2_.partition_uid 
     or partition2_.name='Common')
-and mgmt_address = '%s'""" % (username, address)
+and access_address = '%s'""" % (username, address)
         else:
             raise NotImplementedError('Unknown type: %s' % type)
 

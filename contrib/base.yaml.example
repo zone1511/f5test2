@@ -8,17 +8,72 @@ paths:
 
 testdata:
     internet proxy: 172.27.58.1:8080
+    ihealth:
+        username: USERNAME
+        password: PASSWORD
 
 labmanager:
     address: labmanager.pdsea.f5net.com
 
 irack:
     address:    irack.mgmt.pdsea.f5net.com
-    username:   [YOUR IRACK USERNAME]
-    apikey:     [YOUR IRACK API KEY]
+    username:   USERNAME
+    apikey:     APIKEY
 
 # Project and Build are determined automatically. Override here if necessary.
 bvtinfo:
     name:       em-bvt
     url:        http://bvtinfo.att.pdsea.f5net.com/bvtinfo/api/submit_result/
     result_url: http://mgmtdata.mgmt.pdsea.f5net.com/tr_show_run.cgi?run_id=%(run_id)s
+
+selenium:
+    ie9-on-vm:
+        address:    http://172.27.58.40:4444/wd/hub
+        browser:    internet explorer
+        platform:   WINDOWS
+    
+    ff5-on-vm30:
+        address:    http://172.27.58.40:4444/wd/hub
+        browser:    firefox
+        platform:   ANY
+    
+    ch12-on-vm30:
+        address:    http://172.27.58.30:9515
+        browser:    chrome
+        platform:   ANY
+
+    ionutdb01-ff:
+        address:    http://172.27.58.1:4444/wd/hub
+        browser:    firefox
+        platform:   ANY     
+    
+    ionutdb02-firefox:
+        address:    http://172.27.58.196:4444/wd/hub
+        browser:    firefox
+        platform:   ANY
+
+    ff5-on-fedora15:
+        address:    http://172.27.58.54:4444/wd/hub
+        browser:    firefox
+        platform:   ANY
+
+    ff5-on-itwin7:
+        address:    http://172.27.58.17:4444/wd/hub
+        #browser:    firefox
+        browser:    internet explorer
+        platform:   WINDOWS
+
+    ie8-on-win7:
+        address:    http://sea-w-iturturica.olympus.f5net.com:4444/wd/hub
+        browser:    internet explorer
+        platform:   WINDOWS
+
+    ff5-on-win7:
+        address:    http://sea-w-iturturica.olympus.f5net.com:4444/wd/hub
+        browser:    firefox
+        platform:   WINDOWS
+
+    ch13-on-win7:
+        address:    http://sea-w-iturturica.olympus.f5net.com:9515
+        browser:    chrome
+        platform:   WINDOWS

@@ -111,21 +111,17 @@ class Connection(paramiko.SSHClient):
         assert self.is_connected(), "SSH channel not connected"
         chan = self._transport.open_session()
 
-        #start = time.time()
-        status = None
-
         chan.settimeout(self.timeout)
-        LOG.debug('run: %s on %s', command, self)
         chan.exec_command(command)
         #stdin = chan.makefile('wb', bufsize)
         stdout = chan.makefile('rb', bufsize)
         stderr = chan.makefile_stderr('rb', bufsize)
 
         try:
-            status = chan.recv_exit_status()
-            ret = SSHResult(status, stdout.read(), stderr.read(), command)
+            ret = SSHResult(-1, stdout.read(), stderr.read(), command)
+            ret.status = chan.recv_exit_status()
             if ret.status != 0:
-                LOG.debug("Non zero status: %s", ret)
+                LOG.warning("Non zero status: %s", ret)
             return ret
         except socket.timeout:
             raise SSHTimeoutError("running `%s`" % command)
@@ -196,10 +192,10 @@ class Connection(paramiko.SSHClient):
             assert os.path.isdir(localpath)
             wildname = os.path.basename(remotepath)
             dirname = os.path.dirname(remotepath)
-            for file in self._sftp.listdir(dirname):
-                if glob.fnmatch.fnmatch(file, wildname):
-                    source = os.path.join(dirname, file)
-                    destination = os.path.join(localpath, file)
+            for filename in self._sftp.listdir(dirname):
+                if glob.fnmatch.fnmatch(filename, wildname):
+                    source = os.path.join(dirname, filename)
+                    destination = os.path.join(localpath, filename)
                     self._sftp.get(source, destination)
                     if move:
                         self._sftp.remove(source)

@@ -1,14 +1,14 @@
 """
 This plugin collects logs from all devices used during a failed/errored test.
 """
+from inspect import ismodule, isclass
+from nose.case import Test
+from nose.plugins.logcapture import LogCapture, MyMemoryHandler
 import logging
 import os
-from inspect import ismodule, isclass
+import sys
 import threading
-from nose.plugins.logcapture import LogCapture, MyMemoryHandler
-#from nose.plugins.errorclass import ErrorClassPlugin
-from nose.case import Test
-#from nose.suite import ContextSuite
+import traceback
 
 LOG = logging.getLogger(__name__)
 
@@ -117,7 +117,14 @@ class LogCollect(LogCapture):
         from f5test.interfaces.config import ConfigInterface
 
         cfgifc = ConfigInterface()
-        return cfgifc.get_session().path
+        path = cfgifc.get_session().path
+        
+        if not os.path.exists(path):
+            oldumask = os.umask(0)
+            os.makedirs(path)
+            os.umask(oldumask)
+        
+        return path
 
     def setOutputStream(self, stream):
         if not self.conf.options.console_redirect:
@@ -150,12 +157,25 @@ class LogCollect(LogCapture):
         handler.setFormatter(fmt)
         root_logger.addHandler(handler)
         
+    def _get_or_create_dirs(self, name, root=None):
+        if root is None:
+            root = self._get_session_dir()
+        
+        path = os.path.join(root, name)
+        if not os.path.exists(path):
+            oldumask = os.umask(0)
+            os.makedirs(path)
+            os.umask(oldumask)
+        
+        return path
+    
     def _collect_forensics(self, test, err):
         """Collects screenshots and logs."""
         from f5test.interfaces.selenium import SeleniumInterface
         from f5test.interfaces.ssh import SSHInterface
         from f5test.interfaces.icontrol import IcontrolInterface
         from f5test.interfaces.icontrol.em import EMInterface
+        from f5test.interfaces.rest import RestInterface
         from f5test.interfaces.config import ConfigInterface
         from f5test.base import TestCase, Interface
 
@@ -186,26 +206,15 @@ class LogCollect(LogCapture):
                     # Avoid double passes
                     context._logcollect_done = True
             except:
-                #LOG.warn('Cannot extract module from traceback. Manual debugging required!')
-                #return
                 pass
 
             if not interfaces:
                 if not hasattr(test.test, '_apis'):
                     return
                 interfaces = test.test._apis.keys()
-#        elif isinstance(test, ContextSuite):
-#            try:
-#                module = err[2].tb_next.tb_next.tb_frame.f_locals.get('context')
-#            except:
-#                LOG.warn('Cannot extract module from traceback. Manual debugging required!')
-#                return
-#            test_name = module.__name__
-#            interfaces = getattr(module, '_IFCS', [])
         else:
             return
         
-        #config = test.test.get_config().open()
         config = ConfigInterface().open()
         if config is None:
             LOG.warn('config not available')
@@ -215,23 +224,19 @@ class LogCollect(LogCapture):
             LOG.warn('logs path not defined')
             return
 
-        i = 0
-        checked = set()
-        test_root = os.path.join(self._get_session_dir(), test_name)
-
-        # Create session dir
-        if not os.path.exists(test_root):
-            oldumask = os.umask(0)
-            os.makedirs(test_root)
-            os.umask(oldumask)
-
         # Save the test log
+        test_root = self._get_or_create_dirs(test_name)
         records = self.formatLogRecords()
         filename = os.path.join(test_root, 'test.log')
         if records:
             with open(filename, "wt") as f:
                 f.write('\n'.join(records))
 
+        # Sort interfaces by priority.
+        interfaces.sort(key=lambda x:x._priority if hasattr(x, '_priority') 
+                                     else 0)
+
+        visited = dict(ssh=set(), selenium=set())
         # Collect interface logs
         for interface in interfaces:
             if not isinstance(interface, Interface):
@@ -240,58 +245,64 @@ class LogCollect(LogCapture):
             if isinstance(interface, ConfigInterface):
                 continue
 
-            ssh = None
-            i += 1
-            try:
-                remote_name = str(interface)
-            except:
-                LOG.error("Cannot get the interface descriptor.")
-                continue
-            
-            log_root = os.path.join(test_root, remote_name)
-            if not os.path.exists(log_root):
-                os.makedirs(log_root)
+            sshifcs = []
             
             if isinstance(interface, SeleniumInterface):
                 if not interface.is_opened():
+                    LOG.warning('Unopened selennium interface: %s', interface)
                     continue
-                LOG.debug('Dumping screenshot for head: %s', remote_name)
-                # file extension is automatically added.
-                test._last_fail = getattr(test, '_last_fail', 0) + 1
-                screenshotname = 'screenshot-%d' % test._last_fail
-                try:
-                    self.UI.common.screen_shot(log_root, name=screenshotname,
-                                               ifc=interface)
-                except Exception, e:
-                    LOG.error('error dumping screenshot: %s', e)
-                finally:
-                    self.UI.common.close_all_windows(ifc=interface)
                 
-                if interface.device:
-                    ssh = SSHInterface(device=interface.device)
+                for window in interface.api.window_handles:
+                    credentials = interface.get_credentials(window)
+                    
+                    if credentials.device:
+                        address = credentials.device.get_address()
+                    else:
+                        address = credentials.address or window
 
+                    if address not in visited['selenium']:
+                        log_root = self._get_or_create_dirs(address, test_root)
+    
+                        LOG.warning('Dumping screenshot for: %s (%s)', address, 
+                                    window)
+                        try:
+                            self.UI.common.screen_shot(log_root, window=window, 
+                                                       ifc=interface)
+                        except Exception, e:
+                            LOG.error('Screenshot faied: %s', e)
+
+                        if credentials.device:
+                            sshifcs.append(SSHInterface(device=credentials.device))
+            
             elif isinstance(interface, SSHInterface):
-                ssh = SSHInterface(device=interface.device)
+                sshifcs.append(SSHInterface(device=interface.device))
 
-            elif isinstance(interface, (IcontrolInterface, EMInterface)):
+            elif isinstance(interface, (IcontrolInterface, EMInterface, 
+                                        RestInterface)):
                 if interface.device:
-                    ssh = SSHInterface(device=interface.device)
+                    sshifcs.append(SSHInterface(device=interface.device))
             
             else:
-                LOG.debug('skip collection from interface: %s', interface)
+                LOG.debug('Skip collection from interface: %s', interface)
 
-            try:
-                with ssh:
-                    if ssh and remote_name not in checked:
-                        LOG.debug('Collecting logs from %s', remote_name)
-                        try:
-                            version = self.SSH.get_version(ifc=ssh)
-                            self.SSH.collect_logs(log_root, ifc=ssh, version=version)
-                        except Exception, e:
-                            LOG.error('error collecting logs: %s', e)
-                        checked.add(remote_name)
-            except:
-                pass
+            for sshifc in sshifcs:
+                try:
+                    with sshifc:
+                        address = sshifc.address
+                        if address not in visited['ssh']:
+                            log_root = self._get_or_create_dirs(address, test_root)
+                            LOG.debug('Collecting logs from %s', address)
+                            try:
+                                version = self.SSH.get_version(ifc=sshifc)
+                                self.SSH.collect_logs(log_root, ifc=sshifc, 
+                                                      version=version)
+                            except Exception, e:
+                                LOG.error('Collecting logs failed: %s', e)
+                            visited['ssh'].add(address)
+                except:
+                    err = sys.exc_info()
+                    tb = ''.join(traceback.format_exception(*err))
+                    LOG.debug('Error collecting logs. (%s)', tb)
         
         del interfaces[:]
 

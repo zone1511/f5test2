@@ -1,11 +1,9 @@
 """Selenium interface"""
 
-from ..config import ConfigInterface
+from ..config import ConfigInterface, DeviceAccess
 from .driver import RemoteWrapper
 from ...base import Interface
-#from ...utils import net
 import logging
-#import urlparse
 from ...base import AttrDict
 import httpagentparser
 
@@ -31,71 +29,71 @@ class SeleniumInterface(Interface):
         self.username = None
         self.password = None
         self.credentials = AttrDict()
-
-    def __str__(self):
-        self._get_credentials()
-        return self.address or 'selenium-interface'
+        self._priority = 1
 
     @property
     def _current_window(self):
         assert self.is_opened()
-        b = self.api
-        return b.current_window_handle
+        return self.api.current_window_handle
 
-    def _set_credentials(self, data, window=None):
+    def set_credentials(self, window=None, device=None, address=None, 
+                         username=None, password=None):
         """Set the credentials for the current window"""
-        if not window:
+        data = AttrDict()
+        if device or not address:
+            data.device = device if isinstance(device, DeviceAccess) \
+                        else ConfigInterface().get_device(device)
+            data.address = address or data.device.address
+            data.username = username or data.device.get_admin_creds().username
+            data.password = password or data.device.get_admin_creds().password
+        else:
+            data.device = device
+            data.address = address
+            data.username = username
+            data.password = password
+
+        if window is None:
             window = self._current_window
+
         self.credentials[window] = data
-        self.device = data.device
-        self.address = data.address
-        self.username = data.username
-        self.password = data.password
-        
-    def _get_credentials(self, window=None):
-        if not window:
+
+    def get_credentials(self, window=None):
+        if window is None:
             window = self._current_window
+
         data = self.credentials.get(window)
+        
         if not data:
             LOG.warning('No credentials have been set for this window.')
             data = AttrDict()
-        self.device = data.device
-        self.address = data.address
-        self.username = data.username
-        self.password = data.password
+        
         return data
 
-    def _del_credentials(self, window=None):
-        if not window:
+    def del_credentials(self, window=None):
+        if window is None:
             window = self._current_window
+
         return self.credentials.pop(window, None)
 
 #    @property
 #    def address(self):
-#        assert self.is_opened()
-#        b = self.api
-#        url = urlparse.urlparse(b.current_url)
-#        return net.resolv(url.hostname)
+#        window = self._current_window
+#        return self._get_credentials(window).address
 #        
 #    @property
 #    def device(self):
-#        try:
-#            cfgifc = ConfigInterface()
-#            return cfgifc.get_device_by_address(self.address)
-#        except ConfigNotLoaded:
-#            LOG.warn("Configuration not available, device information won't be present for this interface.")
+#        window = self._current_window
+#        return self._get_credentials(window).device
 #
 #    @property
 #    def username(self):
-#        device = self.device
-#        if device:
-#            return device.get_admin_creds().username
+#        window = self._current_window
+#        return self._get_credentials(window).username
 #        
 #    @property
 #    def password(self):
-#        device = self.device
-#        if device:
-#            return self.device.get_admin_creds().password
+#        window = self._current_window
+#        return self._get_credentials(window).password
 
     @property
     def version(self):
@@ -108,7 +106,7 @@ class SeleniumInterface(Interface):
         ua = self.api.execute_script("return navigator.userAgent")
         return (ua, httpagentparser.detect(ua))
 
-    def open(self):
+    def open(self): #@ReservedAssignment
         """Returns the handle to a Selenium 2 remote client.
 
         @param head: the name of the selenium head as defined in the config.

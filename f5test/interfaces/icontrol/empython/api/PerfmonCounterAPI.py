@@ -1,5 +1,5 @@
 from ..StatsClient import StatsClient
-from ..MessageParser import Dictionary, Array, String
+from ..MessageParser import Dictionary, String
 
 class PerfmonCounterAPI(StatsClient):
 

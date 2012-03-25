@@ -11,31 +11,32 @@ LOG = logging.getLogger(__name__)
 refresh = None
 class Refresh(SeleniumCommand):
     """Refresh one device given the access address."""
-    def __init__(self, mgmtip, *args, **kwargs):
+    def __init__(self, mgmtip, timeout=60, *args, **kwargs):
         super(Refresh, self).__init__(*args, **kwargs)
-        self.mgmtip = mgmtip
+        self.mgmtip = [mgmtip] if isinstance(mgmtip, basestring) else mgmtip
+        self.timeout = timeout
 
     def setup(self):
         b = self.api
         
         browse_to('Enterprise Management | Devices', ifc=self.ifc)
-        b.wait('device_discovery_list', frame='contentframe')
-        b.switch_to_frame('contentframe')
+        b.wait('tableForm:emDeviceTable_table', frame='/contentframe')
 
-        mgmtip = self.mgmtip
-        LOG.info('Refreshing %s...', mgmtip)
+        for mgmtip in self.mgmtip:
+            LOG.debug('Selecting %s...', mgmtip)
+            row_xpath = get_cell_xpath('tableForm:emDeviceTable_table', 
+                                       'Device Address', mgmtip, ifc=self.ifc)
+            e = b.find_element_by_xpath("%s/td[1]/span/input" % row_xpath)
+            assert e.is_enabled(), "Checkbox for %s is not enabled. " \
+                            "Possible causes: device engaged in another task or " \
+                            "emdeviced is down." % mgmtip
+            e.click()
+        LOG.info('Refreshing %d device(s)...', len(self.mgmtip))
+        b.wait('tableForm:emDeviceTable_mask', negated=True)
 
-        row_xpath = get_cell_xpath('device_discovery_list', 
-                                   'Device Address', mgmtip, ifc=self.ifc)
-        e = b.find_element_by_xpath("%s/td[1]/input" % row_xpath)
-        assert e.is_enabled(), "Checkbox for %s is not enabled. " \
-                        "Possible causes: device engaged in another task or " \
-                        "emdeviced is down." % mgmtip
+        e = b.find_element_by_name('tableForm:emDeviceTable:updateStatusButton')
         e.click()
-
-        e = b.find_element_by_name('updateStatus')
-        e.click()
-        wait_for_loading(css='success', ifc=self.ifc)
+        wait_for_loading(css='success', timeout=self.timeout, ifc=self.ifc)
         
         e = b.find_element_by_xpath("%s/td[2]/img" % row_xpath)
         assert not 'status_device_unreachable.gif' in e.get_attribute('src'), \
@@ -60,31 +61,31 @@ class CreatePinnedArchive(SeleniumCommand):
         b = self.api
         
         browse_to('Enterprise Management | Devices', ifc=self.ifc)
-        b.wait('device_discovery_list', frame='contentframe')
-        b.switch_to_frame('contentframe')
+        b.wait('tableForm:emDeviceTable_table', frame='/contentframe')
 
         mgmtip = self.mgmtip
         LOG.info('Selecting %s...', mgmtip)
 
-        row_xpath = get_cell_xpath('device_discovery_list', 
+        row_xpath = get_cell_xpath('tableForm:emDeviceTable_table', 
                                    'Device Address', mgmtip, ifc=self.ifc)
         e = b.find_element_by_xpath("%s/td[3]/a" % row_xpath)
         assert e.is_enabled(), "Checkbox for %s is not enabled. " \
                         "Possible causes: device engaged in another task or " \
                         "emdeviced is down." % mgmtip
-        e.click().wait('device_table_div')
+        e.click().wait('device_table_div', timeout=20)
         browse_to_tab('Archives', ifc=self.ifc)
         
         LOG.info("Creating archive %s...", self.name)
-        button = b.wait('create_archive', by=By.NAME, frame='contentframe')
-        b.switch_to_frame('contentframe')
-        filename = button.click().wait('file_name_str')
+        button = b.wait('tableForm:archiveTable:createPinnedArchiveButton_new',
+                        frame='/contentframe')
+        filename = button.click().wait('tableForm:pinnedArchiveFormtable:fileName')
         filename.send_keys(self.name)
-        create = b.find_element_by_name("create_archive")
+        create = b.find_element_by_name("tableForm:createButton")
         create.click()
-        wait_for_loading(css='success', ifc=self.ifc)
+        wait_for_loading(ifc=self.ifc)
         
-        e = b.find_element_by_xpath("//table[@id='archive_list']//a[.='%s.ucs']" % self.name)
+        e = b.find_element_by_xpath("//table[@id='tableForm:archiveTable_table']"
+                                    "//a[normalize-space(.)='%s.ucs']" % self.name)
         uri = e.get_attribute('href')
         qs = urlparse.urlparse(uri).query
         LOG.info(qs)
@@ -107,10 +108,9 @@ class CancelRunningTask(SeleniumCommand):
         b = self.api
         LOG.info('Cleaning running task...')
         browse_to('Enterprise Management | Tasks', ifc=self.ifc)
-        table = b.wait('task_monitor_list', frame='contentframe')
-        b.switch_to_frame('contentframe')
-        row_xpath = get_cell_xpath('task_monitor_list', 'ID', 
-                                   self.job_uid, sortable=True, ifc=self.ifc)
+        table = b.wait('task_monitor_list', frame='/contentframe')
+        row_xpath = get_cell_xpath('task_monitor_list', 'ID', self.job_uid, 
+                                   ifc=self.ifc)
         link = table.find_element_by_xpath('%s/td[3]/a' % row_xpath)
         cancel_button = link.click().wait('stop', By.NAME)
         cancel_button.click().wait('task_monitor_list')

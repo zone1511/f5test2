@@ -8,7 +8,7 @@ py_vers_tag = '-%s.%s' % sys.version_info[:2]
 
 if sys.version_info >= (3,):
     try:
-        import setuptools
+        import setuptools #@UnusedImport
     except ImportError:
         from distribute_setup import use_setuptools
         use_setuptools()
@@ -35,6 +35,10 @@ try:
                 'f5.seleniumrc = f5test.macros.seleniumrc:main',
                 'f5.irack = f5test.macros.irackprofile:main',
                 'f5.ha = f5test.macros.ha:main',
+                'f5.cloner = f5test.macros.cloner:main',
+                'f5.ictester = f5test.macros.ictester:main',
+                'f5.trafficgen = f5test.macros.trafficgen:main',
+                'f5.webcert = f5test.macros.webcert:main',
                 ],
             'nose.plugins.0.10': [
                 'config = f5test.noseplugins.testconfig:TestConfig',
@@ -136,7 +140,9 @@ setup(
         'selenium',
         'jinja2',
         'nose',
-        'httpagentparser'
+        'httpagentparser',
+        'dnspython',
+        'IPy'
         ],
     classifiers = [
         'Development Status :: 4 - Beta',

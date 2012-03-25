@@ -42,7 +42,7 @@ class Product(object):
         elif re.search("BIG-IP_SAM", str(product_string), re.IGNORECASE):
             self.product = Product.SAM
         else:
-            self.product = 'Unknown'
+            self.product = ''
 
     @property
     def is_bigip(self):
@@ -60,13 +60,17 @@ class Product(object):
     def is_sam(self):
         return self.product == Product.SAM
 
+    @property
+    def is_none(self):
+        return self.product == ''
+
     def to_tmos(self):
         if self.product == Product.EM:
             return 'EM'
         elif self.product == Product.BIGIP:
             return 'BIG-IP'
         else:
-            raise NotImplementedError(self.product)
+            return str(self).upper()
 
     def __cmp__(self, other):
         if not isinstance(other, Product):
@@ -110,7 +114,7 @@ class Version(object):
 
     etc..
     """
-    def __init__(self, version, product=None):
+    def __init__(self, version=None, product=None):
         
         if isinstance(version, Version):
             self.pmajor = version.pmajor
@@ -125,11 +129,12 @@ class Version(object):
                           str(version), re.IGNORECASE)
             
             if mo is None:
-                raise InvalidVersionString(version)
-    
-            (self.pmajor, self.pminor, self.ppatch,
-             self.bnum, self.bhotfix, self.bdevel) = map(lambda x:int(x or 0),
-                                                        mo.groups())
+                (self.pmajor, self.pminor, self.ppatch,
+                 self.bnum, self.bhotfix, self.bdevel) = (0, 0, 0, 0, 0, 0)
+            else:
+                (self.pmajor, self.pminor, self.ppatch,
+                 self.bnum, self.bhotfix, self.bdevel) = map(lambda x:int(x or 0),
+                                                            mo.groups())
     
 #            self.version = "%s.%s.%s" % (self.pmajor, self.pminor, self.ppatch)
 #            
@@ -151,46 +156,49 @@ class Version(object):
         return tmp
 
     def __eq__(self, other):
-        cmp = self._cmp(other)
-        if cmp is None:
+        result = self._cmp(other)
+        if result is None:
             return False
         else:
-            return cmp == 0
+            return result == 0
 
     def __ne__(self, other):
-        cmp = self._cmp(other)
-        if cmp is None:
+        result = self._cmp(other)
+        if result is None:
             return False
         else:
-            return cmp != 0
+            return result != 0
 
     def __lt__(self, other):
-        cmp = self._cmp(other)
-        if cmp is None:
+        result = self._cmp(other)
+        if result is None:
             return False
         else:
-            return cmp < 0
+            return result < 0
 
     def __le__(self, other):
-        cmp = self._cmp(other)
-        if cmp is None:
+        result = self._cmp(other)
+        if result is None:
             return False
         else:
-            return cmp <= 0
+            return result <= 0
 
     def __gt__(self, other):
-        cmp = self._cmp(other)
-        if cmp is None:
+        result = self._cmp(other)
+        if result is None:
             return False
         else:
-            return cmp > 0
+            return result > 0
 
     def __ge__(self, other):
-        cmp = self._cmp(other)
-        if cmp is None:
+        result = self._cmp(other)
+        if result is None:
             return False
         else:
-            return cmp >= 0
+            return result >= 0
+
+    def __nonzero__(self):
+        return not self.is_none
 
     def _cmp(self, other):
         """Easy comparsion with like-objects or other strings"""
@@ -213,20 +221,39 @@ class Version(object):
                cmp(self.bdevel, other.bdevel)
 
     @property
+    def is_none(self):
+        return self == '0.0.0'
+
+    @property
     def version(self):
+        if self.is_none:
+            return ''
         return "%(pmajor)d.%(pminor)d.%(ppatch)d" % self.__dict__
 
     @property
     def build(self):
+        if self.is_none:
+            return ''
+
         if self.bdevel:
             return "%(bnum)d.%(bhotfix)d.%(bdevel)d" % self.__dict__
         else:
             return "%(bnum)d.%(bhotfix)d" % self.__dict__
     
     def __repr__(self):
+        if self.is_none:
+            return '<Version: None>'
+
         if self.bdevel:
+            if self.product.is_none:
+                return "<Version: %(pmajor)d.%(pminor)d.%(ppatch)d " \
+                       "%(bnum)d.%(bhotfix)d.%(bdevel)d>" % self.__dict__
             return "<Version: %(product)s %(pmajor)d.%(pminor)d.%(ppatch)d " \
                    "%(bnum)d.%(bhotfix)d.%(bdevel)d>" % self.__dict__
+        
+        if self.product.is_none:
+            return "<Version: %(pmajor)d.%(pminor)d.%(ppatch)d " \
+                   "%(bnum)d.%(bhotfix)d>" % self.__dict__
         return "<Version: %(product)s %(pmajor)d.%(pminor)d.%(ppatch)d " \
                "%(bnum)d.%(bhotfix)d>" % self.__dict__
     

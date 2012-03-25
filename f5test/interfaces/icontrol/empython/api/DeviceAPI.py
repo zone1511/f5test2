@@ -33,7 +33,7 @@ class DeviceAPI(DeviceClient):
         req.put('deviceIds', Array(deviceIds))
         return self.sendMsg('delete_device', req)
 
-    def getObjectPropsSsoUri(self, object, uid, device_uid):
+    def getObjectPropsSsoUri(self, object, uid, device_uid): #@ReservedAssignment
         req = Dictionary()
         req.put('object', String(object))
         req.put('uid', String(uid))
@@ -733,3 +733,11 @@ class DeviceAPI(DeviceClient):
         req.put('deviceUid', String(deviceUid))
         self.sendMsg('deviceDisablePeerOverride', req)
 
+    def iControlProxySetConfiguration(self, enabled):
+        req = Dictionary()
+        req.put('enabled', String(enabled))
+        self.sendMsg('iControlProxySetConfiguration', req)
+
+    def iControlProxyGetConfiguration(self):
+        req = Dictionary()
+        return self.sendMsg('iControlProxyGetConfiguration', req)['enabled'] == 'true'

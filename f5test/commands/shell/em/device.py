@@ -18,11 +18,22 @@ class TaskNotFound(Exception):
 get_device_info = None
 class GetDeviceInfo(Query):
 
-    def __init__(self, mgmtip=None, *args, **kwargs):
+    def __init__(self, mgmtip=None, mgmtip_for_local_em=False, 
+                 textual_localhost=True, *args, **kwargs):
+        super(GetDeviceInfo, self).__init__(query=None, *args, **kwargs)
         self.mgmtip = mgmtip
-        fields = ['uid', 'access_address', 'host_name', 'platform',
+
+        if self.ifc.version < 'em 2.3.0' or not textual_localhost:
+            aa = 'access_address'
+        elif mgmtip_for_local_em:
+            aa = "IF(is_local_em, mgmt_address, access_address) AS access_address"
+        else:
+            aa = "IF(is_local_em, 'localhost', access_address) AS access_address"
+        
+        fields = ['uid', aa, 'is_local_em',
+                  'mgmt_address', 'host_name', 'platform',
                   'active_slot', 'chassis_serial', 'perfmon_state',
-                  'monitoring_bytes_per_second',
+                  'monitoring_bytes_per_second', 'is_clustered',
                   'monitoring_counters_per_second', 'discovery_status',
                   'product_name', 'version', 'build_number',
                   'supports_asm', 'disk_partition_scheme']
@@ -31,8 +42,7 @@ class GetDeviceInfo(Query):
                         (','.join(fields), mgmtip)
         else:
             query = "SELECT %s FROM device" % ','.join(fields)
-
-        super(GetDeviceInfo, self).__init__(query=query, *args, **kwargs)
+        self.query = query
 
     def setup(self):
         if self.mgmtip:
@@ -47,12 +57,24 @@ class GetDeviceInfo(Query):
 filter_device_info = None
 class FilterDeviceInfo(Query):
 
-    def __init__(self, filter=None, onlyavailable=False, *args, **kwargs):
+    def __init__(self, filter=None, onlyavailable=False, #@ReservedAssignment
+                 mgmtip_for_local_em=False, textual_localhost=True, 
+                 *args, **kwargs):
         assert filter is None or callable(filter), "Filter must be callable or None"
+        super(FilterDeviceInfo, self).__init__(query=None, *args, **kwargs)
         self.filter = filter
-        fields = ['uid', 'access_address', 'host_name', 'platform',
+        
+        if self.ifc.version < 'em 2.3.0' or not textual_localhost:
+            aa = 'access_address'
+        elif mgmtip_for_local_em:
+            aa = "IF(is_local_em, mgmt_address, access_address) AS access_address"
+        else:
+            aa = "IF(is_local_em, 'localhost', access_address) AS access_address"
+        
+        fields = ['uid', aa, 'is_local_em',
+                  'mgmt_address', 'host_name', 'platform',
                   'active_slot', 'chassis_serial', 'perfmon_state',
-                  'monitoring_bytes_per_second',
+                  'monitoring_bytes_per_second', 'is_clustered',
                   'monitoring_counters_per_second', 'discovery_status',
                   'product_name', 'version', 'build_number',
                   'supports_asm', 'disk_partition_scheme', 'current_job_uid']
@@ -65,8 +87,7 @@ class FilterDeviceInfo(Query):
                        WHERE current_job_uid IS NULL""" % ','.join(fields)
         else:
             query = "SELECT %s FROM device" % ','.join(fields)
-
-        super(FilterDeviceInfo, self).__init__(query=query, *args, **kwargs)
+        self.query = query
 
     def setup(self):
         return filter(self.filter, super(FilterDeviceInfo, self).setup())
@@ -88,8 +109,8 @@ class GetDeviceState(Query):
 
     def __init__(self, mgmtip=None, uids=None, *args, **kwargs):
         self.mgmtip = mgmtip
-        fields = ['d.uid', 'access_address', 'refresh_failed_at', 
-                  'refresh_state', 'status', 'substatus_message']
+        fields = ['d.uid', 'access_address', 'mgmt_address', 'refresh_failed_at', 
+                  'refresh_state', 'status', 'substatus_message', 'host_name']
         
         if isinstance(mgmtip, basestring):
             where = "WHERE access_address = '%s'" % mgmtip
@@ -119,8 +140,8 @@ get_reachable_devices = None
 class GetReachableDevices(Query):
 
     def __init__(self, *args, **kwargs):
-        fields = ['d.uid', 'access_address', 'refresh_failed_at', 
-                  'refresh_state', 'status', 'substatus_message']
+        fields = ['d.uid', 'access_address', 'mgmt_address', 'refresh_failed_at', 
+                  'refresh_state', 'status', 'substatus_message', 'is_local_em']
         query = """SELECT %s FROM device d
                        LEFT JOIN device_2_substatus d2s ON (d.uid = d2s.device_uid)
                        LEFT JOIN device_substatus ds ON (d2s.substatus_uid = ds.uid)
@@ -308,8 +329,8 @@ class GetChangesetTask(GetTask):
         return task
 
 
-count_pending_tasks = None
-class CountPendingTasks(Query):
+count_device__tasks = None
+class CountDeviceTasks(Query):
 
     def __init__(self, mgmtips=None, *args, **kwargs):
         query = """SELECT COUNT(*) AS count FROM device d
@@ -319,10 +340,27 @@ class CountPendingTasks(Query):
                    WHERE d.access_address IN (%s)""" % \
                                     ','.join(("'%s'" % str(x) for x in mgmtips))
 
-        super(CountPendingTasks, self).__init__(query=query, *args, **kwargs)
+        super(CountDeviceTasks, self).__init__(query=query, *args, **kwargs)
 
     def setup(self):
-        return int(super(CountPendingTasks, self).setup()[0]['count'])
+        return int(super(CountDeviceTasks, self).setup()[0]['count'])
+
+
+count_active_tasks = None
+class CountActiveTasks(Query):
+
+    def __init__(self, type=None, *args, **kwargs): #@ReservedAssignment
+        query = """SELECT COUNT(*) AS count FROM f5em.job_header jh 
+        WHERE status IN ('pending', 'started', 'running', 'canceling')"""
+
+        if type:
+            query += " AND jh.detail_table IN (%s)" % ','.join(("'%s'" % 
+                                                          str(x) for x in type))
+
+        super(CountActiveTasks, self).__init__(query=query, *args, **kwargs)
+
+    def setup(self):
+        return int(super(CountActiveTasks, self).setup()[0]['count'])
 
 
 get_device_archives = None

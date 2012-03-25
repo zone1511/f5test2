@@ -1,18 +1,20 @@
 from .base import IcontrolCommand
 from ..base import CachedCommand, WaitableCommand
 from ...utils import Version
+from ...utils.parsers.version_file import colon_pairs_dict
 from ...interfaces.config import ConfigInterface
 from ...defaults import ADMIN_USERNAME, ROOT_USERNAME
 from ...interfaces.icontrol import IcontrolInterface, AuthFailed 
 from ...interfaces.icontrol.driver import UnknownMethod, IControlFault 
+import base64
 import time
 
 import logging
 LOG = logging.getLogger(__name__) 
- 
+DF_CHUNK_SIZE = 1024 * 1024 # 1MB 
 
 get_version = None
-class GetVersion(CachedCommand, IcontrolCommand):
+class GetVersion(IcontrolCommand):
     """Get the active software version."""
     
     def __init__(self, build=False, *args, **kwargs):
@@ -43,6 +45,77 @@ class GetPlatform(CachedCommand, IcontrolCommand):
         return ic.System.SystemInfo.get_system_information()['platform']
 
 
+upload_file = None
+class UploadFile(IcontrolCommand):
+    """
+    Upload a local file.
+    """
+
+    def __init__(self, filename, stream, *args, **kwargs):
+        super(UploadFile, self).__init__(*args, **kwargs)
+        self.filename = filename
+        self.stream = stream
+ 
+    def setup(self):
+        ic = self.api
+        
+        done = False
+        first = True
+        while not done:
+            text = base64.b64encode(self.stream.read(DF_CHUNK_SIZE))
+            
+            if first:
+                chain_type = 'FILE_FIRST'
+                first = False
+            else:
+                if len(text) < DF_CHUNK_SIZE:
+                    chain_type = 'FILE_LAST'
+                    done = True
+                else:
+                    chain_type = 'FILE_MIDDLE'
+            
+            ic.System.ConfigSync.upload_file(file_name=self.filename,
+                                             file_context=dict(file_data=text,
+                                                               chain_type=chain_type))
+
+
+download_file = None
+class DownloadFile(IcontrolCommand):
+    """
+    Download a remote file.
+    """
+
+    def __init__(self, filename, *args, **kwargs):
+        super(DownloadFile, self).__init__(*args, **kwargs)
+        self.filename = filename
+ 
+    def setup(self):
+        ic = self.api
+        
+        chunks = []
+        done = False
+        offset = 0
+        while not done:
+            ret = ic.System.ConfigSync.download_file(file_name=self.filename, 
+                                                     chunk_size=DF_CHUNK_SIZE,
+                                                     file_offset=offset)
+            done = ret['return']['chain_type'] in ('FILE_FIRST_AND_LAST', 
+                                                   'FILE_LAST')
+            chunks.append(ret['return']['file_data'])
+            offset = ret['file_offset']
+        
+        return ''.join(chunks)
+
+
+parse_version_file = None
+class ParseVersionFile(IcontrolCommand):
+    """Parse the /VERSION file and return a dictionary."""
+    
+    def setup(self):
+        ret = download_file('/VERSION', ifc=self.ifc)
+        return colon_pairs_dict(ret)
+
+
 set_password = None
 class SetPassword(WaitableCommand, IcontrolCommand):
     """Resets the password for admin and root accounts.
@@ -70,16 +143,16 @@ class SetPassword(WaitableCommand, IcontrolCommand):
             adminpassword = self.new_admin_password
         else:
             assert self.ifc.device
-            adminpassword = config.get_device_admin_creds(self.ifc.device, 
-                                                        lock=self.lock).password
+            alias = self.ifc.device.get_alias()
+            adminpassword = config.get_device_admin_creds(alias, lock=self.lock).password
         if self.new_root_password:
             rootpassword = self.new_root_password
         else:
             assert self.ifc.device
-            rootpassword = config.get_device_root_creds(self.ifc.device, 
-                                                        lock=self.lock).password
+            alias = self.ifc.device.get_alias()
+            rootpassword = config.get_device_root_creds(alias, lock=self.lock).password
 
-        access = config.get_device(device=self.ifc.device, all_passwords=True)
+        access = config.get_device(device=alias, all_passwords=True)
         
         for password in access.get_admin_creds().password:
             ic = IcontrolInterface(address=access.address, 

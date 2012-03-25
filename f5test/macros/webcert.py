@@ -7,6 +7,7 @@ from f5test.interfaces.ssh import SSHInterface
 from f5test.defaults import ADMIN_PASSWORD, ADMIN_USERNAME, ROOT_PASSWORD, \
                             ROOT_USERNAME, ROOTCA_STORE
 from f5test.base import Options
+from f5test.utils.wait import wait
 import logging
 import os
 import socket
@@ -46,14 +47,14 @@ class WebCert(Macro):
         pkey.assign_rsa(key)
         return pkey
 
-    def load_key(self, file):
-        key = RSA.load_key(file)
+    def load_key(self, filename):
+        key = RSA.load_key(filename)
         pkey = EVP.PKey()
         pkey.assign_rsa(key)
         return pkey
 
-    def load_cert(self, file):
-        return X509.load_cert(file)
+    def load_cert(self, filename):
+        return X509.load_cert(filename)
 
     def gen_request(self, pkey, cn):
         req = X509.Request()
@@ -150,12 +151,12 @@ class WebCert(Macro):
         
         if not self.options.force:
             if os.path.exists(cert_fn) and os.path.exists(key_fn) :
-                file = open(cert_fn)
-                cert_pem = file.read()
-                file.close()
-                file = open(key_fn)
-                key_pem = file.read()
-                file.close()
+                f = open(cert_fn)
+                cert_pem = f.read()
+                f.close()
+                f = open(key_fn)
+                key_pem = f.read()
+                f.close()
                 LOG.debug('Using cached key/certificate pair')
         else:
             LOG.debug('Generating new key/certificate pair')
@@ -239,11 +240,14 @@ class WebCert(Macro):
                           username=self.options.root_username,
                           password=self.options.root_password) as ssh:
             ssh.api.run('bigstart reinit httpd')
+        
+        return True
 
     def prep(self):
         LOG.info('Started...')
         self.get_certificate()
-        self.push_certificate()
+        #self.push_certificate()
+        wait(self.push_certificate, timeout=300)
         LOG.info('Done.')
 
 

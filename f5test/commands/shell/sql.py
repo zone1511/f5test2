@@ -20,6 +20,16 @@ class SQLCommandError(SSHCommandError):
         return "[%s]: %s" % (self.query, self.message)
 
 
+class SQLProcedureError(SSHCommandError):
+    """Thrown when mysql doesn't like the query.""" 
+    def __init__(self, error_code, error_string):
+        self.error_code = error_code
+        self.error_string = error_string
+
+    def __str__(self):
+        return "[%s]: %s" % (self.error_code, self.error_string)
+
+
 query = None
 class Query(WaitableCommand, SSHCommand):
     """Run a one-shot SQL query as a parameter to mysql.
@@ -80,3 +90,54 @@ class Query(WaitableCommand, SSHCommand):
         else:
             LOG.error(ret)
             raise SQLCommandError(query, ret.stderr)
+
+
+call_routine = None
+class CallRoutine(Query):
+    """Returns the metrics count calculated live.
+    
+    @param sp_name: The stored procedure name
+    @type sp_name: str
+    @param params: Parameters list
+    @type params: list
+    @param handle_errors: (NOT YET SUPPORTED) If set it the command will throw an exception in 
+                          case the SP fails.
+    @type handle_errors: bool
+    """
+    def __init__(self, sp_name, params=None, handle_errors=True, 
+                 is_function=False, *args, **kwargs):
+        if params is None:
+            params = []
+        self.sp_name = sp_name
+        self.params = params
+        self.handle_errors = handle_errors
+        self.is_function = is_function
+        super(CallRoutine, self).__init__(query=None, *args, **kwargs)
+
+    def setup(self):
+        params = []
+        for param in self.params:
+            if isinstance(param, basestring):
+                params.append("'%s'" % param)
+            else:
+                params.append(param)
+        
+        if self.is_function:
+            self.query = "SELECT %s(%s);" % (self.sp_name, ','.join(params))
+            return super(CallRoutine, self).setup()[0].values()[0]
+        else:
+            error_sql = '' #@UnusedVariable
+            if self.handle_errors:
+                params.append('@o_error_code')
+                params.append('@o_error_string')
+                error_sql = 'SELECT @o_error_code, @o_error_string' #@UnusedVariable
+            
+            self.query = "CALL %s(%s);" % (self.sp_name, ','.join(params))
+            #ret = super(CallSp, self).setup()
+            #if self.handle_errors:
+            #    error = ret[1][0]
+            #    if error.o_error_code is not None:
+            #        raise SQLProcedureError(error.o_error_code, error.o_error_string)
+            #    ret = ret[0]
+    
+            return super(CallRoutine, self).setup()

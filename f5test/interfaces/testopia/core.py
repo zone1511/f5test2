@@ -15,7 +15,7 @@ class TestopiaInterface(Interface):
         self.password = password
         self.timeout = timeout
     
-    def open(self):
+    def open(self): #@ReservedAssignment
         if not self.api is None:
             return self.api
         config = ConfigInterface().open()

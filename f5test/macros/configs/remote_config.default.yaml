@@ -108,6 +108,15 @@ self: |
        netmask 255.255.0.0
        vlan external
     }
+    self %(self.int_ip6.addr)s {
+       netmask %(self.int_ip6.netmask)s
+       vlan internal
+       allow default
+    }
+    self %(self.ext_ip6.addr)s {
+       netmask %(self.ext_ip6.netmask)s
+       vlan external
+    }
 
 stp: |
     stp {
@@ -136,6 +145,7 @@ dns:
         - 172.27.2.1
     search:
         - mgmt.pdsea.f5net.com
+        - f5net.com
     
     template: |
         dns {
@@ -175,10 +185,21 @@ failover: |
     statemirror {
        addr %(INTERNAL.A)d.%(INTERNAL.B)d.%(self.ip_base_int.C)d.%(self.ip_base_int.D)d
        peer addr %(INTERNAL.A)d.%(INTERNAL.B)d.%(peer.ip_base_int.C)d.%(peer.ip_base_int.D)d
+       secondary addr %(EXTERNAL.A)d.%(EXTERNAL.B)d.%(self.ip_base_ext.C)d.%(self.ip_base_ext.D)d
+       secondary peer addr %(EXTERNAL.A)d.%(EXTERNAL.B)d.%(peer.ip_base_ext.C)d.%(peer.ip_base_ext.D)d
     }
     configsync {
         auto detect enable
         password crypt ".TAEEjeouF9XL:^*H;7T0,a8>9fY8CdK=bWgBM@lWJV.fpW"
+    }
+
+self floating: |
+    self %(self.int_floating.addr)s {
+       netmask %(self.int_floating.netmask)s
+       unit 1
+       floating enable
+       vlan internal
+       allow default
     }
 
 system:
@@ -1047,7 +1068,7 @@ profiles:
                {
                   host 1.1.1.1 { "ip1" }
                   host 1.1.1.2 { "ip2" }
-                  network 1.1.2.1/24 { "net1" }
+                  network 1.1.2.0/24 { "net1" }
                }
             }
 

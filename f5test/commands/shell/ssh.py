@@ -1,7 +1,8 @@
 """All commands that run over the SSH interface."""
 
 from .base import SSHCommand, CommandNotSupported, SSHCommandError
-from ..base import CachedCommand, WaitableCommand
+from ..base import CachedCommand, WaitableCommand, CommandError
+from ...base import Options
 from ...interfaces.subprocess import ShellInterface
 from ...utils.parsers.version_file import colon_pairs_dict, equals_pairs_dict
 from ...utils.parsers.audit import audit_parse
@@ -9,6 +10,7 @@ from ...utils.version import Version
 import logging
 import time
 import os
+import re
 
 LOG = logging.getLogger(__name__) 
 KV_COLONS = 0
@@ -59,7 +61,7 @@ class ScpPut(SSHCommand):
     @type nokex: bool
     """
     upload = True
-    def __init__(self, source, destination="/shared/images", nokex=False,
+    def __init__(self, source, destination="/shared/images/", nokex=False,
                  timeout=300, *args, **kwargs):
         super(ScpPut, self).__init__(*args, **kwargs)
         
@@ -67,12 +69,6 @@ class ScpPut(SSHCommand):
         self.destination = destination
         self.nokex = nokex
         self.timeout = timeout
-
-    def prep(self):
-        """Don't pre-establish a SSH connection. It might not be needed when 
-        keys are already exchanged."""
-        if not self.nokex:
-            super(ScpPut, self).prep()
 
     def setup(self):
         """SCP a file from local system to one device."""
@@ -86,6 +82,8 @@ class ScpPut(SSHCommand):
                    '-o StrictHostKeyChecking=no', # Don't look in  ~/.ssh/known_hosts.
                    '-o UserKnownHostsFile=/dev/null', # Throw away the new identity
                    '-c arcfour256'] # High performance cipher.
+        destdir = os.path.dirname(self.destination)
+        self.api.run('mkdir -p %s' % destdir)
         if self.upload:
             shell.run('scp %s %s %s@%s:%s' % 
                                     (' '.join(scpargs), 
@@ -108,14 +106,14 @@ class ScpGet(ScpPut):
 
 
 parse_keyvalue_file = None
-class ParseKeyvalueFile(CachedCommand, SSHCommand):
+class ParseKeyvalueFile(SSHCommand):
     """Parses a file and return a dictionary. The file structure sould look like:
     Key1: Value1
     Key2: Value2
 
     @rtype: dict
     """
-    def __init__(self, file, mode=KV_COLONS, *args, **kwargs):
+    def __init__(self, file, mode=KV_COLONS, *args, **kwargs): #@ReservedAssignment
         super(ParseKeyvalueFile, self).__init__(*args, **kwargs)
         
         self.file = file
@@ -144,7 +142,7 @@ class ParseKeyvalueFile(CachedCommand, SSHCommand):
 
 
 get_version = None
-class GetVersion(CachedCommand, SSHCommand):
+class GetVersion(SSHCommand):
     """Parses the /VERSION file and returns a version object.
     For: bigip 9.3.1+, em 1.6.0+
     
@@ -168,7 +166,7 @@ class GetPlatform(CachedCommand, SSHCommand):
         return parse_keyvalue_file('/PLATFORM', mode=KV_EQUALS, ifc=self.ifc)
 
 
-license = None
+license = None #@ReservedAssignment
 class License(SSHCommand):
     """Calls SOAPLicenseClient to license a box with a given basekey.
     For: bigip 9.4.0+, em 1.6.0+
@@ -187,11 +185,11 @@ class License(SSHCommand):
         self.addkey = addkey
 
     def setup(self):
-        if get_version(self.api) < 'bigip 9.4.0' or \
-           get_version(self.api) < 'em 1.6.0':
+        if get_version(ifc=self.ifc) < 'bigip 9.4.0' or \
+           get_version(ifc=self.ifc) < 'em 1.6.0':
             raise CommandNotSupported('only in BIGIP>=9.4.0 and EM>=1.6')
         
-        LOG.info('Licensing: %s', self.api)
+        LOG.info('Licensing: %s', self.ifc)
         if self.addkey:
             addkey_str = "--addkey %s"
             
@@ -219,11 +217,11 @@ class Relicense(SSHCommand):
     @rtype: bool
     """
     def setup(self):
-        if get_version(self.api) < 'bigip 9.4.0' or \
-           get_version(self.api) < 'em 1.6.0':
+        if get_version(ifc=self.ifc) < 'bigip 9.4.0' or \
+           get_version(ifc=self.ifc) < 'em 1.6.0':
             raise CommandNotSupported('only in BIGIP>=9.4.0 and EM>=1.6')
         
-        LOG.info('relicensing: %s', self.api)
+        LOG.info('relicensing: %s', self.ifc)
         ret = self.api.run('SOAPLicenseClient --basekey `grep '
                            '"Registration Key" /config/bigip.license|'
                            'cut -d: -f2`')
@@ -261,11 +259,11 @@ class ParseLicense(CachedCommand, SSHCommand):
             LOG.error(ret)
             raise LicenseParsingError(ret)
 
-        license = {}
+        license_dict = {}
         for row in ret.stdout.split('\n'):
             if row.strip():
                 bits = row.split(':')
-                license[bits[0].strip()] = bits[1].strip()
+                license_dict[bits[0].strip()] = bits[1].strip()
 
         if self.tokens_only:
             meta_keys = ('Auth vers', 'Usage', 'Vendor', 'active module',
@@ -274,10 +272,10 @@ class ParseLicense(CachedCommand, SSHCommand):
                          'Authorization', 'inactive module', 'Evaluation end',
                          'Evaluation start', 'Licensed version', 'Appliance SN',
                          'License end', 'License start', 'Licensed date')
-            unwanted = set(license) & set(meta_keys)
-            for unwanted_key in unwanted: del license[unwanted_key]
+            unwanted = set(license_dict) & set(meta_keys)
+            for unwanted_key in unwanted: del license_dict[unwanted_key]
 
-        return license
+        return license_dict
 
 
 get_prompt = None
@@ -373,7 +371,7 @@ class InstallSoftware(SSHCommand):
     @param repo_version: the version of the repository
     @type repo_version: Version
     """
-    def __init__(self, repository, volume=None, essential=False, format=None,
+    def __init__(self, repository, volume=None, essential=False, format=None, #@ReservedAssignment
                  repo_version=None, progress_cb=None, is_hf=False, reboot=True, 
                  *args, **kwargs):
         super(InstallSoftware, self).__init__(*args, **kwargs)
@@ -444,12 +442,14 @@ class AuditSoftware(SSHCommand):
     """
     def setup(self):
         if self.version.product.is_bigip and self.version < 'bigip 10.2.2' or \
-           self.version.product.is_em and self.version < 'em 3.1':
+           self.version.product.is_em and self.version < 'em 3.0':
             audit_script = '/usr/sbin/audit'
         else:
             audit_script = '/usr/libexec/iControl/software_audit'
         
-        ret = self.api.run('%s /dev/stdout' % audit_script)
+        ret = self.api.run('%s /tmp/f5test2_audit' % audit_script)
+        assert not ret.status, "audit script failed"
+        ret = self.api.run('cat /tmp/f5test2_audit')
         if not ret.status:
             return audit_parse(ret.stdout)
         else:
@@ -464,7 +464,7 @@ class CollectLogs(SSHCommand):
     @param last: how many lines to tail
     @type last: int
     """
-    def __init__(self, dir, last=130000, *args, **kwargs):
+    def __init__(self, dir, last=100, *args, **kwargs): #@ReservedAssignment
         super(CollectLogs, self).__init__(*args, **kwargs)
         self.dir = dir
         self.last = last
@@ -476,6 +476,7 @@ class CollectLogs(SSHCommand):
         
         if v.product.is_em:
             files.append('/var/log/em')
+            files.append('/var/log/emrptschedd.log')
 
         if v.product.is_bigip and v > 'bigip 10.0' \
         or v.product.is_em and v > 'em 2.0':
@@ -485,9 +486,8 @@ class CollectLogs(SSHCommand):
         else:
             files.append('/var/log/tomcat4/catalina.out')
 
-        # BUG: Looks like paramiko hangs if the output is longer than 131072.
         for filename in files:
-            ret = self.api.run('tail -c %d %s' % (self.last, filename))
+            ret = self.api.run('tail -n %d %s' % (self.last, filename))
             local_file = os.path.join(self.dir, os.path.basename(filename))
             with open(local_file, "wt") as f:
                 f.write(ret.stdout)
@@ -545,7 +545,87 @@ class RemoveEm(SSHCommand):
     """Remove all EM certificates.
     """
     def setup(self):
-        self.api.run('rm -f /shared/em/ssl.crt/*')
+        # Avoi deleting self certificate in EM 2.3+ which discovers itself. 
+        # Alternative: shopt -s extglob && rm !(file1|file2|file3)
+        self.api.run('ls /shared/em/ssl.crt/*|grep -v 127.0.0.1|xargs rm -f')
         self.api.run('rm -f /shared/em/ssl.key/*')
         self.api.run('rm -f /config/big3d/client.crt')
         self.api.run('bigstart restart big3d')
+
+
+get_big3d_version = None
+class GetBig3dVersion(SSHCommand):
+    """Get the currently running big3d version.
+    
+    @rtype: Version
+    """
+    def setup(self):
+        self.api.run('rm -f /config/gtm/server.crt')
+        ret = self.api.run('iqsh 127.1.1.1')
+        m = re.search(r'<big3d>(.*?)</big3d>', ret.stdout)
+        if not m:
+            raise CommandError('Version not found in "%s"!' % ret.stdout)
+
+        # big3d Version 10.4.0.11.0
+        return Version(m.group(1).split(' ')[2])
+
+
+enable_debug_log = None
+class EnableDebugLog(SSHCommand):
+    """
+    Enable iControl debug logs. Check /var/log/ltm for more info.
+    
+    @param enable: Enable/disable
+    @type enable: bool
+    """
+    def __init__(self, daemon, enable=True, *args, **kwargs):
+        super(EnableDebugLog, self).__init__(*args, **kwargs)
+        #self.daemon = daemon
+        self.enable = enable
+        daemon_map = Options()
+        
+        # iControl
+        daemon_map.icontrol = {}
+        daemon_map.icontrol.name = 'iControl'
+        daemon_map.icontrol.dbvar = 'iControl.LogLevel'
+        daemon_map.icontrol.disable = 'none'
+        daemon_map.icontrol.post = 'bigstart restart httpd'
+
+        # EM deviced
+        daemon_map.emdeviced = {}
+        daemon_map.emdeviced.name = 'EM deviced'
+        daemon_map.emdeviced.dbvar = 'log.em.device.level'
+        
+        # EM swimd
+        daemon_map.emswimd = {}
+        daemon_map.emswimd.name = 'EM swimd'
+        daemon_map.emswimd.dbvar = 'log.em.swim.level'
+        
+        self.daemon = daemon_map.get(daemon)
+        assert self.daemon, "Daemon '%s' not defined." % daemon
+
+    def setup(self):
+        v = self.ifc.version
+        if v.product.is_bigip and v < 'bigip 9.4.0':
+            setdb = 'b db'
+        else:
+            setdb = 'setdb'
+        
+        d = self.daemon
+        d.setdb = setdb
+        d.setdefault('enable', 'debug')
+        d.setdefault('disable', 'notice')
+
+        if self.enable:
+            LOG.debug('Enable debug log for %s', d.name)
+            command = '%(setdb)s %(dbvar)s %(enable)s' % d
+        else:
+            LOG.debug('Disable debug log for %s', d.name)
+            command = '%(setdb)s %(dbvar)s %(disable)s' % d
+
+        if d.pre:
+            command = d.pre + ';' + command
+        if d.post:
+            command = command + ';' + d.post
+        
+        self.api.run(command)

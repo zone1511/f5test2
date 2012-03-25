@@ -218,8 +218,8 @@ static:
     hostname: device58-127.test.net
     licenses:
       reg_key:
-      - A0002-32227-86215-98782-5308301
       - H1487-10564-70523-01369-3502863
+      - A0002-32227-86215-98782-5308301
     selfip:
       external:
         address: 10.11.0.230
@@ -246,10 +246,10 @@ static:
       - Y8754-80841-72715-08637-6377377
     selfip:
       external:
-        address: 10.11.0.232
+        address: 10.11.0.221
         netmask: 255.255.0.0
       internal:
-        address: 10.10.0.232
+        address: 10.10.0.221
         netmask: 255.255.0.0
   172.27.58.130:
     hostname: bp3900-130.mgmt.pdsea.f5net.com
@@ -263,7 +263,7 @@ static:
         address: 10.11.0.233
         netmask: 255.255.0.0
       internal:
-        address: 10.10.0.232
+        address: 10.10.0.233
         netmask: 255.255.0.0
   172.27.58.131:
     hostname: bp1500-131.mgmt.pdsea.f5net.com
@@ -350,13 +350,19 @@ static:
         address: 10.10.227.24
         netmask: 255.255.0.0
   172.27.58.137:
-    hostname: em1
+    hostname: device58-137.test.net
     licenses:
       reg_key:
-      - M7017-09252-09921-85714-0962412
       - S041-184719-823023-674389-4994734
+      - M7017-09252-09921-85714-0962412
       - S9088-36449-02672-22139-7002499
-    selfip: {}
+    selfip:
+      external:
+        address: 10.11.0.232
+        netmask: 255.255.0.0
+      internal:
+        address: 10.10.0.232
+        netmask: 255.255.0.0
   172.27.58.141:
     hostname: bp5000-141.mgmt.pdsea.f5net.com
     licenses:
@@ -601,7 +607,7 @@ static:
       - Z7017-69482-29780-25167-5335183
     selfip: {}
   172.27.58.45:
-    hostname: em1
+    hostname: device58-45.test.net
     licenses:
       reg_key:
       - H677-703044-978902-150851-4761220
@@ -611,6 +617,18 @@ static:
         netmask: 255.255.0.0
       internal:
         address: 10.10.0.251
+        netmask: 255.255.0.0
+  172.27.58.47:
+    hostname: device58-47.test.net
+    licenses:
+      reg_key:
+      - F592-989815-657156-029957-1283162
+    selfip:
+      external:
+        address: 10.11.20.59
+        netmask: 255.255.0.0
+      internal:
+        address: 10.10.20.58
         netmask: 255.255.0.0
   172.27.58.84:
     hostname: em3000-84.mgmt.pdsea.f5net.com

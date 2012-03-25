@@ -33,7 +33,7 @@ class WaitForTask(SeleniumCommand):
                 LOG.debug(exc)
             
             if e:
-                if e.text == 'Finished':
+                if e.text in ('Finished', 'Canceled'):
                     return True
                 LOG.info(e.text)
             return False
@@ -41,11 +41,10 @@ class WaitForTask(SeleniumCommand):
         params.value = '#progress_span .text'
         params.it = Is.TEST
         params.by = By.CSS_SELECTOR
-        params.frame = 'contentframe'
+        params.frame = '/contentframe'
         params.test = is_done
 
         b.wait(timeout=self.timeout, interval=self.interval, **params)
-        b.switch_to_frame('contentframe')
         e = b.find_element_by_id('progress')
         css_class = e.get_attribute('class').split()
         return 'completewitherrors' in css_class

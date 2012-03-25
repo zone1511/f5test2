@@ -28,10 +28,13 @@ class GetSoftwareImage(WaitableCommand, IcontrolCommand):
         if self.filename:
             if ic.System.Cluster.is_clustered_environment():
                 blades = ic.System.Cluster.get_slot_id(cluster_names=['default'])
+                states = ic.System.Cluster.get_member_ha_state(cluster_names=['default'], 
+                                                               slot_ids=blades)
                 imageIDs = []
-                for blade_id in blades[0]:
-                    imageIDs.append({'chassis_slot_id': blade_id,
-                                     'filename': self.filename})
+                for blade_id, state in zip(blades[0], states[0]):
+                    if state != 'HA_STATE_UNKNOWN':
+                        imageIDs.append({'chassis_slot_id': blade_id,
+                                         'filename': self.filename})
             else:
                 imageIDs = [{'chassis_slot_id': self.blade,
                              'filename': self.filename}]
@@ -156,10 +159,13 @@ class GetSoftwareStatus(WaitableCommand, IcontrolCommand):
         for volume in volumes:
             if ic.System.Cluster.is_clustered_environment():
                 blades = ic.System.Cluster.get_slot_id(cluster_names=['default'])
+                states = ic.System.Cluster.get_member_ha_state(cluster_names=['default'], 
+                                                               slot_ids=blades)
                 installIDs = []
-                for blade_id in blades[0]:
-                    installIDs.append({'chassis_slot_id': blade_id,
-                                   'install_volume': volume})
+                for blade_id, state in zip(blades[0], states[0]):
+                    if state != 'HA_STATE_UNKNOWN':
+                        installIDs.append({'chassis_slot_id': blade_id,
+                                           'install_volume': volume})
             else:
                 installIDs = [{'chassis_slot_id': 0,
                                'install_volume': volume}]

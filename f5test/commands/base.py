@@ -144,10 +144,10 @@ class WaitableCommand(Command):
         assert callable(condition), "The condition must be callable!"
         now = start = time.time()
         
-        good = False
         last_ret = ret = None
         stable = 0
         while now - start < timeout:
+            good = False
             success = False
             try:
                 self.prep()

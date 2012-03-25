@@ -31,8 +31,13 @@ set_config = None
 class SetConfig(EMCommand):
     """Set default EM configuration."""
     
+    def __init__(self, auto_refresh=False, *args, **kwargs):
+        super(SetConfig, self).__init__(*args, **kwargs)
+        self.auto_refresh = auto_refresh
+
     def setup(self):
         em = self.api
+        auto_refresh = str(self.auto_refresh).lower()
         return em.device.setDeviceConfig(60, 'include', 
-                                         'http://devcentral.f5.com', 'false')
+                                         'http://devcentral.f5.com', auto_refresh)
 

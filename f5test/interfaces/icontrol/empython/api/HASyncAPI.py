@@ -1,5 +1,5 @@
 from ..AdminClient import AdminClient
-from ..MessageParser import Dictionary, Array, String
+from ..MessageParser import Dictionary, String
 
 class HASyncAPI(AdminClient):
 

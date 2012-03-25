@@ -6,6 +6,12 @@ import threading
 import sys
 from ..base import Aliasificator
 
+
+class MacroError(Exception):
+    """Base exception for all exceptions raised by macros."""
+    pass
+
+
 class Macro(object):
     
     __metaclass__ = Aliasificator
@@ -65,3 +71,12 @@ class MacroThread(threading.Thread):
             return self.macro.run()
         except:
             self.queue.put({self: sys.exc_info()})
+
+
+class StageError(Exception):
+    pass
+
+
+class Stage(object):
+    name = None
+    parallelizable = True

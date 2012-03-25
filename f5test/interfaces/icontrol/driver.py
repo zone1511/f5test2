@@ -16,7 +16,7 @@ The Original Code is iControl Code and related documentation
 distributed by F5.
 
 The Initial Developer of the Original Code is F5 Networks,
-Inc. Seattle, WA, USA. Portions created by F5 are Copyright (C) 1996-2004 F5 Networks,
+Inc. Seattle, WA, USA. Portions created by F5 are Copyright (C) 1996-2004, 2011 F5 Networks,
 Inc. All Rights Reserved.  iControl (TM) is a registered trademark of F5 Networks, Inc.
 
 Alternatively, the contents of this file may be used under the terms
@@ -31,7 +31,7 @@ version of this file under either the License or the GPL.
 
 Pycontrol, version 3. Written by Ionut Turturica for F5 Networks, Inc.
 
-Tested with SOAPpy 0.12.4:
+Tested with SOAPpy 0.12.5:
     https://github.com/pelletier/SOAPpy
 """
 import socket
@@ -40,132 +40,9 @@ import logging
 import urllib
 LOG = logging.getLogger(__name__) 
 
-ICONTROL_URL = "https://%s:%s@%s/iControl/iControlPortal.cgi"
+ICONTROL_URL = "https://%(username)s:%(password)s@%(hostname)s/iControl/iControlPortal.cgi"
 ICONTROL_NS = "urn:iControl"
 
-def _dump_list(self, obj, tag, typed = 1, ns_map = {}):
-    from wstools.XMLname import toXMLname
-    from SOAPpy.Types  import InstanceType, structType, DictType, anyType, \
-                              StringType, UnicodeType, NS, arrayType, typedArrayType
-    
-    tag = tag or self.gentag()
-    tag = toXMLname(tag) # convert from SOAP 1.2 XML name encoding
-
-    if type(obj) == InstanceType:
-        data = obj.data
-    else:
-        data = obj
-
-    if typed:
-        id = self.checkref(obj, tag, ns_map)
-        if id == None:
-            return
-
-    try:
-        sample = data[0]
-        empty = 0
-    except:
-        # preserve type if present
-        if getattr(obj,"_typed",None) and getattr(obj,"_type",None):
-            if getattr(obj, "_complexType", None):
-                sample = typedArrayType(typed=obj._type,
-                                        complexType = obj._complexType)
-                sample._typename = obj._type
-                if not getattr(obj,"_ns",None): obj._ns = NS.URN
-            else:
-                sample = typedArrayType(typed=obj._type)
-        else:
-            sample = structType()
-        empty = 1
-
-    # First scan list to see if all are the same type
-    same_type = 1
-
-    if not empty:
-        for i in data[1:]:
-            if type(sample) != type(i) or \
-                (type(sample) == InstanceType and \
-                    sample.__class__ != i.__class__):
-                same_type = 0
-                break
-
-    ndecl = ''
-    if same_type:
-        if (isinstance(sample, structType)) or \
-               type(sample) == DictType or \
-               (isinstance(sample, anyType) and \
-                (getattr(sample, "_complexType", None) and \
-                 sample._complexType)): # force to urn struct
-            try:
-                tns = obj._ns or NS.URN
-            except:
-                tns = NS.URN
-
-            ns, ndecl = self.genns(ns_map, tns)
-
-            try:
-                typename = sample._typename
-            except:
-                typename = "SOAPStruct"
-
-            t = ns + typename
-                            
-        elif isinstance(sample, anyType):
-            ns = sample._validNamespaceURI(self.config.typesNamespaceURI,
-                                           self.config.strictNamespaces)
-            if ns:
-                ns, ndecl = self.genns(ns_map, ns)
-                t = ns + str(sample._type)
-            else:
-                t = 'ur-type'
-        else:
-            typename = type(sample).__name__
-
-            # For Python 2.2+
-            if type(sample) == StringType: typename = 'string'
-
-            # HACK: unicode is a SOAP string
-            if type(sample) == UnicodeType: typename = 'string'
-            
-            # HACK: python 'float' is actually a SOAP 'double'.
-            if typename=="float": typename="double"  
-            t = self.genns(
-            ns_map, self.config.typesNamespaceURI)[0] + typename
-
-    else:
-        t = self.genns(ns_map, self.config.typesNamespaceURI)[0] + \
-            "ur-type"
-
-    try: a = obj._marshalAttrs(ns_map, self)
-    except: a = ''
-
-    ens, edecl = self.genns(ns_map, NS.ENC)
-    ins, idecl = self.genns(ns_map, self.config.schemaNamespaceURI)
-
-    if typed:
-        self.out.append(
-            '<%s %sarrayType="%s[%d]" %stype="%sArray"%s%s%s%s%s%s>\n' %
-            (tag, ens, t, len(data), ins, ens, ndecl, edecl, idecl,
-             self.genroot(ns_map), id, a))
-
-    if typed:
-        try: elemsname = obj._elemsname
-        except: elemsname = "item"
-    else:
-        elemsname = tag
-        
-    # XXX: Fix multi-dimensional arrays.
-    if isinstance(data, (list, tuple, arrayType)):
-        should_drill = True
-    else:
-        should_drill = not same_type
-    
-    for i in data:
-        self.dump(i, elemsname, should_drill, ns_map)
-
-    if typed: self.out.append('</%s>\n' % tag)
-
-SOAPpy.SOAPBuilder.dump_list = _dump_list
 
 class IControlFault(Exception):
     def __init__(self, *args, **kwargs):
@@ -200,17 +77,18 @@ class Icontrol(object):
     """
 
     def __init__(self, hostname, username, password, timeout=90, debug=0, 
-                 session=None, query=None):
+                 session=None):
         self.hostname = hostname
         self.username = username
         self.password = password
-        self.debug = debug
-        self.session = session
-        self.query = query
+        self.timeout = timeout
+        self._debug = debug
+        self._session = session
+        self._url_params = None
+        self._icontrol_url = ICONTROL_URL
+        self._icontrol_ns = ICONTROL_NS
         self._parent = None
         self._cache = {}
-        #LOG.debug('Icontrol new: %(username)s:%(password)s@%(hostname)s', locals())
-        socket.setdefaulttimeout(timeout)
 
     class __Method(object):
         
@@ -228,31 +106,36 @@ class Icontrol(object):
                 while parent._parent:
                     chain = [parent._name] + chain
                     parent = parent._parent
-                url = ICONTROL_URL % (parent.username, parent.password, 
-                    parent.hostname)
-                ns = ICONTROL_NS + ':' + '/'.join(chain)
-                if parent.query:
-                    url = "%s?%s" % (url, urllib.urlencode(parent.query))
+                url = parent._icontrol_url % parent.__dict__
+                ns = parent._icontrol_ns + ':' + '/'.join(chain)
+                if parent._url_params:
+                    url = "%s?%s" % (url, urllib.urlencode(parent._url_params))
                     parent._cache.clear()
 
                 p = parent
                 if p._cache.get(ns) is not None:
                     ic = p._cache[ns]
                 else:
-                    if parent.session:
+                    if parent._session:
                         headers = SOAPpy.Types.headerType()
-                        sess_t = SOAPpy.Types.integerType(parent.session)
+                        sess_t = SOAPpy.Types.integerType(parent._session)
                         sess_t._setMustUnderstand(0)
-                        sess_t._setAttr('xmlns:myns1', ICONTROL_NS)
+                        sess_t._setAttr('xmlns:myns1', parent._icontrol_ns)
                         headers._addItem('myns1:session', sess_t)
-                        ic = SOAPpy.SOAPProxy(url, ns, header=headers)
+                        ic = SOAPpy.SOAPProxy(url, ns, header=headers, 
+                                              timeout=p.timeout)
                     else:
-                        ic = SOAPpy.SOAPProxy(url, ns)
+                        ic = SOAPpy.SOAPProxy(url, ns, timeout=p.timeout)
                     p._cache[ns] = ic
-                    ic.config.debug = p.debug
+                    ic.config.debug = p._debug
                     ic.simplify_objects = 1
 
                 try:
+                    # An ugly way of setting the timeout per socket, but it
+                    # seems that SOAPpy is ignoring the timeout parameter set in
+                    # the SOAPProxy constructor.
+                    before = socket.getdefaulttimeout()
+                    socket.setdefaulttimeout(p.timeout)
                     return getattr(ic, self._name)(*args, **kw)
                 except SOAPpy.Types.faultType, e:
                     if 'Unknown method' in e.faultstring:
@@ -262,6 +145,8 @@ class Icontrol(object):
                     if 401 == e.code:
                         raise AuthFailed(e)
                     raise IControlTransportError(e)
+                finally:
+                    socket.setdefaulttimeout(before)
 
         def __repr__(self):
             return "<%s>" % self._name
@@ -292,7 +177,7 @@ def main():
 
     pools = b.LocalLB.Pool.get_list()
     version = b.LocalLB.Pool.get_version()
-    print "Version is: %s\n" % version
+    print "Version: %s\n" % version
     print "Pools:"
     for x in pools:
         print "\t%s" % x

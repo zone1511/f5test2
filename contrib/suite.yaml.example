@@ -6,112 +6,160 @@ isbvt: 0
 devices:
     
     em-1:
-        address:                <your em address>
-        admin password:         f5site02
-        #lock admin password:    emtest02
-        root password:          f5site02
+        default:                true
+        address:                MGMT_IPV4_ADDRESS
+        admin password:         ADMINPASSWORD
+        #lock admin password:    ADMINPASSWORD2
+        root password:          ROOTPASSWORD
+
+#    x-em:
+#        address:                MGMT_IPV4_ADDRESS
+#        admin password:         ADMINPASSWORD
+#        #lock admin password:    ADMINPASSWORD2
+#        root password:          ROOTPASSWORD
 
     bigip-1:
-        address:                <your bigip address>
-        admin password:         f5site02
-        #lock admin password:    emtest02
-        root password:          f5site02
+        address:                MGMT_IPV4_ADDRESS
+        discover address:       IP4_OR_IPv6_ADDRESS
+        admin password:         ADMINPASSWORD
+        #lock admin password:    ADMINPASSWORD2
+        root password:          ROOTPASSWORD
+
+    bigip-2:
+        address:                MGMT_IPV4_ADDRESS
+        admin password:         ADMINPASSWORD
+        #lock admin password:    ADMINPASSWORD2
+        root password:          ROOTPASSWORD
 
 stages:
-    installation:
-    #############
-        on duts:
-            devices:
-                - em-1
-            product:        em
-            version:        ninkasi
-            #build:          2030.0
-            #hotfix:         hf1
-            essential config: yes
-            #format volumes: true
-    
-        on bigip:
-            devices:
-                - bigip-1
-            product:        bigip
-            version:        10.2.2
-            #hotfix:         hf2
-            essential config: yes
-            #format volumes: true
-            #custom iso:     /vol/3/...
-            #custom hotfix iso: /vol/3/...
-    
-    configuration:
-    ##############
-        on duts:
-            devices:
-                - em-1
-            partitions: 0
-    
-        on bigips:
-            devices:
-                - bigip-1
-            partitions: 3
+    main:
+        setup:
+            stage01:
+            ##########################
+                type: install
+                group: installation
+                devices:
+                    - em-1
+                parameters:
+                    product:        em
+                    version:        stirling-em
+                    #hotfix:         hf1
+                    essential config: yes
+                    timeout:        1200
 
-    keyswap:
-    ########
-        on all:
-            devices:
-                - ^all
+            stage02:
+            ##########################
+                type: install
+                group: installation
+                devices:
+                    - bigip-1
+                parameters:
+                    product:        bigip
+                    version:        stirling
+                    #hotfix:         hf1
+                    essential config: yes
+                    timeout:        1200
 
-    debugswitches:
-    ##############
-        on some:
-            devices:
-                #- bigip-6800-2
-            mcp: on
-            icontrol: on
+            stage03:
+            ##########################
+                type: install
+                group: installation
+                devices:
+                    - bigip-2
+                parameters:
+                    product:        bigip
+                    version:        11.1.0
+                    hotfix:         hf2
+                    essential config: yes
+                    timeout:        1200
 
-    emdiscovery:
-    ############
-        on em pair:
-            discover:
-                - ^all
-            devices:
-                - em-1
+#            stage03:
+#            ##########################
+#                type: eminstall
+#                group: installation
+#                devices:
+#                    - x-em
+#                parameters:
+#                    targets:
+#                        - bigip-2
+#                    product:        bigip
+#                    version:        9.3.1
+#                    hotfix:         hf8
+#                    essential config: yes
+#                    timeout:        3060
+
+            stage04:
+            ############
+                type: config
+                devices:
+                    - em-1
+                parameters:
+                    partitions: 0
+
+            stage05-1:
+            ############
+                type: config
+                devices:
+                    - bigip-1
+                parameters:
+                    partitions: 3
+                    provision: asm
+                    timeout: 300
+
+            stage05-2:
+            ############
+                type: config
+                devices:
+                    - bigip-2
+                parameters:
+                    partitions: 3
+                    provision: gtm
+
+            stage06:
+            #####################
+                type: keyswap
+                devices:
+                    - ^all
+
+            stage07:
+            ############
+                type: tweaks
+                devices:
+                    - ^all
+                parameters:
+                    logrotate: on
+
+            stage08:
+            ########################
+                type: emdiscovery
+                devices:
+                    - em-1
+                parameters:
+                    devices:
+                        - ^all
+
+        teardown:
+            stage01:
+            ######################
+                type: setpassword
+                devices:
+                    - ^all
+            
+            stage02:
+            ##################
+                type: cores
+                devices:
+                    - ^all
 
 selenium:
-    win-vm-1-ff:
-        address:    http://172.27.58.30:4444/wd/hub
-        browser:    firefox
-        platform:   ANY
-
-    win-vm-1-ie:
-        address:    http://172.27.58.30:4444/wd/hub
-        browser:    internet explorer
-        platform:   WINDOWS
-
-    win-vm-1-ch:
-        address:    http://172.27.58.30:4444/wd/hub
-        browser:    chrome
-        platform:   ANY
-
-    ionutdb01-ff:
+    ionutdb02-firefox:
         default:    true
-        address:    http://172.27.58.1:4444/wd/hub
-        browser:    firefox
-        platform:   ANY
-
-    ionutdb01-ch:
-        address:    http://172.27.58.1:4444/wd/hub
-        browser:    chrome
-        platform:   ANY
-
-    sea-w-iturturica-ie:
-        address:    http://sea-w-iturturica:4444/wd/hub
-        browser:    internet explorer
-        platform:   WINDOWS
 
 testopia:
     address:    http://mgmtdata.mgmt.pdsea.f5net.com
-    username:   i.turturica@f5.com
-    password:   f5site02
+    username:   USERNAME
+    password:   PASSWORD
     uri:        /xmlrpc.cgi
     
-    testplan:   12
+    testplan:   PLAN_ID
     product:    Enterprise Manager

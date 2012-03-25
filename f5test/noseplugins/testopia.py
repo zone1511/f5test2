@@ -392,8 +392,9 @@ class Testopia(Plugin):
             #LOG.info(ret)
     
             #t.TestCaseRun.update(cr_ids, dict(status='PAUSED'))
-        LOG.debug('Closing testrun: %d', c._testrun)
-        t.TestRun.update(c._testrun, dict(status='STOPPED'))
+        if c._testrun:
+            LOG.debug('Closing testrun: %d', c._testrun)
+            t.TestRun.update(c._testrun, dict(status='STOPPED'))
 
 #        if result.testsRun != len(self.tcs):
 #            LOG.warn("TestPlan %d not in sync: ran=%d planned=%d", 

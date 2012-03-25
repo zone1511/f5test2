@@ -206,7 +206,12 @@ def iso_metadata(isofile):
     @type isofile: str
     """
     sp = ShellInterface().open()
-    xml = fromstring(sp.run('isoinfo -i "%s" -x "/METADATA.XML;1"' % isofile))
+    output = sp.run('isoinfo -i "%s" -x "/METADATA.XML;1"' % isofile)
+    start = output.find("<?xml")
+    if start < 0:
+        raise ValueError("Unexpected XML output: %s" % output)
+    
+    xml = fromstring(output[start:])
     product = Product(xml.find("productName").text)
     version = Version("%s %s" % (xml.find("version").text, 
                                  xml.find("buildNumber").text),
@@ -446,11 +451,19 @@ class HotfixFinder(IsoFinder):
                                'test',
                                'HF-%s-ENG' % self.build)
         else:
+            # Released eng hotfixes.
             yield os.path.join(self.root,
                                self._product,
                                'v%s' % self.identifier,
                                'hotfix',
                                '%s-%s-ENG' % (self.hotfix.upper(), self.build))
+            # Unreleased enghotfix-ed hotfix.
+            yield os.path.join(self.root,
+                               'enghf',
+                               self._product,
+                               'v%s' % self.identifier,
+                               'build%s' % self.build,
+                               'current')
 
     def matches(self, name):
         if any(regex.search(name) for regex in self._regex):

@@ -28,7 +28,7 @@ class ShellInterface(Interface):
         self.timeout = timeout
         self.shell = shell
 
-    def open(self):
+    def open(self): #@ReservedAssignment
         if self.api:
             return self.api
         self.api = ApiStub(self.timeout, self.shell)

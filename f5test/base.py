@@ -5,6 +5,7 @@ except ImportError:
 
 import sys
 import re
+import copy
 
 
 def main(*args, **kwargs):
@@ -26,6 +27,7 @@ class Interface(object):
         self.address = None
         self.username = None
         self.password = None
+        self._priority = 10
 
     def __enter__(self):
         self.open()
@@ -34,10 +36,14 @@ class Interface(object):
     def __exit__(self, exc_type, exc_value, traceback):
         return self.close(exc_type, exc_value, traceback)
     
+    def __repr__(self):
+        name = self.__class__.__name__
+        return "<{0}: {1.username}:{1.password}@{1.address}>".format(name, self)
+
     def is_opened(self):
         return bool(self.api)
 
-    def open(self):
+    def open(self): #@ReservedAssignment
         pass
 
     def close(self, *args, **kwargs):
@@ -71,11 +77,24 @@ class AttrDict(dict):
             return None
 
     @property
-    def __dict__(self):
+    def __dict__(self): #@ReservedAssignment
         return self
 
     def __setattr__(self, n, v):
         self.update({n:v})
+
+    def __copy__(self):
+        return self.__class__(**self)
+
+    def __deepcopy__(self, memo=None):
+        if memo is None:
+            memo = {}
+        result = self.__class__()
+        memo[id(self)] = result
+        for key, value in dict.items(self):
+            dict.__setitem__(result, copy.deepcopy(key, memo),
+                             copy.deepcopy(value, memo))
+        return result
 
     def update(self, *args, **kwargs):
         """Takes similar args as dict.update() and converts them to AttrDict.
@@ -115,8 +134,7 @@ class Aliasificator(type):
         def setup(self):
             print self.arg
     
-    >>> <module>.browse_to('something')
-    something
+    >>> UI.common.browse_to('Menu | SubMenu')
     
     """
     def __new__(cls, name, bases, attrs):

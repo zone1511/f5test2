@@ -3,8 +3,13 @@ from ..defaults import ADMIN_PASSWORD, ADMIN_USERNAME, ROOT_PASSWORD, \
     ROOT_USERNAME
 from ..utils import net
 from nose.config import _bool
+import logging
 import os
 import time
+
+LOG = logging.getLogger(__name__)
+REACHABLE_HOST = 'f5net.com'
+NOTADUT_TAG = 'not-a-dut'
 
 class ConfigError(Exception):
     """Base exception for all exceptions raised in module config."""
@@ -44,28 +49,35 @@ class DeviceCredential(object):
 
 class DeviceAccess(object):
     
-    def __init__(self, address, credentials=None, alias=None, hostname=None):
+    def __init__(self, address, credentials=None, alias=None, hostname=None, 
+                 discover_address=None, tags=None, groups=None):
         self.address = address
         self.credentials = credentials
         self.alias = alias
         self.hostname = hostname
+        self.discover_address = discover_address
+        self.tags = tags or set([])
+        self.groups = groups or set([])
     
     def __repr__(self):
         return "%s:%s:[%s]" % (self.alias, self.address, self.credentials)
 
     def get_by_username(self, username):
-        for cred in self.credentials:
+        for cred in self.credentials.values():
             if cred.username == username:
                 return cred
 
     def get_admin_creds(self):
-        return self.get_by_username(ADMIN_USERNAME)
+        return self.credentials[ADMIN_USERNAME]
 
     def get_root_creds(self):
-        return self.get_by_username(ROOT_USERNAME)
+        return self.credentials[ROOT_USERNAME]
 
     def get_address(self):
         return self.address
+
+    def get_discover_address(self):
+        return self.discover_address or self.address
 
     def get_hostname(self):
         return self.hostname
@@ -73,6 +85,17 @@ class DeviceAccess(object):
     def get_alias(self):
         return self.alias
 
+    def set_tags(self, tags):
+        if isinstance(tags, (basestring, int)):
+            self.tags = self.tags.union([tags])
+        elif isinstance(tags, (list, tuple, set)):
+            self.tags = self.tags.union(tags)
+
+    def set_groups(self, groups):
+        if isinstance(groups, (basestring, int)):
+            self.groups = self.groups.union([groups])
+        elif isinstance(groups, (list, tuple, set)):
+            self.groups = self.groups.union(groups)
 
 class Session(object):
     
@@ -84,16 +107,17 @@ class Session(object):
         session = os.path.join('session-%s' % self.level1, self.level2)
         self.session = session
         
-        dir = os.path.join(self.config.paths.logs, session)
-        dir = os.path.expanduser(dir)
-        dir = os.path.expandvars(dir)
-        if not os.path.exists(dir):
-            oldumask = os.umask(0)
-            os.makedirs(dir)
-            os.umask(oldumask)
+        path = os.path.join(self.config.paths.logs, session)
+        path = os.path.expanduser(path)
+        path = os.path.expandvars(path)
+        self.path = path
+        
+        # Logging at CRITICAL level hoping that it gets redirected the console. 
+        LOG.critical('Session %s initialized.', self.name)
+        LOG.critical('Session path: %s', self.path)
+        local_ip = net.get_local_ip(REACHABLE_HOST)
+        LOG.critical('Session URL: %s', self.get_url(local_ip))
 
-        self.path = dir
-    
     def get_url(self, local_ip):
         #local_ip = net.get_local_ip(peer)
         url = self.config.paths.sessionurl % dict(runner=local_ip, 
@@ -110,12 +134,12 @@ class ConfigInterface(Interface):
             raise ConfigNotLoaded("Is nose-testconfig plugin loaded?")
         super(ConfigInterface, self).__init__()
 
-    def open(self):
+    def open(self): #@ReservedAssignment
         self.api = self.config
         return self.config
 
     def get_default_key(self, collection):
-        return filter(lambda x:_bool(x[1].get('default')), 
+        return filter(lambda x:_bool(x[1] and x[1].get('default')), 
                       collection.items())[0][0]
 
     def get_default_value(self, collection):
@@ -129,6 +153,8 @@ class ConfigInterface(Interface):
         
         try:
             specs = self.config['devices'][device]
+            if not specs:
+                return
         except KeyError:
             raise DeviceDoesNotExist(device)
 
@@ -157,12 +183,14 @@ class ConfigInterface(Interface):
                                 root_passwords)
         
         return DeviceAccess(net.resolv(specs['address']),
-                            credentials=(admin, root),
-                            alias=device, hostname=specs['address'])
+                            credentials={ADMIN_USERNAME:admin, ROOT_USERNAME:root},
+                            alias=device, hostname=specs['address'],
+                            discover_address=specs.get('discover address'),
+                            tags=specs.get('tags'))
 
     def get_device_by_address(self, address):
         for device in self.get_all_devices():
-            if device.address == address:
+            if device.address == address or device.discover_address == address:
                 return device
         raise DeviceDoesNotExist("A device with IP address of '%s' cannot be found" % address)
 
@@ -178,32 +206,11 @@ class ConfigInterface(Interface):
         device_access = self.get_device(device, *args, **kwargs)
         return device_access.get_root_creds()
 
-#    def get_device_discovers(self, device=None):
-#        if device is None:
-#            device = self.get_default_key(self.config['devices'])
-#        
-#        try:
-#            specs = self.config['devices'][device]
-#        except KeyError:
-#            raise DeviceDoesNotExist(device)
-#
-#        #return specs.discovers or []
-#        devices = []
-#        for alias in specs.discovers or []:
-#            devices.append(self.get_device(alias))
-#        return devices
-
-    def get_all_devices(self):
+    def get_all_devices(self, all_passwords=False, lock=True):
         for device in self.config.devices:
-            yield self.get_device(device)
-
-    def get_all_managed_devices(self, section='installation'):
-        stagevalue = self.config.stages.get(section)
-        if stagevalue:
-            for specs in stagevalue.values():
-                if specs.devices:
-                    for device in specs.devices:
-                        yield self.get_device(device)
+            device = self.get_device(device, all_passwords=all_passwords, lock=lock)
+            if device and NOTADUT_TAG not in device.tags:
+                yield device
 
     def get_selenium_head(self, head=None):
         if head is None:

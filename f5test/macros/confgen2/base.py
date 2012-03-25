@@ -28,8 +28,8 @@ class ConfigGenerator(Macro):
         ctx.author = Author()
         #ctx.can_edit = True
         #env = jinja2.Environment(loader=jinja2.PackageLoader(__package__))
-        dir = os.path.join(os.path.dirname(__file__), 'templates')
-        env = jinja2.Environment(loader=jinja2.FileSystemLoader(dir), 
+        path = os.path.join(os.path.dirname(__file__), 'templates')
+        env = jinja2.Environment(loader=jinja2.FileSystemLoader(path), 
                                  extensions=[ExprStmtExtension],
                                  trim_blocks=True, line_statement_prefix='#')
         template_subject = env.get_template('tmsh_base.tmpl')

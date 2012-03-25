@@ -3,6 +3,7 @@ from ...interfaces.config import ConfigInterface, DeviceAccess
 from ...interfaces.selenium import By, Is # ActionChains
 from ...interfaces.selenium.driver import NoSuchElementException
 from ...base import AttrDict
+from ..base import WaitableCommand, CommandError
 import os
 import logging
 
@@ -50,11 +51,11 @@ class WaitForLoading(SeleniumCommand):
         params.value = '//div[@id="banner"]/div[@id="message"]/div[@id="messagetype"]'
         params.it = Is.TEST
         params.by = By.XPATH
-        params.frame = None
+        params.frame = '/'
         params.test = is_loading
 
-        prev_frame = b._current_frame
-        b.wait(timeout=self.timeout, interval=self.interval, **params)
+        prev_frame = b.get_current_frame()
+        b.wait(timeout=self.timeout, interval=self.interval, stabilize=1, **params)
         css = get_banner_css(ifc=self.ifc)
         b.switch_to_frame(prev_frame)
         if self.css and self.css not in css:
@@ -72,7 +73,7 @@ class GetBannerCss(SeleniumCommand):
         xpath = '//div[@id="message"]/div[@id="messagetype"]'
 
         b = self.api
-        frame = b._current_frame
+        frame = b.get_current_frame()
         if frame != None:
             b.switch_to_default_content()
 
@@ -86,8 +87,8 @@ class GetBannerCss(SeleniumCommand):
 
 
 get_cell_xpath = None
-class GetCellXpath(SeleniumCommand):
-    """Xpath builder for BS3-like tables.
+class GetCellXpath(WaitableCommand, SeleniumCommand):
+    """Xpath builder for common tables with thead and tbody elements.
     
     @param table_id: The ID of the table HTML element.
     @type table_id: str
@@ -95,38 +96,32 @@ class GetCellXpath(SeleniumCommand):
     @type table_id: str
     @param value: The cell value to look for.
     @type value: str
-    @param sortable: Is this column sortable?
-    @type sortable: bool
     
     @return: The xpath
     @rtype: str
     """
-    def __init__(self, table_id, column, value, sortable=True, *args, **kwargs):
+    def __init__(self, table_id, column, value, *args, **kwargs):
         super(GetCellXpath, self).__init__(*args, **kwargs)
         self.table_id = table_id
         self.column = column
         self.value = value
-        self.sortable = sortable
 
     def setup(self):
         b = self.api
         params = AttrDict()
         params.table_id = self.table_id
-        # Validate the existence of the table with the required ID.
-
+        
+        # WARNING: The following Xpath may cause your eyes to bleed.
         params.column = self.column
         params.value = self.value
-        if self.sortable:
-            params.column_index = "count(//table[@id='%(table_id)s']/thead//*[contains(text(), '%(column)s')]/../preceding-sibling::*) + 1" % params
-        else:
-            params.column_index = "count(//table[@id='%(table_id)s']/thead//*[contains(text(), '%(column)s')]/preceding-sibling::*) + 1" % params
+        params.column_index = "count(//table[@id='%(table_id)s']/thead/tr/*[descendant-or-self::*[contains(text(), '%(column)s')]]/preceding-sibling::*) + 1" % params
         xpath = "//table[@id='%(table_id)s']/tbody/tr[td[%(column_index)s]//self::*[contains(text(), '%(value)s')]]" % params
-        #b.find_element_by_xpath("//table[@id='%(table_id)s']" % params)
+        # Validate the existence of the table with the required ID.
         try:
             b.find_element_by_xpath(xpath)
             return xpath
         except NoSuchElementException:
-            LOG.debug('Cell with value %(value)s not found in table %(table_id)s on column %(column)s.' % params)
+            raise CommandError('Cell with value %(value)s not found in table %(table_id)s on column %(column)s.' % params)
 
 
 login = None
@@ -162,9 +157,8 @@ class Login(SeleniumCommand):
     def setup(self):
         b = self.api
         # Set the api login data
-        ret = AttrDict(device=self.device, address=self.address,
-                       username=self.username, password=self.password)
-        self.ifc._set_credentials(ret)
+        self.ifc.set_credentials(device=self.device, address=self.address,
+                                 username=self.username, password=self.password)
 
         b.get("https://%s/tmui/login.jsp" % self.address).wait('username', 
                                                                timeout=self.timeout)
@@ -178,15 +172,13 @@ class Login(SeleniumCommand):
         #e.submit().wait('mainmenu-overview')
         #e.submit().wait('mainmenu-overview-welcome')
         #e.submit().wait('status')
-        e.submit().wait('#trail > a', by=By.CSS_SELECTOR, timeout=20)
+        e.submit().wait('#navbar > #trail span', by=By.CSS_SELECTOR, timeout=20)
         b.maximize_window()
 
         # XXX: DISABLE XUI menus hover behavior. This should stay here until
         #      Selenium2 implements the advanced user interactions for all 
         #      browsers
         #b.execute_script("$('#mainpanel li').unbind('mouseenter mouseleave');")
-
-        return ret
 
 
 screen_shot = None
@@ -198,16 +190,23 @@ class ScreenShot(SeleniumCommand):
     @param screenshot: the name of the screenshot file (default: screenshot).
     @type screenshot: str
     """
-    def __init__(self, dir, name='screenshot', *args, **kwargs):
+    def __init__(self, dir, name=None, window=None, *args, **kwargs): #@ReservedAssignment
         super(ScreenShot, self).__init__(*args, **kwargs)
         self.dir = dir
-        self.name = name
+        if name is None:
+            self.name = window or 'main'
+        else:
+            self.name = name
+        self.window = window
     
     def setup(self):
         b = self.api
+        if self.window is not None:
+            b.switch_to_window(self.window)
+
         filename = os.path.join(self.dir, '%s.png' % self.name)
         if b.get_screenshot_as_file(filename):
-            LOG.info('Screenshot dumped to: %s' % filename)
+            LOG.debug('Screenshot dumped to: %s' % filename)
 
         try:
             filename = os.path.join(self.dir, '%s.html' % self.name)
@@ -225,9 +224,9 @@ class Logout(SeleniumCommand):
     """Log out by clicking on the Logout button."""
     def setup(self):
         b = self.api
-        e = b.find_element_by_id("logout")
-        e.click().wait('username')
-        self.ifc._del_credentials()
+        logout = b.wait('#logout a', by=By.CSS_SELECTOR)
+        logout.click().wait('username')
+        self.ifc.del_credentials()
 
 
 close_all_windows = None
@@ -366,8 +365,7 @@ class SetPreferences(SeleniumCommand):
     def setup(self):
         b = self.api
         browse_to('System | Preferences', ifc=self.ifc)
-        b.wait('div_security_table', frame='contentframe')
-        b.switch_to_frame('contentframe')
+        b.wait('div_security_table', frame='/contentframe')
 
         # Dirty flag
         anything = False
@@ -412,8 +410,7 @@ class SetPlatformConfiguration(SeleniumCommand):
     def setup(self):
         b = self.api
         browse_to('System | Platform', ifc=self.ifc)
-        update = b.wait('platform_update', frame='contentframe')
-        b.switch_to_frame('contentframe')
+        update = b.wait('platform_update', frame='/contentframe')
 
         # Dirty flag
         anything = False
@@ -449,3 +446,84 @@ class DeleteItems(SeleniumCommand):
         delete_button.click()
         wait_for_loading(ifc=self.ifc)
         LOG.debug('Deleted successfully.')
+
+
+audit_search = None
+class AuditSearch(SeleniumCommand):
+    """Searches for a specific string in the audit log.
+    Returns the first row found.
+    """
+    def __init__(self, value=None, *args, **kwargs):
+        super(AuditSearch, self).__init__(*args, **kwargs)
+        self.value = value
+
+    def setup(self):
+        b = self.api
+        LOG.info('Looking for "%s" in the audit...', self.value)
+        
+        browse_to('System | Logs | Audit | Search', ifc=self.ifc)
+        b.wait('div_search_params_table', frame='/contentframe')
+
+        event_text = b.find_element_by_name('search_event')
+        event_text.clear()
+        event_text.send_keys(self.value)
+        
+        search = b.find_element_by_name('search')
+        search.click()
+        wait_for_loading(ifc=self.ifc)
+        show_all(ifc=self.ifc)
+        
+        try:
+            row = b.find_element_by_id('0')
+        except:
+            b.find_element_by_id('no_record_row')
+            raise CommandError('No audit rows found.')
+
+        cells = row.find_elements_by_tag_name('td')
+        count = len(b.find_elements_by_xpath("//table[@id='list_table']/tbody//tr"))
+        return (count, cells[0].text, cells[1].text, cells[2].text, cells[3].text)
+
+
+handle_errorframe = None
+class HandleErrorframe(SeleniumCommand):
+    """Handles the "Unable to contact [product name] device" overlay.
+    Note: Login path is not implemented yet.
+    """
+    def setup(self):
+        b = self.api
+        LOG.debug('Looking for errorframe...')
+        frame = b.get_current_frame()
+
+        try:
+            b.switch_to_frame("/errorframe")
+            b.wait('complete', timeout=60)
+            continue_button = b.find_element_by_id("button-continue")
+            if continue_button.is_displayed():
+                LOG.debug('Errorframe is displayed.')
+                continue_button.click()
+                b.switch_to_default_content()
+                b.wait('errorframe', negated=True)
+            else:
+                LOG.debug('Errorframe is NOT displayed. Phew!')
+        finally:
+            b.switch_to_frame(frame)
+
+
+show_all = None
+class ShowAll(SeleniumCommand):
+    """
+    
+    """
+    def setup(self):
+        # Set the paginator to "Show All".
+        b = self.api
+        try:
+            select = b.find_element_by_name("ptable")
+            showall = select.find_element_by_xpath("option[@value='-1']")
+            showall_caption = showall.text.strip()
+            showall.click()
+            wait_for_loading(ifc=self.ifc)
+        except NoSuchElementException:
+            showall_caption = None
+            LOG.debug('No paginator found.')
+        return showall_caption

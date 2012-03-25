@@ -18,13 +18,13 @@ def merge(user, default):
 
 def extend(cwd, config, loader):
     if isinstance(config.get('$extends'), list):
-        for file in config.get('$extends'):
-            file = os.path.join(cwd, file)
-            base_config = extend(cwd, loader(file), loader)
+        for filename in config.get('$extends'):
+            filename = os.path.join(cwd, filename)
+            base_config = extend(cwd, loader(filename), loader)
             config = merge(config, base_config)
     elif isinstance(config.get('$extends'), str):
-        file = os.path.join(cwd, config.get('$extends'))
-        base_config = loader(file)
+        filename = os.path.join(cwd, config.get('$extends'))
+        base_config = loader(filename)
         config = merge(config, base_config)
     return config
 
@@ -66,7 +66,7 @@ class TestConfig(Plugin):
     score = 550
 
     env_opt = "NOSE_TEST_CONFIG_FILE"
-    format = "ini"
+    format = "ini" #@ReservedAssignment
     valid_loaders = { 'yaml' : load_yaml, 'ini' : load_ini,
                       'python' : load_python }
 

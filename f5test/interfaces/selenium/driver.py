@@ -5,6 +5,7 @@ from selenium.webdriver.remote.command import Command
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import (NoSuchElementException, 
     StaleElementReferenceException, WebDriverException) # ElementNotVisibleException
+import copy
 import time
 import logging
 import uuid
@@ -20,8 +21,8 @@ class Is(object):
     VISIBLE = "is_displayed" # alias
     SELECTED = "is_selected"
     ENABLED = "is_enabled"
-    PRESENT = None
-    TEST = None
+    PRESENT = 0
+    TEST = 1
 
 
 class NONEGIVEN:
@@ -53,17 +54,79 @@ class WebElementWrapper(WebElement):
 class RemoteWrapper(RemoteWebDriver):
     
     def __init__(self, *args, **kwargs):
-        self._current_frame = None # None is the _top frame
+        self._frames = {}
         return super(RemoteWrapper, self).__init__(*args, **kwargs)
 
-    def switch_to_frame(self, index_or_name):
-        """Switches focus to a frame by index or name."""
-        self._current_frame = index_or_name
-        super(RemoteWrapper, self).switch_to_frame(index_or_name)
+    def switch_to_frame(self, frame_path='.', window_handle=None, forced=False):
+        """Switches focus to a frame by index or name.
+        
+        @param frame_path: The frame path (e.g. /frame1/subframe or ../parent)
+        @param window: The window handle
+        @param forced: Attempt to switch frames even we're out of sync
+        """
+        if window_handle is None:
+            window_handle = self.current_window_handle
+        orig_frames = self._frames.setdefault(window_handle, [])
+        frames = copy.copy(orig_frames)
+        
+        for i, bit in enumerate(frame_path.split('/')):
+            if bit == '':
+                # Path starts with a / (absolute)
+                if i == 0: 
+                    frames[:] = []
+                # Path ends / (ignore it)
+                else:
+                    continue
+            elif bit == '..':
+                try:
+                    # Go up one level
+                    frames.pop()
+                except IndexError:
+                    # We've reached the bottom already
+                    continue
+            elif bit == '.':
+                # Ignore it
+                continue
+            else:
+                frames.append(bit)
+        
+        if forced or frames != orig_frames:
+            try:
+                super(RemoteWrapper, self).switch_to_default_content()
+                for frame in frames:
+                    super(RemoteWrapper, self).switch_to_frame(frame)
+                orig_frames[:] = frames
+            except:
+                # Attempt to revert the positioning in the frames chain
+                super(RemoteWrapper, self).switch_to_default_content()
+                for frame in orig_frames:
+                    super(RemoteWrapper, self).switch_to_frame(frame)
+                raise
+                
+    def get_current_frame(self, window_handle=None):
+        """Returns the frame locator for the given window.
+        
+        @param window: The window handle
+        """
+        if window_handle is None:
+            window_handle = self.current_window_handle
+        return '/' + '/'.join(self._frames.setdefault(window_handle, []))
 
     def switch_to_default_content(self):
-        self._current_frame = None
-        super(RemoteWrapper, self).switch_to_default_content()
+        """Switches to the topmost frame (aka _top)."""
+        return self.switch_to_frame('/')
+
+    def switch_to_window(self, window_name, frame=None):
+        """Switching the window automatically resets the current frame to _top.
+        
+        @param window_name: Window handle or name
+        @param frame: Frame path to set inside the window. By default it'll set 
+        the last frame path and if none is set it'll be /.
+        """
+        super(RemoteWrapper, self).switch_to_window(window_name)
+        if frame is None:
+            frame = self.get_current_frame()
+        self.switch_to_frame(frame, forced=True)
 
     def create_web_element(self, element_id):
         """Override from RemoteWebDriver to use firefox.WebElement."""
@@ -82,7 +145,7 @@ class RemoteWrapper(RemoteWebDriver):
         super(RemoteWrapper, self).get(*args, **kwargs)
         return self
 
-    def open_window(self, name=None, location='', tokens=''):
+    def open_window(self, location='', name=None, tokens=''):
         """Opens up a new tab or window."""
         if name is None:
             name = uuid.uuid4().hex
@@ -91,24 +154,52 @@ class RemoteWrapper(RemoteWebDriver):
         return name
 
     def maximize_window(self):
-        script = "if (window.screen) {window.moveTo(0, 0); window.resizeTo(window.screen.availWidth, window.screen.availHeight);};"
-        return super(RemoteWrapper, self).execute_script(script)
+        if not self.name in ('chrome'):
+            self.set_window_position(0, 0)
+            self.set_window_size(1366, 768)
+        else:
+            LOG.warning("maximize_window not supported in %s." % self.name)
 
-    def wait(self, value=None, by=By.ID, frame=NONEGIVEN, it=Is.DISPLAYED, 
-             negated=False, timeout=10, interval=0.1, stabilize=0, element=None, test=None):
-        """Waits for an element to become active/visible/etc..
-        If frame is passed, then it will first switch to main frame, try to
-        locate the element and switch back to main frame.
+    def wait(self, value=None, by=By.ID, frame='.', it=Is.DISPLAYED, 
+             negated=False, timeout=10, interval=0.1, stabilize=0, element=None, 
+             test=None):
+        """Waits for an element to satisfy a certain condition.
+        
+        @param value: the locator 
+        @type value: str
+        @param by: the locator type, one of: ID, XPATH, LINK_TEXT, NAME, 
+                   TAG_NAME, CSS_SELECTOR, CLASS_NAME
+        @type by: enum
+        @param frame: the frame path (e.g. /topframe/subframe, default: current frame)
+        @type frame: str
+        @param it: condition, one of: DISPLAYED, SELECTED, ENABLED, PRESENT or 
+                   TEST
+        @type it: enum
+        @param negated: negate the condition if true
+        @type negated: bool
+        @param timeout: timeout (default: 10 sec)
+        @type timeout: int
+        @param interval: polling interval
+        @type interval: int
+        @param stabilize: how long to wait after the condition is satisfied to
+                          make sure it doesn't change again (default: 0 sec)
+        @type stabilize: int
+        @param element: parent element
+        @type element: WebElement instance
+        @param test: complex condition callback, called with (element, exception)
+        @type test: callable
         """
 
         f = {}
         f['by'] = by
-        if frame is NONEGIVEN:
-            f['frame'] = '[current]'
-        else:
-            f['frame'] = frame or '_top'
         f['value'] = value
         f['negated'] = negated and 'not' or 'to be'
+        
+        if frame is '.':
+            f['frame'] = self.get_current_frame()
+        else:
+            f['frame'] = frame
+        
         if it == Is.VISIBLE or it == Is.DISPLAYED:
             f['state'] = 'visible'
         elif it == Is.SELECTED:
@@ -117,8 +208,8 @@ class RemoteWrapper(RemoteWebDriver):
             f['state'] = 'enabled'
         else:
             f['state'] = 'present'
-        c_text = 'element with %(by)s "%(value)s" in frame %(frame)s %(negated)s %(state)s' % f
 
+        c_text = 'element with %(by)s "%(value)s" in frame %(frame)s %(negated)s %(state)s' % f
         
         if element is None:
             element = self
@@ -126,17 +217,19 @@ class RemoteWrapper(RemoteWebDriver):
         if test:
             assert callable(test), '"test" must be a callback function with 2 params: element and exception.'
 
-        if not frame is NONEGIVEN:
-            self.switch_to_default_content()
-
         now = start = time.time()
         e = None
         stable_time = 0
+        
         while now - start < timeout:
             good = False
             try:
-                if not frame is NONEGIVEN:
-                    self.switch_to_frame(frame)
+                # Caveat: If this is the first iteration *and* we're using a 
+                # relative frame *and* switch_to_frame fails halfway, then the 
+                # subsequent iterations will all fail! 
+                self.switch_to_frame(frame)
+                # Absolutize the frame (in case the one provided was relative)
+                frame = self.get_current_frame()
 
                 e = element.find_element(by=by, value=value)
 
@@ -168,9 +261,6 @@ class RemoteWrapper(RemoteWebDriver):
                 LOG.debug("Waiting for '%s'.", c_text)
             except WebDriverException, exc:
                 LOG.debug("Selenium is confused: '%s'.", exc)
-            finally:
-                if not frame is NONEGIVEN:
-                    self.switch_to_default_content()
 
             if good:
                 if stable_time >= stabilize:

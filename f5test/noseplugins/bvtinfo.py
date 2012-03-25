@@ -6,11 +6,12 @@ Created on Jun 15, 2011
 from __future__ import absolute_import
 from nose.plugins.base import Plugin
 import logging
-from ..base import AttrDict
+from ..base import Options
 import urllib
 import urllib2
 import f5test.commands.icontrol as ICMD
-import f5test.commands.shell as SCMD
+#import f5test.commands.shell as SCMD
+from ..utils import Version
 
 LOG = logging.getLogger(__name__)
 
@@ -41,22 +42,29 @@ class BVTInfo(Plugin):
             assert config.bvtinfo, "BVTInfo requested but no bvtinfo section found in the config. "
             "You can disable this plugin by passing --no-bvtinfo."
 
-    def _get_dut_info(self):
-        # XXX: Should use lock=True, but the values are already cached.
-        device = self.config_ifc.get_device()
-        if not device:
+    def _get_duts_info(self):
+        # XXX: Lock bit should be configurable at a higher level
+        devices = [x for x in self.config_ifc.get_all_devices(lock=False) 
+                     if 'no-bvtinfo-reporting' not in x.tags]
+        if not devices:
             return
         
-        info = AttrDict()
-        try:
-            info.platform = ICMD.system.get_platform(device=device)
-            info.version = ICMD.system.get_version(device=device, build=True)
-            info.project = SCMD.ssh.parse_keyvalue_file('/VERSION').get('project')
-        except Exception, e:
-            LOG.error("DUT %s: %s", device, e)
-            info.version = info.platform = None
-        info.device = device
-        return info
+        ret = []
+        for device in devices:
+            info = Options()
+            info.device = device
+            try:
+                info.platform = ICMD.system.get_platform(device=device)
+                info.version = ICMD.system.get_version(device=device, build=True)
+                v = ICMD.system.parse_version_file(device=device)
+                info.project = v.get('project')
+                info.edition = v.get('edition', '')
+            except Exception, e:
+                LOG.error("%s: %s", type(e), e)
+                info.version = Version()
+                info.platform = ''
+            ret.append(info)
+        return ret
 
     def finalize(self, result):
         LOG.info("Reporting results to BVTInfo...")
@@ -73,35 +81,41 @@ class BVTInfo(Plugin):
                           len(result.errors),
                           len(result.skipped))
 
-        dut = self._get_dut_info()
-        
-        if dut.version is None or dut.platform is None:
-            LOG.error("Can't submit results without version or platform.")
-            return
-        
-        project = dut.project or dut.version.version
-        #LOG.info(dut)
-        #return
+        # Report each device
+        for dut in self._get_duts_info():
+            if not dut.version or not dut.platform:
+                LOG.error("Can't submit results without version or platform.")
+                continue
 
-        params = urllib.urlencode(dict(
-            bvttool = bvtinfocfg.name,
-            project = bvtinfocfg.get('project', project),
-            buildno = bvtinfocfg.get('build', dut.version.build),
-            test_pass = int(not len(result.failures) and not len(result.errors)),
-            platform = dut.platform,
-            result_url = result_url,
-            result_text = result_text
-        ))
+            if dut.version.product.is_bigip  and \
+               dut.version < 'bigip 10.0.1':
+                LOG.info("Skipping old version: %s." % dut.version)
+                continue
 
-        LOG.debug(params)
-        opener = urllib2.build_opener()
-        urllib2.install_opener(opener)
-        try:
-            f = opener.open(bvtinfocfg.url, params)
-            data = f.read()
-            f.close()
-            LOG.info('BVTInfo result report successful: (%s)', data)
-        except urllib2.HTTPError, e:
-            LOG.error('BVTInfo result report failed: %s (%s)', e, e.read())
-        except Exception, e:
-            LOG.error('BVTInfo result report failed: %s', e)
+            LOG.info('BVTInfo report for: %s...', dut.device)
+            project = dut.project or dut.version.version
+            if dut.edition.startswith('Hotfix'):
+                project = '%s-%s' % (project, dut.edition.split()[1].lower())
+    
+            params = urllib.urlencode(dict(
+                bvttool = bvtinfocfg.name,
+                project = bvtinfocfg.get('project', project),
+                buildno = bvtinfocfg.get('build', dut.version.build),
+                test_pass = int(not len(result.failures) and not len(result.errors)),
+                platform = dut.platform,
+                result_url = result_url,
+                result_text = result_text
+            ))
+    
+            LOG.debug(params)
+            opener = urllib2.build_opener()
+            urllib2.install_opener(opener)
+            try:
+                f = opener.open(bvtinfocfg.url, params)
+                data = f.read()
+                f.close()
+                LOG.info('BVTInfo result report successful: (%s)', data)
+            except urllib2.HTTPError, e:
+                LOG.error('BVTInfo result report failed: %s (%s)', e, e.read())
+            except Exception, e:
+                LOG.error('BVTInfo result report failed: %s', e)

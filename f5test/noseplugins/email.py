@@ -1,14 +1,13 @@
 from __future__ import absolute_import
 from nose.plugins.base import Plugin
-#from nose.case import Test
-#from nose.plugins.skip import SkipTest 
-#from nose.result import TextTestResult
 import logging
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from ..base import AttrDict
+from ..utils import Version
 from ..utils.net import get_local_ip
+from ..utils.progress_bar import ProgressBar
 import jinja2
 import f5test.commands.icontrol as ICMD
 
@@ -16,7 +15,6 @@ __test__ = False
 
 LOG = logging.getLogger(__name__)
 
-DEFAULT_REPLY_TO = 'i.turturica@f5.com'
 DEFAULT_FROM = 'em-selenium@f5.com'
 MAIL_HOST = 'mail.f5net.com'
 
@@ -25,6 +23,17 @@ def _getattr(test, name, default):
     class_attr = getattr(test.test, name, default)
     return getattr(method, name, class_attr)
     
+def customfilter_ljust(string, width, fillchar=' '):
+    if string is None or isinstance(string, jinja2.Undefined):
+        return string
+
+    return string.ljust(width, fillchar)
+
+def customfilter_rjust(string, width, fillchar=' '):
+    if string is None or isinstance(string, jinja2.Undefined):
+        return string
+
+    return string.rjust(width, fillchar)
 
 class Email(Plugin):
 
@@ -54,27 +63,9 @@ class Email(Plugin):
     def afterTest(self, test):
         pass
 
-#    def _get_duts_info(self):
-#        # XXX: Should use lock=True, but the values are already cached. 
-#        devices = self.config_ifc.get_device_discovers()
-#        if not devices:
-#            return
-#        
-#        info = []
-#        for device in devices:
-#            try:
-#                platform = ICMD.system.get_platform(device=device)
-#                version = ICMD.system.get_version(device=device, build=True)
-#            except Exception, e:
-#                LOG.error("%s: %s", type(e), e)
-#                version = platform = 'failed'
-#            info.append(AttrDict(device=device, platform=platform, 
-#                                 version=version))
-#        return info
-
     def _get_duts_info(self):
-        # XXX: Should use lock=True, but the values are already cached. 
-        devices = self.config_ifc.get_all_devices()
+        # XXX: Lock bit should be configurable at a higher level
+        devices = self.config_ifc.get_all_devices(lock=False)
         if not devices:
             return
         
@@ -85,14 +76,15 @@ class Email(Plugin):
                 version = ICMD.system.get_version(device=device, build=True)
             except Exception, e:
                 LOG.error("%s: %s", type(e), e)
-                version = platform = 'failed'
+                version = Version()
+                platform = ''
             info.append(AttrDict(device=device, platform=platform, 
                                  version=version))
         return info
 
     def _get_dut_info(self):
-        # XXX: Should use lock=True, but the values are already cached.
-        device = self.config_ifc.get_device()
+        # XXX: Lock bit should be configurable at a higher level
+        device = self.config_ifc.get_device(lock=False)
         if not device:
             return
         
@@ -102,10 +94,27 @@ class Email(Plugin):
             info.version = ICMD.system.get_version(device=device, build=True)
         except Exception, e:
             LOG.error("%s: %s", type(e), e)
-            info.version = info.platform = 'failed'
+            info.version = Version()
+            info.platform = ''
         info.device = device
         return info
 
+    def _set_bars(self, result, ctx):
+        pb = ProgressBar(result.testsRun)
+        ctx.bars = {}
+        
+        pb.update_time(result.testsRun
+                       - len(result.failures)
+                       - len(result.errors)
+                       - len(result.skipped))
+        ctx.bars.good = str(pb)
+        pb.update_time(len(result.failures) 
+                       + len(result.errors))
+        ctx.bars.bad = str(pb)
+        
+        pb.update_time(len(result.skipped))
+        ctx.bars.unknown = str(pb)
+    
     def finalize(self, result):
         LOG.info("Sending email...")
         ctx = AttrDict()
@@ -115,14 +124,23 @@ class Email(Plugin):
         ctx.dut = self._get_dut_info()
         ctx.test_runner_ip = get_local_ip(MAIL_HOST)
         ctx.sessionurl = self.config_ifc.get_session().get_url(ctx.test_runner_ip)
+        self._set_bars(result, ctx)
 
         headers = AttrDict()
         email = ctx.config.get('email', AttrDict())
         headers['From'] = email.get('from', DEFAULT_FROM)
-        headers['To'] = email.get('to', DEFAULT_REPLY_TO)
-        headers['Reply-To'] = email.get('reply-to', DEFAULT_REPLY_TO)
+        headers['To'] = email.get('to')
+        assert headers['To'], "Please set the email section in the config file."
+        if email.get('reply-to'):
+            headers['Reply-To'] = email['reply-to']
         
-        env = jinja2.Environment(loader=jinja2.PackageLoader(__package__))
+        env = jinja2.Environment(loader=jinja2.PackageLoader(__package__),
+                                 autoescape=True)
+        
+        # Add custom filters
+        env.filters['ljust'] = customfilter_ljust
+        env.filters['rjust'] = customfilter_rjust
+
         if email.subject:
             template_subject = env.from_string(email.subject)
         else:
@@ -139,13 +157,12 @@ class Email(Plugin):
         template_html = env.get_template('email_html.tmpl')
 
         text = template_text.render(ctx)
-#        html = template_html.render(context)
+        html = template_html.render(ctx)
         
         msg.attach(MIMEText(text, 'plain'))
-        #msg.attach(MIMEText(html, 'html'))
+        msg.attach(MIMEText(html, 'html'))
 
         message = msg.as_string()
-#        LOG.debug(text)
 
         server = None
         try:

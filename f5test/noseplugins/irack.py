@@ -15,7 +15,7 @@ from ..utils.net import get_local_ip
 #IRACK_HOSTNAME_DEBUG = '127.0.0.1:8081'
 DEFAULT_TIMEOUT = 60
 DEFAULT_HOSTNAME = 'irack.mgmt.pdsea.f5net.com'
-DEFAULT_RESERVATION_TIME = datetime.timedelta(hours=2)
+DEFAULT_RESERVATION_TIME = datetime.timedelta(hours=3)
 URI_USER_NOBODY = '/api/v1/user/2/'
 URI_RESERVATION = '/api/v1/reservation/'
 LOG = logging.getLogger(__name__)
@@ -52,26 +52,32 @@ class IrackCheckout(Plugin):
                                  "found in the config."
 
     def begin(self):
-        from f5test.interfaces.irack import IrackInterface
+        from f5test.interfaces.rest.irack import IrackInterface
         LOG.info("Checking out devices from iRack...")
         
         config = self.config_ifc.open()
         irackcfg = config.irack
-        devices = list(self.config_ifc.get_all_devices())
-        assert devices, "No managed devices?"
+        devices = [x for x in self.config_ifc.get_all_devices() 
+                     if 'no-irack-reservation' not in x.tags]
+
+        if not devices:
+            LOG.warning('No devices to be reserved.')
+            return
 
         address = irackcfg.get('address', DEFAULT_HOSTNAME)
+        assert irackcfg.username, "Key irack.username is not set in config!"
+        assert irackcfg.apikey, "Key irack.apikey is not set in config!"
         with IrackInterface(address=address,
-                          timeout=irackcfg.get('timeout', DEFAULT_TIMEOUT),
-                          username=irackcfg.username,
-                          password=irackcfg.apikey) as irack:
+                            timeout=irackcfg.get('timeout', DEFAULT_TIMEOUT),
+                            username=irackcfg.username,
+                            password=irackcfg.apikey, ssl=False) as irack:
 
             params = dict(q_accessaddress__in=[x.address for x in devices])
             ret = irack.api.f5asset.get(params_dict=params)
-            assert ret['meta']['total_count'] == len(devices), \
+            assert ret.data.meta.total_count == len(devices), \
                 "Managed devices=%d, iRack returned=%d!" % (len(devices), 
-                                                            ret['meta']['total_count'])
-            for asset in ret['objects']:
+                                                            ret.data.meta.total_count)
+            for asset in ret.data.objects:
                 assert not asset['v_is_reserved'], \
                     "Device '%s' already has an active reservation." % \
                         self.config_ifc.get_device_by_address(asset['q_accessaddress'])
@@ -83,36 +89,38 @@ class IrackCheckout(Plugin):
             
             headers = {"Content-type": "application/json"}
             payload = json.dumps(dict(notes='By TestRunner @ %s' % get_local_ip(address), 
-                                      assets=[x['resource_uri'] for x in ret['objects']],
-                                      to=URI_USER_NOBODY, # nobody
+                                      assets=[x['resource_uri'] for x in ret.data.objects],
+                                      #to=URI_USER_NOBODY, # nobody
                                       start=now_str,
                                       end=end_str, 
                                       reminder='0:15:00'))
-            res = URI_RESERVATION
-            ret = irack.api.resource().resource.post(res, payload=payload,
-                                                    headers=headers)
-            LOG.debug("Checkout HTTP status: %s", ret.status)
-            LOG.debug("Checkout location: %s", ret.location)
-            res = urlparse(ret.location).path
+            
+            ret = irack.api.from_uri(URI_RESERVATION).post(payload=payload,
+                                                           headers=headers)
+            LOG.debug("Checkout HTTP status: %s", ret.response.status)
+            LOG.debug("Checkout location: %s", ret.response.location)
+            res = urlparse(ret.response.location).path
             irackcfg._reservation = res
 
     def finalize(self, result):
-        from f5test.interfaces.irack import IrackInterface
+        from f5test.interfaces.rest.irack import IrackInterface
         LOG.info("Checking in devices to iRack...")
 
-#        time.sleep(5)
         config = self.config_ifc.open()
         irackcfg = config.irack
         res = irackcfg._reservation
-        assert res, "irack._reservation key not found?"
+
+        if not res:
+            LOG.warning('No devices to be un-reserved.')
+            return
 
         with IrackInterface(address=irackcfg.get('address', DEFAULT_HOSTNAME),
                           timeout=irackcfg.get('timeout', DEFAULT_TIMEOUT),
                           username=irackcfg.username,
-                          password=irackcfg.apikey) as irack:
+                          password=irackcfg.apikey, ssl=False) as irack:
 
             try:
-                ret = irack.api.resource().resource.delete(res)
-                LOG.debug("Checkin HTTP status: %s", ret.status)
+                ret = irack.api.from_uri(res).delete()
+                LOG.debug("Checkin HTTP status: %s", ret.response.status)
             except:
                 LOG.error("Exception occured while deleting reservation")

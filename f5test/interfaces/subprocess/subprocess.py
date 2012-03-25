@@ -344,7 +344,7 @@ mswindows = (sys.platform == u"win32")
 import io
 import os
 import time
-import traceback
+#import traceback
 import gc
 import signal
 import __builtin__
@@ -399,7 +399,7 @@ else:
     _has_poll = hasattr(select, u'poll')
     import errno
     import fcntl
-    import pickle
+#    import pickle
 
     try:
         import _posixsubprocess
@@ -436,7 +436,7 @@ __all__ = [u"Popen", u"PIPE", u"STDOUT", u"call", u"check_call", u"getstatusoutp
            u"getoutput", u"check_output", u"CalledProcessError", u"DEVNULL"]
 
 if mswindows:
-    from _subprocess import CREATE_NEW_CONSOLE, CREATE_NEW_PROCESS_GROUP
+    from _subprocess import CREATE_NEW_CONSOLE, CREATE_NEW_PROCESS_GROUP #@UnresolvedImport @UnusedImport
     __all__.extend([u"CREATE_NEW_CONSOLE", u"CREATE_NEW_PROCESS_GROUP"])
 try:
     MAXFD = os.sysconf(u"SC_OPEN_MAX")
@@ -742,11 +742,11 @@ class Popen(object):
 
         if mswindows:
             if p2cwrite != -1:
-                p2cwrite = msvcrt.open_osfhandle(p2cwrite.Detach(), 0)
+                p2cwrite = msvcrt.open_osfhandle(p2cwrite.Detach(), 0) #@UndefinedVariable
             if c2pread != -1:
-                c2pread = msvcrt.open_osfhandle(c2pread.Detach(), 0)
+                c2pread = msvcrt.open_osfhandle(c2pread.Detach(), 0) #@UndefinedVariable
             if errread != -1:
-                errread = msvcrt.open_osfhandle(errread.Detach(), 0)
+                errread = msvcrt.open_osfhandle(errread.Detach(), 0) #@UndefinedVariable
 
         if p2cwrite != -1:
             self.stdin = io.open(p2cwrite, u'wb', bufsize)
@@ -787,7 +787,7 @@ class Popen(object):
     def __enter__(self):
         return self
 
-    def __exit__(self, type, value, traceback):
+    def __exit__(self, type, value, traceback): #@ReservedAssignment
         if self.stdout:
             self.stdout.close()
         if self.stderr:
@@ -810,7 +810,7 @@ class Popen(object):
             self._devnull = os.open(os.devnull, os.O_RDWR)
         return self._devnull
 
-    def communicate(self, input=None, timeout=None):
+    def communicate(self, input=None, timeout=None): #@ReservedAssignment
         u"""Interact with process: Send data to stdin.  Read data from
         stdout and stderr, until end-of-file is reached.  Wait for
         process to terminate.  The optional input argument should be a
@@ -852,7 +852,7 @@ class Popen(object):
         finally:
             self._communication_started = True
 
-        sts = self.wait(timeout=self._remaining_time(endtime))
+        self.wait(timeout=self._remaining_time(endtime))
 
         return (stdout, stderr)
 
@@ -893,50 +893,50 @@ class Popen(object):
             errread, errwrite = -1, -1
 
             if stdin is None:
-                p2cread = _subprocess.GetStdHandle(_subprocess.STD_INPUT_HANDLE)
+                p2cread = _subprocess.GetStdHandle(_subprocess.STD_INPUT_HANDLE) #@UndefinedVariable
                 if p2cread is None:
-                    p2cread, _ = _subprocess.CreatePipe(None, 0)
+                    p2cread, _ = _subprocess.CreatePipe(None, 0) #@UndefinedVariable
             elif stdin == PIPE:
-                p2cread, p2cwrite = _subprocess.CreatePipe(None, 0)
+                p2cread, p2cwrite = _subprocess.CreatePipe(None, 0) #@UndefinedVariable
             elif stdin == DEVNULL:
-                p2cread = msvcrt.get_osfhandle(self._get_devnull())
+                p2cread = msvcrt.get_osfhandle(self._get_devnull()) #@UndefinedVariable
             elif isinstance(stdin, int):
-                p2cread = msvcrt.get_osfhandle(stdin)
+                p2cread = msvcrt.get_osfhandle(stdin) #@UndefinedVariable
             else:
                 # Assuming file-like object
-                p2cread = msvcrt.get_osfhandle(stdin.fileno())
+                p2cread = msvcrt.get_osfhandle(stdin.fileno()) #@UndefinedVariable
             p2cread = self._make_inheritable(p2cread)
 
             if stdout is None:
-                c2pwrite = _subprocess.GetStdHandle(_subprocess.STD_OUTPUT_HANDLE)
+                c2pwrite = _subprocess.GetStdHandle(_subprocess.STD_OUTPUT_HANDLE) #@UndefinedVariable
                 if c2pwrite is None:
-                    _, c2pwrite = _subprocess.CreatePipe(None, 0)
+                    _, c2pwrite = _subprocess.CreatePipe(None, 0) #@UndefinedVariable
             elif stdout == PIPE:
-                c2pread, c2pwrite = _subprocess.CreatePipe(None, 0)
+                c2pread, c2pwrite = _subprocess.CreatePipe(None, 0) #@UndefinedVariable
             elif stdout == DEVNULL:
-                c2pwrite = msvcrt.get_osfhandle(self._get_devnull())
+                c2pwrite = msvcrt.get_osfhandle(self._get_devnull()) #@UndefinedVariable
             elif isinstance(stdout, int):
-                c2pwrite = msvcrt.get_osfhandle(stdout)
+                c2pwrite = msvcrt.get_osfhandle(stdout) #@UndefinedVariable
             else:
                 # Assuming file-like object
-                c2pwrite = msvcrt.get_osfhandle(stdout.fileno())
+                c2pwrite = msvcrt.get_osfhandle(stdout.fileno()) #@UndefinedVariable
             c2pwrite = self._make_inheritable(c2pwrite)
 
             if stderr is None:
-                errwrite = _subprocess.GetStdHandle(_subprocess.STD_ERROR_HANDLE)
+                errwrite = _subprocess.GetStdHandle(_subprocess.STD_ERROR_HANDLE) #@UndefinedVariable
                 if errwrite is None:
-                    _, errwrite = _subprocess.CreatePipe(None, 0)
+                    _, errwrite = _subprocess.CreatePipe(None, 0) #@UndefinedVariable
             elif stderr == PIPE:
-                errread, errwrite = _subprocess.CreatePipe(None, 0)
+                errread, errwrite = _subprocess.CreatePipe(None, 0) #@UndefinedVariable
             elif stderr == STDOUT:
                 errwrite = c2pwrite
             elif stderr == DEVNULL:
-                errwrite = msvcrt.get_osfhandle(self._get_devnull())
+                errwrite = msvcrt.get_osfhandle(self._get_devnull()) #@UndefinedVariable
             elif isinstance(stderr, int):
-                errwrite = msvcrt.get_osfhandle(stderr)
+                errwrite = msvcrt.get_osfhandle(stderr) #@UndefinedVariable
             else:
                 # Assuming file-like object
-                errwrite = msvcrt.get_osfhandle(stderr.fileno())
+                errwrite = msvcrt.get_osfhandle(stderr.fileno()) #@UndefinedVariable
             errwrite = self._make_inheritable(errwrite)
 
             return (p2cread, p2cwrite,
@@ -946,15 +946,15 @@ class Popen(object):
 
         def _make_inheritable(self, handle):
             u"""Return a duplicate of handle, which is inheritable"""
-            return _subprocess.DuplicateHandle(_subprocess.GetCurrentProcess(),
-                                handle, _subprocess.GetCurrentProcess(), 0, 1,
-                                _subprocess.DUPLICATE_SAME_ACCESS)
+            return _subprocess.DuplicateHandle(_subprocess.GetCurrentProcess(), #@UndefinedVariable
+                                handle, _subprocess.GetCurrentProcess(), 0, 1, #@UndefinedVariable
+                                _subprocess.DUPLICATE_SAME_ACCESS) #@UndefinedVariable
 
 
         def _find_w9xpopen(self):
             u"""Find and return absolut path to w9xpopen.exe"""
             w9xpopen = os.path.join(
-                            os.path.dirname(_subprocess.GetModuleFileName(0)),
+                            os.path.dirname(_subprocess.GetModuleFileName(0)), #@UndefinedVariable
                                     u"w9xpopen.exe")
             if not os.path.exists(w9xpopen):
                 # Eeek - file-not-found - possibly an embedding
@@ -986,17 +986,17 @@ class Popen(object):
             if startupinfo is None:
                 startupinfo = STARTUPINFO()
             if -1 not in (p2cread, c2pwrite, errwrite):
-                startupinfo.dwFlags |= _subprocess.STARTF_USESTDHANDLES
+                startupinfo.dwFlags |= _subprocess.STARTF_USESTDHANDLES #@UndefinedVariable
                 startupinfo.hStdInput = p2cread
                 startupinfo.hStdOutput = c2pwrite
                 startupinfo.hStdError = errwrite
 
             if shell:
-                startupinfo.dwFlags |= _subprocess.STARTF_USESHOWWINDOW
-                startupinfo.wShowWindow = _subprocess.SW_HIDE
+                startupinfo.dwFlags |= _subprocess.STARTF_USESHOWWINDOW #@UndefinedVariable
+                startupinfo.wShowWindow = _subprocess.SW_HIDE #@UndefinedVariable
                 comspec = os.environ.get(u"COMSPEC", u"cmd.exe")
                 args = u'{} /c "{}"'.format (comspec, args)
-                if (_subprocess.GetVersion() >= 0x80000000 or
+                if (_subprocess.GetVersion() >= 0x80000000 or #@UndefinedVariable
                         os.path.basename(comspec).lower() == u"command.com"):
                     # Win9x, or using command.com on NT. We need to
                     # use the w9xpopen intermediate program. For more
@@ -1010,11 +1010,11 @@ class Popen(object):
                     # use at xxx" and a hopeful warning about the
                     # stability of your system.  Cost is Ctrl+C won't
                     # kill children.
-                    creationflags |= _subprocess.CREATE_NEW_CONSOLE
+                    creationflags |= _subprocess.CREATE_NEW_CONSOLE #@UndefinedVariable
 
             # Start the process
             try:
-                hp, ht, pid, tid = _subprocess.CreateProcess(executable, args,
+                hp, ht, pid, _ = _subprocess.CreateProcess(executable, args, #@UndefinedVariable
                                          # no special security
                                          None, None,
                                          int(not close_fds),
@@ -1027,7 +1027,7 @@ class Popen(object):
                 # a subclass of OSError.  FIXME: We should really
                 # translate errno using _sys_errlist (or similar), but
                 # how can this be done from Python?
-                raise WindowsError(*e.args)
+                raise WindowsError(*e.args) #@UndefinedVariable
             finally:
                 # Child is launched. Close the parent's copy of those pipe
                 # handles that only the child should have open.  You need
@@ -1051,9 +1051,9 @@ class Popen(object):
             ht.Close()
 
         def _internal_poll(self, _deadstate=None,
-                _WaitForSingleObject=_subprocess.WaitForSingleObject,
-                _WAIT_OBJECT_0=_subprocess.WAIT_OBJECT_0,
-                _GetExitCodeProcess=_subprocess.GetExitCodeProcess):
+                _WaitForSingleObject=_subprocess.WaitForSingleObject, #@UndefinedVariable
+                _WAIT_OBJECT_0=_subprocess.WAIT_OBJECT_0, #@UndefinedVariable
+                _GetExitCodeProcess=_subprocess.GetExitCodeProcess): #@UndefinedVariable
             u"""Check if child process has terminated.  Returns returncode
             attribute.
 
@@ -1073,24 +1073,24 @@ class Popen(object):
             if endtime is not None:
                 timeout = self._remaining_time(endtime)
             if timeout is None:
-                timeout_millis = _subprocess.INFINITE
+                timeout_millis = _subprocess.INFINITE #@UndefinedVariable
             else:
                 timeout_millis = int(timeout * 1000)
             if self.returncode is None:
-                result = _subprocess.WaitForSingleObject(self._handle,
+                result = _subprocess.WaitForSingleObject(self._handle, #@UndefinedVariable
                                                          timeout_millis)
-                if result == _subprocess.WAIT_TIMEOUT:
+                if result == _subprocess.WAIT_TIMEOUT: #@UndefinedVariable
                     raise TimeoutExpired(self.args, timeout)
-                self.returncode = _subprocess.GetExitCodeProcess(self._handle)
+                self.returncode = _subprocess.GetExitCodeProcess(self._handle) #@UndefinedVariable
             return self.returncode
 
 
-        def _readerthread(self, fh, buffer):
+        def _readerthread(self, fh, buffer): #@ReservedAssignment
             buffer.append(fh.read())
             fh.close()
 
 
-        def _communicate(self, input, endtime, orig_timeout):
+        def _communicate(self, input, endtime, orig_timeout): #@ReservedAssignment
             # Start reader threads feeding into a list hanging off of this
             # object, unless they've already been started.
             if self.stdout and not hasattr(self, u"_stdout_buff"):
@@ -1149,17 +1149,17 @@ class Popen(object):
             """
             if sig == signal.SIGTERM:
                 self.terminate()
-            elif sig == signal.CTRL_C_EVENT:
-                os.kill(self.pid, signal.CTRL_C_EVENT)
-            elif sig == signal.CTRL_BREAK_EVENT:
-                os.kill(self.pid, signal.CTRL_BREAK_EVENT)
+            elif sig == signal.CTRL_C_EVENT: #@UndefinedVariable
+                os.kill(self.pid, signal.CTRL_C_EVENT) #@UndefinedVariable
+            elif sig == signal.CTRL_BREAK_EVENT: #@UndefinedVariable
+                os.kill(self.pid, signal.CTRL_BREAK_EVENT) #@UndefinedVariable
             else:
                 raise ValueError(u"Unsupported signal: {}".format(sig))
 
         def terminate(self):
             u"""Terminates the process
             """
-            _subprocess.TerminateProcess(self._handle, 1)
+            _subprocess.TerminateProcess(self._handle, 1) #@UndefinedVariable
 
         kill = terminate
 
@@ -1264,18 +1264,18 @@ class Popen(object):
                         # and pass it to fork_exec()
 
                         if env:
-                            env_list = [os.fsencode(k) + '=' + os.fsencode(v)
+                            env_list = [os.fsencode(k) + '=' + os.fsencode(v) #@UndefinedVariable
                                         for k, v in env.items()]
                         else:
                             env_list = None  # Use execv instead of execve.
-                        executable = os.fsencode(executable)
+                        executable = os.fsencode(executable) #@UndefinedVariable
                         if os.path.dirname(executable):
                             executable_list = (executable,)
                         else:
                             # This matches the behavior of os._execvpe().
                             executable_list = tuple(
-                                os.path.join(os.fsencode(dir), executable)
-                                for dir in os.get_exec_path(env))
+                                os.path.join(os.fsencode(dir), executable) #@UndefinedVariable
+                                for dir in os.get_exec_path(env)) #@UndefinedVariable @ReservedAssignment
                         fds_to_keep = set(pass_fds)
                         fds_to_keep.add(errpipe_write)
                         self.pid = _posixsubprocess.fork_exec(
@@ -1528,7 +1528,7 @@ class Popen(object):
             return self.returncode
 
 
-        def _communicate(self, input, endtime, orig_timeout):
+        def _communicate(self, input, endtime, orig_timeout): #@ReservedAssignment
             if self.stdin and not self._communication_started:
                 # Flush stdio buffer.  This might block, if the user has
                 # been writing to .stdin in an uncontrolled fashion.
@@ -1564,7 +1564,7 @@ class Popen(object):
             return (stdout, stderr)
 
 
-        def _communicate_with_poll(self, input, endtime, orig_timeout):
+        def _communicate_with_poll(self, input, endtime, orig_timeout): #@ReservedAssignment
             stdout = None # Return
             stderr = None # Return
 
@@ -1639,7 +1639,7 @@ class Popen(object):
             return (stdout, stderr)
 
 
-        def _communicate_with_select(self, input, endtime, orig_timeout):
+        def _communicate_with_select(self, input, endtime, orig_timeout): #@ReservedAssignment
             if not self._communication_started:
                 self._read_set = []
                 self._write_set = []

@@ -3,6 +3,7 @@ from .config import ConfigInterface
 from .selenium import SeleniumInterface
 from .ssh import SSHInterface
 from .icontrol import IcontrolInterface, EMInterface
+from .rest import RestInterface
 
 
 class InterfaceHelper(object):
@@ -19,6 +20,7 @@ class InterfaceHelper(object):
     """
     def _setup(self, name, ifcs=None):
         config = ConfigInterface().open()
+        config.setdefault('_attrs', Options())
         
         self.ifcs = ifcs
         self._apis = {}
@@ -95,6 +97,9 @@ class InterfaceHelper(object):
 
     def get_em(self, *args, **kwargs):
         return self.get_interface(EMInterface, *args, **kwargs)
+
+    def get_rest(self, *args, **kwargs):
+        return self.get_interface(RestInterface, *args, **kwargs)
 
 
 class InterfaceTestCase(InterfaceHelper, TestCase):

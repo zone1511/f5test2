@@ -101,7 +101,7 @@ vlan:
         }
 
     # Viprions need the cluster number
-    cluster: |
+    puma1: |
         net vlan internal {
             tag 4094
             interfaces {
@@ -112,6 +112,20 @@ vlan:
             tag 4093
             interfaces {
                 1/2.2 { }
+            }
+        }
+
+    puma2: |
+        net vlan internal {
+            tag 4094
+            interfaces {
+                1/1.1 { }
+            }
+        }
+        net vlan external {
+            tag 4093
+            interfaces {
+                1/1.2 { }
             }
         }
 
@@ -126,6 +140,19 @@ self: |
             tcp:443
         }
     }
+    net self int_6 {
+        address %(self.int_ip6.addr)s/%(self.int_ip6.prefix)s
+        vlan internal
+        allow-service default
+    }
+    net self ext_6 {
+        address %(self.ext_ip6.addr)s/%(self.ext_ip6.prefix)s
+        vlan external
+        allow-service {
+            tcp:443
+        }
+    }
+
 
 stp: |
     # no stp config
@@ -153,6 +180,7 @@ dns:
         - 172.27.2.1
     search:
         - mgmt.pdsea.f5net.com
+        - f5net.com
     
     template: |
         sys dns {
@@ -192,6 +220,17 @@ failover: |
     sys config-sync {
         auto-detect enabled
         user-password-encrypted ".TAEEjeouF9XL:^*H;7T0,a8>9fY8CdK=bWgBM@lWJV.fpW"
+    }
+
+# XXX: This is not really used. To setup HA use CMI.
+self floating: |
+    net self int_floating {
+        address %(self.int_floating.addr)s/%(self.int_floating.prefix)s
+        vlan internal
+        allow-service default
+        floating enabled
+        traffic-group traffic-group-1
+        unit 1
     }
 
 system:
@@ -648,28 +687,6 @@ profiles:
                defaults-from sctp
             }
 
-    connectivity:
-    # XXX: Immature feature in 10.3.0. Disable it for now.
-        min version: 11.1.0
-        text: |
-            ltm profile connectivity myconnectivity {
-               defaults-from connectivity
-            }
-
-    webtop:
-    # XXX: Immature feature in 10.3.0. Disable it for now.
-    # 0107127c:3: customization group (mywebtop_na_customization) in webtop (mywebtop_na) does not exists.
-        min version: 11.1.0
-        text: |
-            webtop mywebtop_na {
-               customization group mywebtop_na_customization
-            }
-            webtop mywebtop_wa {
-               web applications start uri "http://foo.net"
-               customization group mywebtop_wa_customization
-            }
-
-
     auth-ocsp:
     # XXX: 9.3.1 has a buggy "auth ocsp" scheme. Disable all profiles.
         min version: 9.4.3
@@ -747,7 +764,7 @@ profiles:
         text: |
             ltm auth ssl-crldp mycrldp_config {}
             ltm auth profile mycrldp {
-               defaults-from tacacs
+               defaults-from ssl_crldp
                configuration mycrldp_config
                type ssl-crldp
                credential-source http-basic-auth
@@ -798,6 +815,7 @@ profiles:
     rate class:
     # XXX: 10.0.1 supports it but it has a BUG
         min version: 10.1.0
+        max version: 11.0.0
         text: |
             net rate-shaping class myshape_fred {
                 ceiling 500kbps
@@ -852,6 +870,7 @@ profiles:
         text: |
             ltm nat 1.1.1.4 {
                 originating-address 2.1.1.1
+                translation-address 1.1.1.4
             }
 
     class:

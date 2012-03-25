@@ -1,5 +1,5 @@
 from ..DeviceClient import DeviceClient
-from ..MessageParser import Dictionary, Array, String
+from ..MessageParser import Dictionary, String
 
 class SwapDeviceAPI(DeviceClient):
 

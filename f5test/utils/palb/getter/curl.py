@@ -1,8 +1,12 @@
+from __future__ import absolute_import
 import sys
 import time
 import pycurl
 import logging
 from ..core import URLGetter, Result
+from dns.resolver import Resolver
+import dns
+import urlparse
 
 LOG = logging.getLogger(__name__)
 
@@ -23,9 +27,11 @@ class PyCurlURLGetter(URLGetter):
         self.c.setopt(pycurl.SSL_VERIFYPEER, 0)
         self.c.setopt(pycurl.NOSIGNAL, 1)
         self.headers = []
+        self.dns = None
+        self.resolver = Resolver(configure=False)
 
     def set_rate_limit(self, n):
-        self.c.setopt(pycurl.MAX_RECV_SPEED_LARGE, n)
+        self.c.setopt(pycurl.MAX_RECV_SPEED_LARGE, int(n))
 
     def set_headers(self, h):
         self.headers = h
@@ -37,6 +43,9 @@ class PyCurlURLGetter(URLGetter):
     def set_timeout(self, n):
         LOG.debug('%s set_timeout %d', self._Thread__name, n)
         self.c.setopt(pycurl.TIMEOUT, int(n))
+
+    def set_dns(self, dns):
+        self.dns = dns
 
     def set_keepalive(self, f):
         if f:
@@ -52,6 +61,22 @@ class PyCurlURLGetter(URLGetter):
         self.c.close()
 
     def get_url(self, url):
+        if self.dns:
+            self.resolver.nameservers = [self.dns]
+            u = urlparse.urlparse(url)
+            qname = u.hostname
+            answer = self.resolver.query(qname, rdtype=dns.rdatatype.A,
+                                    rdclass=dns.rdataclass.IN, tcp=False,
+                                    source=None, raise_on_no_answer=False)
+            if answer.response.answer:
+                ip = answer.response.answer[0].items[0].address
+                if u.port:
+                    netloc = '%s:%d' % (ip, u.netloc.split(':')[1])
+                else:
+                    netloc = ip
+                url = urlparse.urlunsplit((u[0], netloc, u[2], u[3], u[4]))
+                self.c.setopt(pycurl.HTTPHEADER, self.headers + ['Host: %s' % qname])
+
         url = str(url)
         self.c.setopt(pycurl.URL, url)
         try:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-from f5test.macros.base import Macro
+from f5test.macros.base import Macro, MacroError
 from f5test.base import Options
 from f5test.interfaces.config import ConfigInterface
 from f5test.interfaces.icontrol import IcontrolInterface, EMInterface
@@ -122,7 +122,7 @@ class InstallSoftware(Macro):
             SCMD.ssh.FileExists('/var/run/grub.conf.lock', ifc=ssh).run_wait(lambda x:x is False,
                                                  progress_cb=lambda x:'grub.lock still running...',
                                                  timeout=60)
-            version = SCMD.ssh.get_version(ifc=ssh, _no_cache=True)
+            version = SCMD.ssh.get_version(ifc=ssh)
         finally:
             ssh.close()
         return version
@@ -157,10 +157,10 @@ class InstallSoftware(Macro):
             version = SCMD.ssh.get_version(ifc=sshifc)
             LOG.info('running on %s', version)
             
-            if not essential and abs(iso_version) < abs(version):
+            if not essential and iso_version < version or \
+               iso_version.product != version.product:
                 LOG.warning('Enforcing --esential-config')
                 essential = True
-                #raise ValueError('Must use --essential-config')
             
             #XXX: Image checksum is not verified!!
             if (not base in ssh.run('ls ' + SHARED_IMAGES).stdout.split()):
@@ -173,11 +173,11 @@ class InstallSoftware(Macro):
             filename = os.path.join(SHARED_IMAGES, base)
             
             if self.options.format_volumes:
-                format = 'lvm'
+                fmt = 'lvm'
             elif self.options.format_partitions:
-                format = 'partitions'
+                fmt = 'partitions'
             else:
-                format = None
+                fmt = None
             
             def log_progress(stdout, stderr):
                 output = ''
@@ -197,7 +197,7 @@ class InstallSoftware(Macro):
             volume = get_inactive_volume(audit)
             LOG.info('Installing %s on %s...', iso_version, volume)
             SCMD.ssh.install_software(version=version, ifc=sshifc, 
-                                      repository=filename, format=format, 
+                                      repository=filename, format=fmt, 
                                       essential=essential, volume=volume, 
                                       progress_cb=log_progress,
                                       reboot=reboot,
@@ -220,7 +220,7 @@ class InstallSoftware(Macro):
                                    password=self.options.root_password)
 
             with ssh:
-                version = SCMD.ssh.get_version(ifc=ssh, _no_cache=True)
+                version = SCMD.ssh.get_version(ifc=ssh)
                 LOG.info('running on %s', version)
                 if reboot:
                     audit = SCMD.ssh.audit_software(version=version, ifc=ssh)
@@ -287,7 +287,7 @@ class InstallSoftware(Macro):
 
         LOG.debug('running: %s', version)
         essential = self.options.essential_config
-        if not essential and abs(iso_version) < abs(version):
+        if not essential and iso_version < version:
             LOG.warning('Enforcing --esential-config')
             essential = True
         
@@ -363,7 +363,9 @@ class InstallSoftware(Macro):
 
         def is_still_installing(items):
             return len(filter(lambda x: x['status'].startswith('installing') or \
-                                        x['status'] in ('audited', 'auditing'), 
+                                        x['status'].startswith('waiting') or \
+                                        x['status'] in ('audited', 'auditing',
+                                                        'upgrade needed'), 
                               items)) == 0
 
         volumes = ICMD.software.get_software_status(ifc=icifc)
@@ -385,7 +387,8 @@ class InstallSoftware(Macro):
                      .run_wait(is_still_installing,
                                # CAVEAT: tracks progress only for the first blade
                                progress_cb=lambda x:x[0]['status'],
-                               timeout=timeout)
+                               timeout=timeout,
+                               stabilize=5)
 
         LOG.info('Resetting the global DB vars...')
         ic.Management.DBVariable.modify(variables=[
@@ -456,7 +459,7 @@ class InstallSoftware(Macro):
                               progress_cb=lambda x:'grub.lock still present...',
                               timeout=60)
 
-        current_version = ICMD.system.get_version(ifc=icifc, build=True, _no_cache=True)
+        current_version = ICMD.system.get_version(ifc=icifc, build=True)
         expected_version = hfiso_version or iso_version
         try:
             if expected_version != current_version:
@@ -519,10 +522,16 @@ class InstallSoftware(Macro):
         else:
             hfiso = None
 
-        icifc = IcontrolInterface(address=self.address,
-                                  username=self.options.admin_username,
-                                  password=self.options.admin_password)
-        version = ICMD.system.get_version(ifc=icifc)
+        if self.options.format_partitions or self.options.format_volumes:
+            with SSHInterface(address=self.address,
+                              username=self.options.root_username,
+                              password=self.options.root_password) as sshifc:
+                version = SCMD.ssh.get_version(ifc=sshifc)
+        else:
+            with IcontrolInterface(address=self.address,
+                                   username=self.options.admin_username,
+                                   password=self.options.admin_password) as icifc:
+                version = ICMD.system.get_version(ifc=icifc)
 
         if (iso_version.product.is_bigip and iso_version >= 'bigip 10.0.0' or
             iso_version.product.is_em and iso_version >= 'em 2.0.0'):
@@ -560,17 +569,13 @@ class EMInstallSoftware(Macro):
     def __init__(self, devices, options, *args, **kwargs):
         self.devices = devices
         self.options = Options(options)
-        self.options.setdefault('admin_username', ADMIN_USERNAME)
-        self.options.setdefault('admin_password', ADMIN_PASSWORD)
-        self.options.setdefault('root_username', ROOT_USERNAME)
-        self.options.setdefault('root_password', ROOT_PASSWORD)
         self.options.setdefault('build_path', cm.ROOT_PATH)
 
-        LOG.info('Using EM: %s', options.em_address)
         super(EMInstallSoftware, self).__init__(*args, **kwargs)
 
     def by_api(self):
         o = self.options
+        timeout = max(o.timeout, 600)
 
         identifier = self.options.pversion
         build = self.options.pbuild
@@ -615,6 +620,12 @@ class EMInstallSoftware(Macro):
 #                version.product.is_em and version >= 'em 2.0.0'):
 #                raise VersionNotSupported('Downgrading to legacy software is not supported.')
             
+            status = SCMD.ssh.get_prompt(ifc=ssh)
+            if status in ['LICENSE EXPIRED', 'REACTIVATE LICENSE']:
+                SCMD.ssh.relicense(ifc=ssh)
+            elif status in ['LICENSE INOPERATIVE', 'NO LICENSE']:
+                raise MacroError('Device at %s needs to be licensed.' % ssh)
+                
             reachable_devices = [x['access_address'] for x in 
                                     EMSQL.device.get_reachable_devices(ifc=ssh)]
             for x in self.devices:
@@ -627,14 +638,14 @@ class EMInstallSoftware(Macro):
                 uid = EMAPI.device.discover(to_discover, ifc=emifc)
                 task = EMSQL.device.GetDiscoveryTask(uid, ifc=ssh) \
                             .run_wait(lambda x: x['status'] != 'started',
-                                      timeout=300,
+                                      timeout=timeout,
                                       progress_cb=lambda x:'discovery: %d%%' % x.progress_percent)
                 assert task['error_count'] == 0, 'Discovery failed: %s' % task
             targets = []
             for device in self.devices:
                 mgmtip = device.address
                 version = EMSQL.device.get_device_version(mgmtip, ifc=ssh)
-                if not o.essential_config and abs(iso_version) < abs(version):
+                if not o.essential_config and iso_version < version:
                     LOG.warning('Enforcing --esential-config')
                     o.essential_config = True
 
@@ -685,8 +696,8 @@ class EMInstallSoftware(Macro):
             EMSQL.software.get_hotfix_list(ifc=ssh)
 
             all_mgmtips = [x.address for x in self.devices]
-            EMSQL.device.CountPendingTasks(all_mgmtips, ifc=ssh) \
-                        .run_wait(lambda x: x == 0, timeout=300,
+            EMSQL.device.CountActiveTasks(all_mgmtips, ifc=ssh) \
+                        .run_wait(lambda x: x == 0, timeout=timeout,
                                   progress_cb=lambda x:'waiting for other tasks')
 
             LOG.info('Installing %s...', iso_version)
@@ -696,6 +707,10 @@ class EMInstallSoftware(Macro):
                                     progress_cb=lambda x:'install: %d%%' % x.progress_percent,
                                     timeout=max(o.timeout, 1800))
         
+        LOG.info('Deleting %d device(s)...', len(targets))
+        EMAPI.device.delete(uids=[x['device_uid'] for x in targets], ifc=emifc)
+        emifc.close()
+
         messages = []
         for d in ret['details']:
             if int(d['error_code']):
@@ -705,7 +720,7 @@ class EMInstallSoftware(Macro):
         if messages:
             raise InstallFailed('Install did not succeed: %s' % 
                                 ', '.join(messages))
-        emifc.close()
+
         return ret
 
     def setup(self):

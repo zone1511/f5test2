@@ -13,7 +13,7 @@ import logging
 
 
 DISPLAY = ':99'
-SELENIUM_JAR = 'selenium-server-standalone-2.2.0.jar'
+SELENIUM_JAR = 'selenium-server-standalone.jar'
 LOG = logging.getLogger(__name__)
 __version__ = '0.1'
 
@@ -91,7 +91,7 @@ class SeleniumRC(Macro):
                     LOG.error('Selenium pid file exists: %s Stop first or use --force to override.', params.xvfb_pid_file)
                     return
 
-                proc = shell.api.run('Xvfb -ac -extension GLX +render %(display)s' % params, 
+                proc = shell.api.run('Xvfb -ac -extension GLX +render %(display)s -screen 0 1366x768x24' % params, 
                                      env=env, fork=True,
                                      stream=open(params.xvfb_log_file, 'w'))
                 
@@ -150,6 +150,8 @@ def main():
                  help="Don't start Xvfb.")
     p.add_option("", "--no-selenium", action="store_true",
                  help="Don't start Selenium Server.")
+    p.add_option("", "--force", action="store_true",
+                 help="Overwrite pid files.")
 
     options, args = p.parse_args()
 

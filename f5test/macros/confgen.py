@@ -1,17 +1,19 @@
 #!/usr/bin/env python
 from f5test.interfaces.ssh import SSHInterface
 from f5test.interfaces.config import ConfigInterface
-from f5test.interfaces.irack import IrackInterface
+from f5test.interfaces.rest.irack import IrackInterface
 from f5test.commands.shell import bigpipe as BIGPIPE
 from f5test.commands.shell import ssh as SSH
 import f5test.commands.shell as SCMD
 from f5test.utils.version import Version, Product
+from f5test.utils.net import ip4to6
 from f5test.macros.base import Macro
 from f5test.macros.webcert import WebCert
 from f5test.base import Options
 from f5test.defaults import ROOTCA_STORE, ADMIN_USERNAME, ROOT_USERNAME, ROOT_PASSWORD
 from pygraph.algorithms.accessibility import accessibility #@UnresolvedImport
 from pygraph.classes.graph import graph #@UnresolvedImport
+from IPy import IP
 import logging
 import os
 import socket
@@ -114,13 +116,13 @@ def merge(user, default):
 
 def extend(cwd, config):
     if isinstance(config.get('$extends'), list):
-        for file in config.get('$extends'):
-            file = os.path.join(cwd, file)
-            base_config = yaml.load(open(file, 'rb').read())
+        for filename in config.get('$extends'):
+            filename = os.path.join(cwd, filename)
+            base_config = yaml.load(open(filename, 'rb').read())
             config = merge(config, base_config)
     elif isinstance(config.get('$extends'), str):
-        file = os.path.join(cwd, config.get('$extends'))
-        base_config = yaml.load(open(file, 'rb').read())
+        filename = os.path.join(cwd, config.get('$extends'))
+        base_config = yaml.load(open(filename, 'rb').read())
         config = merge(config, base_config)
     return config
 
@@ -172,6 +174,7 @@ class ConfigGenerator(Macro):
         self.ip_base_ext = (0, 0)
         self._peer = {}
         self._hostname = None
+        self._ip = None
         self._platform = None
         self._product = None
         self._version = None
@@ -368,39 +371,58 @@ class ConfigGenerator(Macro):
         with IrackInterface(address=address,
                             timeout=timeout,
                             username=username,
-                            password=apikey) as irack:
+                            password=apikey, ssl=False) as irack:
             params = dict(address_set__address__in=mgmtip)
             # Locate the static bag for the F5Asset with mgmtip
             ret = irack.api.staticbag.filter(asset__type=1, **params)
             
-            if ret['meta']['total_count'] == 0:
+            if ret.data.meta.total_count == 0:
                 raise ConfigGeneratorError("No devices with mgmtip=%s found in iRack." % mgmtip)
-            if ret['meta']['total_count'] > 1:
+            if ret.data.meta.total_count > 1:
                 raise ConfigGeneratorError("More than one device with mgmtip=%s found in iRack." % mgmtip)
             
-            bag = ret['objects'][0]
+            bag = ret.data.objects[0]
             bagid = bag['id']
 
             # Get the hostname
             ret = irack.api.staticsystem.filter(bag=bagid)
-            assert ret['meta']['total_count'] == 1, "No StaticSystem entries for bagid=%s" % bagid
-            hostname = ret['objects'][0]['hostname']
+            assert ret.data.meta.total_count == 1, "No StaticSystem entries for bagid=%s" % bagid
+            hostname = ret.data.objects[0]['hostname']
             data['hostname'] = hostname
 
             # Get all reg_keys
             ret = irack.api.staticlicense.filter(bag=bagid)
-            assert ret['meta']['total_count'] >= 1, "No StaticLicense entries for bagid=%s" % bagid
+            assert ret.data.meta.total_count >= 1, "No StaticLicense entries for bagid=%s" % bagid
             data['licenses'] = {}
-            data['licenses']['reg_key'] = [x['reg_key'] for x in ret['objects']]
+            data['licenses']['reg_key'] = [x['reg_key'] for x in ret.data.objects]
 
             # Get all VLAN -> self IPs pairs
             ret = irack.api.staticaddress.filter(bag=bagid, type=1)
-            assert ret['meta']['total_count'] >= 1, "No StaticAddress entries for bagid=%s" % bagid
+            assert ret.data.meta.total_count >= 1, "No StaticAddress entries for bagid=%s" % bagid
             data['selfip'] = {}
-            for o in ret['objects']:
+            for o in ret.data.objects:
                 vlan = o['vlan'].split('/')[-1]
-                data['selfip'][vlan] = dict(address=o['address'], 
-                                            netmask=o['netmask'])
+                # TODO: IPv6 support...someday?
+                if IP(o['address']).version() == 4 \
+                   and not int(o['floating']):
+                    data['selfip'][vlan] = dict(address=o['address'], 
+                                                netmask=o['netmask'])
+
+            # Get all mgmt ips
+            ret = irack.api.staticaddress.filter(bag=bagid, type=0)
+            assert ret.data.meta.total_count >= 1, "No StaticAddress entries for bagid=%s" % bagid
+            data['mgmtip'] = {}
+            for o in ret.data.objects:
+                if IP(o['address']).version() == 4:
+                    data['mgmtip'] = dict(address=o['address'], 
+                                          netmask=o['netmask'])
+
+            # GW
+            ret = irack.api.staticaddress.filter(bag=bagid, type=3)
+            assert ret.data.meta.total_count >= 1, "No StaticAddress entries for bagid=%s" % bagid
+            for o in ret.data.objects:
+                if IP(o['address']).version() == 4:
+                    data['mgmtip']['gateway']=o['address']
 
         LOG.debug(data)
         return {mgmtip: data}
@@ -429,6 +451,7 @@ class ConfigGenerator(Macro):
         fqdn, _, ip_list = socket.gethostbyname_ex(self.address)
         ip = ip_list[0]
         ltm_label = ip.split('.')[3]
+        self._ip = ip
         
         # Lookup static values in iRack (if enabled).
         self.try_irack(ip)
@@ -442,7 +465,8 @@ class ConfigGenerator(Macro):
         elif self.options.get('hostname'):
             self._hostname = self.options['hostname']
         else:
-            if self.config.get('static') and self.config['static'][ip].get('hostname'):
+            if self.config.get('static') and self.config['static'].get(ip) and \
+            self.config['static'][ip].get('hostname'):
                 self._hostname = self.config['static'][ip]['hostname']
             else:
                 self._hostname = 'device%s-%s.test.net' % (ip.split('.')[2], 
@@ -456,7 +480,7 @@ class ConfigGenerator(Macro):
                     bits = prov.split(':', 1)
                     if len(bits) > 1:
                         module, level = bits
-                        assert level in ('minimum', 'nominal', 'maximum')
+                        assert level in ('minimum', 'nominal', 'dedicated')
                     else:
                         module = bits[0]
                         level = 'minimum'
@@ -481,12 +505,15 @@ class ConfigGenerator(Macro):
             bits = ret.stdout.split()
             p['ip'] = bits[1]
 
-            if self.options.get('peerbase'):
-                p['base_int'] = divmod(int(self.options['peerbase']), 256) 
+            if self.options.get('peer_selfip_internal'):
+                tmp = self.options['peer_selfip_internal'].split('.')
+                p['base_int'] = (int(tmp[2]), int(tmp[3]))
             else:
                 try:
                     tmp = self.config['static'][peer_ip]['selfip']['internal']['address'].split('.')
                     p['base_int'] = (int(tmp[2]), int(tmp[3]))
+                    tmp = self.config['static'][peer_ip]['selfip']['external']['address'].split('.')
+                    p['base_ext'] = (int(tmp[2]), int(tmp[3]))
                 except KeyError:
                     raise ValueError("Couldn't find a static entry for '%s'! "
                         "--selfip-internal and --selfip-external must be specified "
@@ -525,8 +552,9 @@ class ConfigGenerator(Macro):
             self.ip_base_ext = (int(tmp[2]), int(tmp[3]))
             self.formatter['EXTERNAL.A'] = int(tmp[0])
             self.formatter['EXTERNAL.B'] = int(tmp[1])
-            LOG.info('Internal selfIP: %s', self.options['selfip_internal'])
-            LOG.info('External selfIP: %s', self.options['selfip_external'])
+            
+            self.ip_int = self.options['selfip_internal']
+            self.ip_ext = self.options['selfip_external']
         else:
             try:
                 tmp = self.config['static'][ip]['selfip']['internal']['address'].split('.')
@@ -537,11 +565,15 @@ class ConfigGenerator(Macro):
                 self.ip_base_ext = (int(tmp[2]), int(tmp[3]))
                 self.formatter['EXTERNAL.A'] = int(tmp[0])
                 self.formatter['EXTERNAL.B'] = int(tmp[1])
-                LOG.info('Internal selfIP: %s', self.config['static'][ip]['selfip']['internal']['address'])
-                LOG.info('External selfIP: %s', self.config['static'][ip]['selfip']['external']['address'])
+
+                self.ip_int = self.config['static'][ip]['selfip']['internal']['address']
+                self.ip_ext = self.config['static'][ip]['selfip']['external']['address']
             except KeyError:
                 raise ValueError("Couldn't find a static entry for '%s'! "
                     "--selfip-internal and --selfip-external must be specified" % ip)
+
+        LOG.info('Internal selfIP: %s', self.ip_int)
+        LOG.info('External selfIP: %s', self.ip_ext)
 
         self.ssh = SSHInterface(address=self.address, password=passwd, 
                                timeout=self.options['timeout'])
@@ -585,8 +617,7 @@ class ConfigGenerator(Macro):
             self.can_not_raum = True
 
         # Only solstice-em EM 3.0 needs the new tmsh-style configuration.
-        if (self._product.is_em and self._version >= 'em 3.0.0' and 
-            self._project == 'solstice-em') \
+        if (self._product.is_em and self._version >= 'em 3.0.0') \
         or (self._product.is_bigip and self._version >= 'bigip 11.0.0'):
             self.can_tmsh = True
             self.can_folders = True
@@ -596,7 +627,8 @@ class ConfigGenerator(Macro):
         #if (self._product.is_em and self._version < 'em 3.0.1'):
         #    self.can_folders = False
 
-        if self._platform in ['A100', 'A101', 'A107', 'A111']:
+        #if self._platform in ['A100', 'A101', 'A107', 'A111']:
+        if self._platform.startswith('A'):
             self.can_cluster = True
 
     def pick_configuration(self):
@@ -648,14 +680,16 @@ class ConfigGenerator(Macro):
         formatter = self.formatter
 
         licensed_modules = self._modules
-
-        for key, value in base.get(product, {}).items():
-            if not licensed_modules.get(m2l[key]):
-                LOG.warning('%s not licensed on this target' % m2l[key])
-                #continue
-            formatter['provision.key'] = key
-            formatter['provision.level'] = value
-            self.f_base.write(tmpl % formatter)
+        is_dedicated = bool(filter(lambda x:x[1]=='dedicated', self.prov))
+        
+        if not is_dedicated:
+            for key, value in base.get(product, {}).items():
+                if not licensed_modules.get(m2l[key]):
+                    LOG.warning('%s not licensed on this target' % m2l[key])
+                    #continue
+                formatter['provision.key'] = key
+                formatter['provision.level'] = value
+                self.f_base.write(tmpl % formatter)
 
         if self.prov:
             for module, level in self.prov:
@@ -677,6 +711,15 @@ class ConfigGenerator(Macro):
     def print_mgmt(self):
         tmpl = self.config['mgmt']
         formatter = self.formatter
+        
+        mgmtip = self.config['static'][self._ip].get('mgmtip')
+        if mgmtip:
+            formatter['ltm.ip'] = mgmtip['address']
+            formatter['ltm.netmask'] = mgmtip['netmask']
+            formatter['ltm.gateway'] = mgmtip['gateway']
+            self.f_base.write(tmpl % formatter)
+            return
+
         if self.can_tmsh:
             ret = self.call('tmsh list sys management-ip')
             bits = ret.stdout.split()
@@ -723,8 +766,10 @@ class ConfigGenerator(Macro):
         root = self.config['vlan']
         formatter = self.formatter
 
-        if self.can_cluster:
-            tmpl = root['cluster']
+        if self._platform in ['A100']:
+            tmpl = root['puma1']
+        elif self._platform in ['A107', 'A109']:
+            tmpl = root['puma2']
         elif self._platform in ['D84']:
             tmpl = root['D84']
         elif self._platform in ['D100', 'D41']:
@@ -743,6 +788,15 @@ class ConfigGenerator(Macro):
         formatter['self.ip_base_int.D'] = self.ip_base_int[1]
         formatter['self.ip_base_ext.C'] = self.ip_base_ext[0] 
         formatter['self.ip_base_ext.D'] = self.ip_base_ext[1]
+        
+        int_ip6 = ip4to6("%s/16" % self.ip_int)
+        ext_ip6 = ip4to6("%s/16" % self.ip_ext)
+        formatter['self.int_ip6.addr'] = str(int_ip6).split('/', 1)[0]
+        formatter['self.ext_ip6.addr'] = str(ext_ip6).split('/', 1)[0]
+        formatter['self.int_ip6.prefix'] = int_ip6.prefixlen()
+        formatter['self.ext_ip6.prefix'] = ext_ip6.prefixlen()
+        formatter['self.int_ip6.netmask'] = int_ip6.netmask()
+        formatter['self.ext_ip6.netmask'] = ext_ip6.netmask()
 
         self.f_base.write(tmpl % formatter)
 
@@ -825,13 +879,14 @@ class ConfigGenerator(Macro):
             return
         tmpl = self.config['failover']
         tmpl_nf = self.config['network failover']
+        tmpl_sf = self.config['self floating']
         formatter = self.formatter
 
         p = self._peer
-        formatter['self.ip_base.C'] = self.ip_base_int[0]
-        formatter['self.ip_base.D'] = self.ip_base_int[1]
         formatter['peer.ip_base_int.C'] = p['base_int'][0]
         formatter['peer.ip_base_int.D'] = p['base_int'][1]
+        formatter['peer.ip_base_ext.C'] = p['base_ext'][0]
+        formatter['peer.ip_base_ext.D'] = p['base_ext'][1]
         formatter['self.unit'] = p['unit']
         formatter['peer.ip'] = p['ip']
         LOG.debug('self.unit = %d', p['unit'])
@@ -840,6 +895,15 @@ class ConfigGenerator(Macro):
             self.f_base.write(tmpl % formatter)
             if self.can_net_failover:
                 self.f_base.write(tmpl_nf % formatter)
+            if self.options.get('selfip_floating'):
+                ip = IP(self.options['selfip_floating'])
+                if ip._prefixlen == 32:
+                    raise ValueError("Did you forget to append the prefix to the"
+                    "floating ip (e.g. /16)?")
+                formatter['self.int_floating.addr'] = str(ip).split('/', 1)[0]
+                formatter['self.int_floating.netmask'] = ip.netmask()
+                formatter['peer.ip'] = p['ip']
+                self.f_base.write(tmpl_sf % formatter)
         else:
             LOG.info('HA not supported on this target')
 
@@ -1092,28 +1156,26 @@ class ConfigGenerator(Macro):
         self._dump_graph()
 
     def handle_license(self):
-        sp = self.ssh.api
-
         ip = self.formatter['ltm.ip']
         try:
-            license = self.options.get('license') or \
+            lic = self.options.get('license') or \
                             self.config['static'][ip]['licenses']['reg_key'][0]
         except:
-            license = None
+            lic = None
         
-        if self._status in ['NO LICENSE'] and not license:
+        if self._status in ['NO LICENSE'] and not lic:
             raise Exception('The box needs to be relicensed first.'
                             'Provide --license <regkey>')
 
-        if license and \
+        if lic and \
         self._status in ['LICENSE INOPERATIVE', 'NO LICENSE']:
             LOG.info('Licensing...')
-            self.call('SOAPLicenseClient --verbose --basekey %s' % license)
+            self.call('SOAPLicenseClient --verbose --basekey %s' % lic)
             # We need to re-set the modules based on the new license 
             self._set_modules()
             # Tomcat doesn't like the initial licensing through CLI
             if self._product.is_em:
-                ret = sp.call('bigstart restart tomcat')
+                ret = self.call('bigstart restart tomcat')
 
         elif self._status in ['LICENSE EXPIRED', 'REACTIVATE LICENSE']:
             LOG.info('Re-Licensing...')
@@ -1173,9 +1235,10 @@ class ConfigGenerator(Macro):
 
     def ready_wait(self):
         LOG.info('Waiting for reconfiguration...')
+        timeout = self.options['timeout']
         SCMD.ssh.FileExists('/var/run/mprov.pid', ifc=self.ssh).run_wait(lambda x:x is False,
                                              progress_cb=lambda x:'mprov still running...',
-                                             timeout=180)
+                                             timeout=timeout)
 #        SCMD.ssh.FileExists('/var/run/grub.conf.lock', ifc=self.ssh).run_wait(lambda x:x is False,
 #                                             progress_cb=lambda x:'grub.lock still running...',
 #                                             timeout=60)
@@ -1183,14 +1246,34 @@ class ConfigGenerator(Macro):
             SCMD.ssh.FileExists('/var/lib/mysql/.moved.to.asmdbvol', 
                                 ifc=self.ssh).run_wait(lambda x:x,
                                                  progress_cb=lambda x:'ASWADB still not there...',
-                                                 timeout=120)
+                                                 timeout=timeout)
         # Wait for ASM config server to come up.
         if self.can_provision and self._is_asm:
             LOG.info('Waiting for ASM config server to come up...')
-            SCMD.ssh.Generic(r'netstat -anp|grep -c "9781.*0\.0\.0\.0:\*.*/perl"', 
+            SCMD.ssh.Generic(r'netstat -anp|grep "9781.*0\.0\.0\.0:\*.*/perl"|wc -l', 
                             ifc=self.ssh).run_wait(lambda x:int(x.stdout),
                                                    progress_cb=lambda x:'ASM cfg server not up...',
-                                                   timeout=120)
+                                                   timeout=timeout)
+        
+        LOG.info('Waiting for Active prompt...')
+        s = SCMD.ssh.GetPrompt(ifc=self.ssh).run_wait(lambda x:x in ('Active', 
+                                                                     'Standby', 
+                                                                     'ForcedOffline', 
+                                                                     'RESTART DAEMONS',
+                                                                     'REBOOT REQUIRED'),
+                                                  progress_cb=lambda x:'Still not active...',
+                                                  timeout=timeout)
+        
+        if s == 'RESTART DAEMONS':
+            LOG.info('Restarting daemons...')
+            self.call('bigstart restart')
+            SCMD.ssh.GetPrompt(ifc=self.ssh).run_wait(lambda x:x in ('Active', 
+                                                                     'Standby', 
+                                                                     'ForcedOffline'),
+                                                      progress_cb=lambda x:'Still not active...',
+                                                      timeout=timeout)
+        elif s == 'REBOOT REQUIRED':
+            LOG.warn('A manual reboot is required.')
 
         if SCMD.ssh.file_exists('/var/run/grub.conf.lock', ifc=self.ssh):
             self.ssh.api.remove('/var/run/grub.conf.lock')
@@ -1286,7 +1369,11 @@ class ConfigGenerator(Macro):
             # XXX: disable it again: for 362853
             if self.can_folders:
                 #self.call('bigstart restart devmgmtd')
-                self.call('tmsh delete cm trust-domain all')
+                #self.call('tmsh delete cm trust-domain all')
+                SCMD.ssh.Generic('tmsh delete cm trust-domain all', ifc=self.ssh).\
+                    run_wait(lambda x:x.status == 0,
+                             progress_cb=lambda x:'delete trust-domain retry...',
+                             timeout=60)
 
         elif self.can_scf:
             LOG.info('Copying the new SCF config')
@@ -1443,9 +1530,9 @@ def main(*args, **kwargs):
         p.add_option("", "--peer", metavar="HOST",
                      type="string",
                      help="Make an HA pair with this device")
-        p.add_option("", "--peerbase", metavar="X",
+        p.add_option("", "--peer-selfip-internal", metavar="IP",
                      type="string",
-                     help="Peer's base number")
+                     help="Peer self IP address for internal vlan.")
         p.add_option("", "--peerpassword", metavar="STRING",
                      type="string", default=DEFAULT_ROOT_PASSWORD,
                      help="Peer's SSH root password. (default: %s)" % DEFAULT_ROOT_PASSWORD)
@@ -1462,6 +1549,9 @@ def main(*args, **kwargs):
         p.add_option("", "--selfip-external", metavar="IP",
                      type="string",
                      help="Self IP address for external vlan.")
+        p.add_option("", "--selfip-floating", metavar="IP/PREFIX",
+                     type="string",
+                     help="Floating self IP address on the internal vlan for HA.")
         p.add_option("", "--provision", metavar="MODULE:[LEVEL],[MODULE:LEVEL]",
                      type="string",
                      help="Provision module list")
