@@ -18,3 +18,7 @@ class NullHandler(logging.Handler):
 
     def createLock(self):
         self.lock = None
+
+
+def _bool(val):
+    return str(val).upper() in ('1', 'T', 'TRUE', 'ON')

@@ -1,4 +1,3 @@
-#from nose.config import _bool
 from .base import EMCommand
 from ....base import Options
 

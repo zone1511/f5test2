@@ -114,8 +114,16 @@ class Failover(Macro):
                 if v.product.is_bigip and v < 'bigip 11.0':
                     raise NotImplemented('Not working for < 11.0')
                 
+                # In 11.2.0 the device cannot be renamed while it's in the Trust
+                v = icifc.version
+                if v.product.is_bigip and v >= 'bigip 11.2.0' or \
+                   v.product.is_em and v >= 'em 3.0.0':
+                    device_name = ic.Management.Device.get_local_device()
+                else:
+                    device_name = uuid.uuid4().hex
+
                 LOG.info('Resetting trust on %s...', device)
-                ic.Management.Trust.reset_all(device_object_name=uuid.uuid4().hex, #device.alias,
+                ic.Management.Trust.reset_all(device_object_name=device_name,
                                               keep_current_authority='false',
                                               authority_cert='',
                                               authority_key='')
@@ -136,6 +144,10 @@ class Failover(Macro):
             with IcontrolInterface(address=device.address, username=cred.username,
                                    password=cred.password) as icifc:
                 
+                v = icifc.version
+                if v.product.is_bigip and v >= 'bigip 11.2.0':
+                    continue
+
                 #if icifc.version.product.is_bigip and icifc.version < 'bigip 11.2':
                 ic = icifc.api
                 LOG.info('Working around BZ364939 on %s...', device)
@@ -204,7 +216,7 @@ class Failover(Macro):
         dgs = ic.Management.DeviceGroup.get_list()
 
         for reserved_group in RESERVED_GROUPS:
-            if reserved_group in dgs:
+            if '/Common/%s' % reserved_group in dgs:
                 dgs.remove('/Common/%s' % reserved_group)
         
         LOG.info('Removing groups %s on %s...', dgs, device)
@@ -329,7 +341,8 @@ class Failover(Macro):
             # BUG: BZ364939 (workaround restart tmm on all peers)
             # 01/22: Appears to work sometimes in 11.2 955.0
             self.do_BZ364939()
-            self.do_initial_sync(caicifc)
+            if self.options.sync:
+                self.do_initial_sync(caicifc)
                     
 
 def main():
@@ -361,6 +374,8 @@ def main():
                  help="Use only IPv6 self IPs as ConfigSync IPs.")
     p.add_option("-f", "--floatingip", metavar="IP/PREFIX", type="string", 
                  help="FLoating self IP for the default TG.")
+    p.add_option("-s", "--sync", action="store_true", default=False,
+                 help="Do the initial config sync.")
 
     p.add_option("-t", "--timeout", metavar="TIMEOUT", type="int", default=60,
                  help="Timeout. (default: 60)")

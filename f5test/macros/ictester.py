@@ -8,6 +8,7 @@ from f5test.base import Options
 from f5test.interfaces.icontrol import IcontrolInterface
 from f5test.defaults import ADMIN_PASSWORD, ADMIN_USERNAME
 import logging
+import re
 from pprint import pprint
 
 
@@ -36,7 +37,7 @@ class Ictester(Macro):
                 icifc.set_session(self.options.session)
             
             ic = icifc.api
-            method = self.params[0]
+            method = re.sub(r'[\./:]{1,2}', r'.', self.params[0])
 
             params = []
             for param in self.params[1:]:

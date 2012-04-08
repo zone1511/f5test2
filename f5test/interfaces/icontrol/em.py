@@ -57,6 +57,11 @@ class EmApi(object):
         from .empython.api.StatsAPI import StatsAPI
         return StatsAPI(self.icontrol)
 
+    def get_by_name(self, name):
+        module = __import__('empython.api.' + name, globals(), locals(), 
+                            [name], 1)
+        return module.__dict__[name](self.icontrol)
+
 
 class EMInterface(Interface):
     

@@ -144,8 +144,10 @@ class DeviceCloner(Macro):
         LOG.info('* Delete mode *')
         with SSHInterface(**self.emparams) as emsshifc:
             bpmgmt = self.bigipparams.address
-            devices = SQL.query("SELECT uid,access_address FROM device WHERE mgmt_address='%s';" % bpmgmt, ifc=emsshifc)
-            uids = [x.uid for x in devices]
+            devices = SQL.query("SELECT uid,access_address FROM device WHERE mgmt_address='%s';" % bpmgmt, 
+                                ifc=emsshifc)
+            clones = devices[1:]
+            uids = [x.uid for x in clones]
 
         with EMInterface(**self.emicparams) as emicifc:
             emapi = emicifc.api
@@ -158,13 +160,20 @@ class DeviceCloner(Macro):
                 LOG.warning(e)
 
         LOG.info('Deleting SelfIPs on %s...', bpmgmt)
-        self_ips = [x.access_address for x in devices]
+        self_ips = [x.access_address for x in clones]
         with IcontrolInterface(**self.bigipparams) as bigipicifc:
             ic = bigipicifc.api
             try:
                 ic.Networking.SelfIP.delete_self_ip(self_ips=self_ips)
             except IControlFault, e:
                 LOG.warning(e)
+        
+        LOG.info('Reauthenticating device...')
+        with EMInterface(**self.emicparams) as emicifc:
+            emapi = emicifc.api
+            emapi.discovery.reauthenticate(self.bigipparams.username,
+                                           self.bigipparams.password,
+                                           devices[0].uid)
     
     def do_refresh(self):
         LOG.info('* Refresh mode *')

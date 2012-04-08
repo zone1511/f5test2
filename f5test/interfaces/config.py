@@ -2,7 +2,7 @@ from ..base import Interface
 from ..defaults import ADMIN_PASSWORD, ADMIN_USERNAME, ROOT_PASSWORD, \
     ROOT_USERNAME
 from ..utils import net
-from nose.config import _bool
+from ..compat import _bool
 import logging
 import os
 import time

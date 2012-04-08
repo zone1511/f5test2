@@ -38,6 +38,7 @@ try:
                 'f5.cloner = f5test.macros.cloner:main',
                 'f5.ictester = f5test.macros.ictester:main',
                 'f5.trafficgen = f5test.macros.trafficgen:main',
+                'f5.trafficgen2 = f5test.macros.trafficgen2:main',
                 'f5.webcert = f5test.macros.webcert:main',
                 ],
             'nose.plugins.0.10': [
@@ -139,7 +140,6 @@ setup(
         'restkit',
         'selenium',
         'jinja2',
-        'nose',
         'httpagentparser',
         'dnspython',
         'IPy'

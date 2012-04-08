@@ -1,7 +1,6 @@
 import shlex
 from . import subprocess
 from ...base import Interface
-#from ...noseplugins.logcollect import LoggingProxy
 import logging
 
 LOG = logging.getLogger(__name__)

@@ -19,7 +19,7 @@ class CommandError(Exception):
     pass
 
 class CommandTimedOut(CommandError):
-    """The nose test-config plugin was not loaded."""
+    """The Command timed out."""
     def __init__(self, message, result=None):
         self.result = result
         super(CommandTimedOut, self).__init__(message)
