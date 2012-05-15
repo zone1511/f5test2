@@ -28,7 +28,8 @@ class KeySwap(Macro):
         with SSHInterface(device=self.options.device,
                           address=self.address, timeout=self.options.timeout,
                           username=self.options.username,
-                          password=self.options.password) as ssh:
+                          password=self.options.password,
+                          port=self.options.port) as ssh:
             return ssh.api.exchange_key()
 
 
@@ -41,7 +42,7 @@ def main():
     formatter = optparse.TitledHelpFormatter(indent_increment=2, 
                                              max_help_position=60)
     p = optparse.OptionParser(usage=usage, formatter=formatter,
-                            version="F5 Software Installer v%s" % __version__
+                            version="SSH Key Exchange Tool v%s" % __version__
         )
     p.add_option("-v", "--verbose", action="store_true",
                  help="Debug messages")
@@ -55,6 +56,8 @@ def main():
                  help="An user with root rights (default: %s)"
                  % ROOT_PASSWORD)
     
+    p.add_option("", "--port", metavar="INTEGER", type="int", default=22,
+                 help="SSH Port (default: 22)")
     p.add_option("-t", "--timeout", metavar="TIMEOUT", type="int", default=60,
                  help="Timeout. (default: 60)")
 

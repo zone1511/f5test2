@@ -1,6 +1,7 @@
 from nose.plugins.base import Plugin
 from nose.util import tolist
 from ..base import AttrDict
+import ast
 import os
 import logging
 
@@ -135,13 +136,24 @@ class TestConfig(Plugin):
             overrides = tolist(options.overrides)
             for override in overrides:
                 keys, val = override.split(":")
+                # Attempt to convert the string into int/bool/float or default
+                # to string
+                needquotes = False
+                try:
+                    val = ast.literal_eval(val)
+                except ValueError:
+                    needquotes = True
+
+                if needquotes or isinstance(val, basestring):
+                    val = '"%s"' % val
+
                 if options.exact:
                     config[keys] = val
                 else:                    
                     ns = ''.join(['["%s"]' % i for i in keys.split(".") ])
                     # BUG: Breaks if the config value you're overriding is not
                     # defined in the configuration file already. TBD
-                    exec('config%s = "%s"' % (ns, val))
+                    exec('config%s = %s' % (ns, val))
         
         config = AttrDict(config)
         config['_filename'] = filename

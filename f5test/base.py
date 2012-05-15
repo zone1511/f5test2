@@ -27,6 +27,7 @@ class Interface(object):
         self.address = None
         self.username = None
         self.password = None
+        self.port = 0
         self._priority = 10
 
     def __enter__(self):
@@ -38,7 +39,7 @@ class Interface(object):
     
     def __repr__(self):
         name = self.__class__.__name__
-        return "<{0}: {1.username}:{1.password}@{1.address}>".format(name, self)
+        return "<{0}: {1.username}:{1.password}@{1.address}:{1.port}>".format(name, self)
 
     def is_opened(self):
         return bool(self.api)

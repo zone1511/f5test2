@@ -21,12 +21,12 @@ class IcontrolCommand(base.Command):
     @param password: the admin password
     @type password: str
     """
-    def __init__(self, device=None, ifc=None,
-                address=None, username=None, password=None, timeout=90,
-                *args, **kwargs):
+    def __init__(self, device=None, ifc=None, address=None, username=None, 
+                 password=None, proto='https', port=None, timeout=90,
+                 *args, **kwargs):
         if ifc is None:
             self.ifc = IcontrolInterface(device, address, username, password, 
-                                         timeout)
+                                         proto=proto, port=port, timeout=timeout)
             self.api = self.ifc.open()
             self._keep_alive = False
         else:
@@ -44,7 +44,8 @@ class IcontrolCommand(base.Command):
         opt['address'] = self.ifc.address
         opt['username'] = self.ifc.username
         opt['password'] = self.ifc.password
-        return parent + "(address=%(address)s username=%(username)s " \
+        opt['port'] = self.ifc.port
+        return parent + "(address=%(address)s port=%(port)s username=%(username)s " \
                         "password=%(password)s)" % opt
 
     def prep(self):

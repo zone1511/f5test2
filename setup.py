@@ -40,6 +40,7 @@ try:
                 'f5.trafficgen = f5test.macros.trafficgen:main',
                 'f5.trafficgen2 = f5test.macros.trafficgen2:main',
                 'f5.webcert = f5test.macros.webcert:main',
+                'f5.licensegen = f5test.macros.licensegen:main',
                 ],
             'nose.plugins.0.10': [
                 'config = f5test.noseplugins.testconfig:TestConfig',
@@ -138,7 +139,7 @@ setup(
         'PyYAML',
         'pyparsing',
         'restkit',
-        'selenium',
+        'selenium==2.20',
         'jinja2',
         'httpagentparser',
         'dnspython',

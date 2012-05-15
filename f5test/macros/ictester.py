@@ -25,7 +25,8 @@ class Ictester(Macro):
         self.icparams = Options(device=self.options.device,
                          address=address, timeout=self.options.timeout,
                          username=self.options.username,
-                         password=self.options.password)
+                         password=self.options.password,
+                         port=self.options.port)
         self.icparams.debug = 1 if options.verbose else 0
         
         super(Ictester, self).__init__()
@@ -84,7 +85,7 @@ def main():
     formatter = optparse.TitledHelpFormatter(indent_increment=2, 
                                              max_help_position=60)
     p = optparse.OptionParser(usage=usage, formatter=formatter,
-                            version="iControl Tester version %s" % __version__
+                            version="iControl Tester %s" % __version__
         )
     p.add_option("-v", "--verbose", action="store_true",
                  help="Debug logging")
@@ -102,6 +103,8 @@ def main():
                  help="Admin password (default: %s)"
                  % ADMIN_PASSWORD)
     
+    p.add_option("", "--port", metavar="INTEGER", type="int", default=443,
+                 help="SSL Port (default: 443)")
     p.add_option("-t", "--timeout", metavar="SECONDS", type="int", default=60,
                  help="Timeout (default: 60)")
     p.add_option("-s", "--session", metavar="INTEGER", type="int",

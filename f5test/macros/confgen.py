@@ -7,6 +7,7 @@ from f5test.commands.shell import ssh as SSH
 import f5test.commands.shell as SCMD
 from f5test.utils.version import Version, Product
 from f5test.utils.net import ip4to6
+from f5test.utils.parsers.tmsh import tmsh_to_dict
 from f5test.macros.base import Macro
 from f5test.macros.webcert import WebCert
 from f5test.base import Options
@@ -33,20 +34,28 @@ MIN_VER = '9.3.1'
 MAX_VER = '99.9.9'
 
 DEFAULT_NODES = 10
-DEFAULT_NODE_OFFSET = 50
+DEFAULT_NODE_START = '10.10.0.50'
 DEFAULT_POOLS = 60
 DEFAULT_MEMBERS = 1
-DEFAULT_VIPS = 60
+DEFAULT_VIPS = 8
 DEFAULT_PARTITIONS = 3
 DEFAULT_ROOT_PASSWORD = ROOT_PASSWORD
 DEFAULT_TIMEOUT = 180
-DEFAULT_CONFIG = 'remote_config.yaml'
+DEFAULT_SELF_PREFIX = 16
+DEFAULT_BIGPIPE_CONFIG = 'remote_config.default.yaml'
+DEFAULT_TMSH_CONFIG = 'remote_config.tmsh.yaml'
+
+# All known 172.27.0.0/24 subnets tangent to the VLAN1011.
+# This is used for VS address allocation.
+SUBNET_MAP = dict([(y,x) for x, y in enumerate((27, 58, 62, 63, 65, 90, 91, 92, 
+                                                93))])
+
 if os.name == 'nt':
     DEFAULT_ROOTCA_PATH = r'\\wendy\vols\3\share\em-selenium\root_ca'
 else:
     DEFAULT_ROOTCA_PATH = '/vol/3/share/em-selenium/root_ca'
 
-__version__ = 1.0
+__version__ = 1.2
 
 
 class ConfigGeneratorError(Exception):
@@ -137,25 +146,15 @@ class ConfigGenerator(Macro):
     def __init__(self, options, address=None, *args, **kwargs):
         self.options = Options(options.__dict__)
         
-        if not self.options.get('config'):
-            provider = get_provider(__package__)
-            manager = ResourceManager()
-            config_path = provider.get_resource_filename(manager, '')
-            config_file = os.path.join(config_path, 'configs', DEFAULT_CONFIG)
-            self.options.config = config_file
-        self.options.setdefault('nodes', DEFAULT_NODES)
-        self.options.setdefault('node_offset', DEFAULT_NODE_OFFSET)
-        self.options.setdefault('pools', DEFAULT_POOLS)
+        self.options.setdefault('node_count', DEFAULT_NODES)
+        #self.options.setdefault('node_offset', DEFAULT_NODE_OFFSET)
+        self.options.setdefault('pool_count', DEFAULT_POOLS)
         self.options.setdefault('pool_members', DEFAULT_MEMBERS)
-        self.options.setdefault('vips', DEFAULT_VIPS)
+        self.options.setdefault('vip_count', DEFAULT_VIPS)
         self.options.setdefault('partitions', DEFAULT_PARTITIONS)
         self.options.setdefault('password', DEFAULT_ROOT_PASSWORD)
         self.options.setdefault('timeout', DEFAULT_TIMEOUT)
         self.options.setdefault('rootca_path', DEFAULT_ROOTCA_PATH)
-        
-        cwd = os.path.dirname(os.path.realpath(self.options.config))
-        config = yaml.load(file(self.options.config, 'rb').read())
-        extend(cwd, config)
         
         if self.options.device:
             device = ConfigInterface().get_device(options.device)
@@ -168,11 +167,11 @@ class ConfigGenerator(Macro):
             self.options['peer'] = peer_device.address
             self.options['peerpassword'] = peer_device.get_root_creds().password
 
-        self.config = config
+        self.config = Options()
         self.ssh = None
-        self.ip_base_int = (0, 0)
-        self.ip_base_ext = (0, 0)
-        self._peer = {}
+        self.selfip_internal = None
+        self.selfip_external = None
+        self._peer = Options()
         self._hostname = None
         self._ip = None
         self._platform = None
@@ -314,15 +313,17 @@ class ConfigGenerator(Macro):
 
         if self.config['options']['put users on Common partition']:
             # Find all subgraphs excluding partition nodes
-            subgraphs = self._find_subgraphs([ PREFIX_PARTITION, PREFIX_USER ])
+            subgraphs = self._find_subgraphs([PREFIX_PARTITION, PREFIX_USER, 
+                                              PREFIX_PROFILE])
             # Balance by "weight" all subgraphs
             self._link_roots(self._partitions, subgraphs)
 
-            subgraphs = self._find_subgraphs(filter_in = [ PREFIX_USER ])
+            subgraphs = self._find_subgraphs(filter_in=[PREFIX_USER, 
+                                                        PREFIX_PROFILE])
             self._link_roots([self._partitions[0]], subgraphs)
 
         else:
-            subgraphs = self._find_subgraphs([ PREFIX_PARTITION ])
+            subgraphs = self._find_subgraphs([PREFIX_PARTITION])
             self._link_roots(self._partitions, subgraphs)
 
     def _dump_graph(self):
@@ -371,7 +372,7 @@ class ConfigGenerator(Macro):
         with IrackInterface(address=address,
                             timeout=timeout,
                             username=username,
-                            password=apikey, ssl=False) as irack:
+                            password=apikey, proto='http') as irack:
             params = dict(address_set__address__in=mgmtip)
             # Locate the static bag for the F5Asset with mgmtip
             ret = irack.api.staticbag.filter(asset__type=1, **params)
@@ -437,20 +438,20 @@ class ConfigGenerator(Macro):
             LOG.info("Looking up device with mgmtip '%s' in iRack...", mgmtip)
             static = self.config.setdefault('static', {})
             static.update(
-                            self.irack_provider(address=self.options['irack_address'],
-                                                username=self.options['irack_username'],
-                                                apikey=self.options['irack_apikey'],
+                            self.irack_provider(address=self.options.irack_address,
+                                                username=self.options.irack_username,
+                                                apikey=self.options.irack_apikey,
                                                 mgmtip=mgmtip)
             )
             LOG.info("iRack query was successful.")
 
     def prepare(self):
-        assert self.options['pool_members'] <= self.options['nodes'], \
+        assert self.options['pool_members'] <= self.options['node_count'], \
                "Pool members > Nodes. Please add more nodes!"
         passwd = self.options['password']
         fqdn, _, ip_list = socket.gethostbyname_ex(self.address)
         ip = ip_list[0]
-        ltm_label = ip.split('.')[3]
+        ltm_label = "{2}-{3}".format(*ip.split('.'))
         self._ip = ip
         
         # Lookup static values in iRack (if enabled).
@@ -469,8 +470,9 @@ class ConfigGenerator(Macro):
             self.config['static'][ip].get('hostname'):
                 self._hostname = self.config['static'][ip]['hostname']
             else:
-                self._hostname = 'device%s-%s.test.net' % (ip.split('.')[2], 
-                                                           ip.split('.')[3])
+                self._hostname = 'device{2}-{3}.test.net'
+        
+        self._hostname = self._hostname.format(*ip.split('.'))
         LOG.info('Using hostname: %s', self._hostname)
         
         self.prov = []
@@ -489,7 +491,7 @@ class ConfigGenerator(Macro):
         if self.options.get('peer'):
             _, _, ip_list = socket.gethostbyname_ex(self.options['peer'])
             peer_ip = ip_list[0]
-            peer_ltm_label = peer_ip.split('.')[3]
+            peer_ltm_label = "{2}-{3}".format(*peer_ip.split('.'))
             peer_passwd = self.options['peerpassword']
     
             # Lookup static values for peer in iRack (if enabled).
@@ -497,23 +499,22 @@ class ConfigGenerator(Macro):
             
             p = self._peer
             peer_ssh = SSHInterface(address=peer_ip, password=peer_passwd, 
-                               timeout=self.options['timeout'])
-            peer_ssh.open()
+                                    timeout=self.options.timeout,
+                                    port=self.options.ssh_port)
 
             ret = BIGPIPE.generic('mgmt list', ifc=peer_ssh)
-            
-            bits = ret.stdout.split()
-            p['ip'] = bits[1]
+            address = tmsh_to_dict(ret.stdout)
+            p.ip = IP("{0}/{1}".format(address['mgmt'].keys()[0],
+                                       address['mgmt'][address['mgmt'].keys()[0]]['netmask']))
 
             if self.options.get('peer_selfip_internal'):
-                tmp = self.options['peer_selfip_internal'].split('.')
-                p['base_int'] = (int(tmp[2]), int(tmp[3]))
+                p.selfip_internal = self.options['peer_selfip_internal']
             else:
                 try:
-                    tmp = self.config['static'][peer_ip]['selfip']['internal']['address'].split('.')
-                    p['base_int'] = (int(tmp[2]), int(tmp[3]))
-                    tmp = self.config['static'][peer_ip]['selfip']['external']['address'].split('.')
-                    p['base_ext'] = (int(tmp[2]), int(tmp[3]))
+                    p.selfip_internal = IP("{0[selfip][internal][address]}/{0[selfip][internal][netmask]}".
+                                            format(self.config['static'][peer_ip]))
+                    p.selfip_external = IP("{0[selfip][external][address]}/{0[selfip][external][netmask]}".
+                                            format(self.config['static'][peer_ip]))
                 except KeyError:
                     raise ValueError("Couldn't find a static entry for '%s'! "
                         "--selfip-internal and --selfip-external must be specified "
@@ -523,18 +524,17 @@ class ConfigGenerator(Macro):
                 p['unit'] = self.options['unitid']
             else:
                 ret = BIGPIPE.generic('db Failover.UnitId', ifc=peer_ssh)
-                peer_ssh.close()
                 p['unit'] = int(ret.stdout.strip().split('=')[1]) % 2 + 1
 
             # The device having UnitID=1 will always try to be the Active one.
             if p['unit'] == 1:
-                self.formatter['ltm.id'] = int(peer_ltm_label)
+                self.formatter['ltm.id'] = peer_ltm_label
                 self.formatter['failover.active'] = 'force active enable'
             else:
-                self.formatter['ltm.id'] = int(ltm_label)
+                self.formatter['ltm.id'] = ltm_label
                 self.formatter['failover.active'] = 'force standby enable'
         else:
-            self.formatter['ltm.id'] = int(ltm_label)
+            self.formatter['ltm.id'] = ltm_label
         
         if self.options.get('mgmtip'):
             self.formatter['ltm.ip'] = self.options['mgmtip']
@@ -544,39 +544,35 @@ class ConfigGenerator(Macro):
         if (self.options.get('selfip_internal') and 
             self.options.get('selfip_external')):
 
-            tmp = self.options['selfip_internal'].split('.')
-            self.ip_base_int = (int(tmp[2]), int(tmp[3]))
-            self.formatter['INTERNAL.A'] = int(tmp[0])
-            self.formatter['INTERNAL.B'] = int(tmp[1])
-            tmp = self.options['selfip_external'].split('.')
-            self.ip_base_ext = (int(tmp[2]), int(tmp[3]))
-            self.formatter['EXTERNAL.A'] = int(tmp[0])
-            self.formatter['EXTERNAL.B'] = int(tmp[1])
-            
-            self.ip_int = self.options['selfip_internal']
-            self.ip_ext = self.options['selfip_external']
+            # Internal selfIP
+            if '/' in self.options['selfip_internal']:
+                self.selfip_internal = IP("{0[selfip_internal]}".format(self.options))
+            else:
+                self.selfip_internal = IP("{0[selfip_internal]}/{1}".format(self.options, 
+                                                                            DEFAULT_SELF_PREFIX))
+
+            # External selfIP
+            if '/' in self.options['selfip_external']:
+                self.selfip_external = IP("{0[selfip_external]}".format(self.options))
+            else:
+                self.selfip_external = IP("{0[selfip_external]}/{1}".format(self.options,
+                                                                            DEFAULT_SELF_PREFIX))
         else:
             try:
-                tmp = self.config['static'][ip]['selfip']['internal']['address'].split('.')
-                self.ip_base_int = (int(tmp[2]), int(tmp[3]))
-                self.formatter['INTERNAL.A'] = int(tmp[0])
-                self.formatter['INTERNAL.B'] = int(tmp[1])
-                tmp = self.config['static'][ip]['selfip']['external']['address'].split('.')
-                self.ip_base_ext = (int(tmp[2]), int(tmp[3]))
-                self.formatter['EXTERNAL.A'] = int(tmp[0])
-                self.formatter['EXTERNAL.B'] = int(tmp[1])
-
-                self.ip_int = self.config['static'][ip]['selfip']['internal']['address']
-                self.ip_ext = self.config['static'][ip]['selfip']['external']['address']
+                self.selfip_internal = IP("{0[address]}/{0[netmask]}".format(
+                               self.config['static'][ip]['selfip']['internal']))
+                self.selfip_external = IP("{0[address]}/{0[netmask]}".format(
+                               self.config['static'][ip]['selfip']['external']))
             except KeyError:
                 raise ValueError("Couldn't find a static entry for '%s'! "
                     "--selfip-internal and --selfip-external must be specified" % ip)
 
-        LOG.info('Internal selfIP: %s', self.ip_int)
-        LOG.info('External selfIP: %s', self.ip_ext)
+        LOG.info('Internal selfIP: %s', self.selfip_internal)
+        LOG.info('External selfIP: %s', self.selfip_external)
 
         self.ssh = SSHInterface(address=self.address, password=passwd, 
-                               timeout=self.options['timeout'])
+                               timeout=self.options.timeout,
+                               port=self.options.ssh_port)
         self.ssh.open()
         
         self._set_platform()
@@ -632,29 +628,26 @@ class ConfigGenerator(Macro):
             self.can_cluster = True
 
     def pick_configuration(self):
-        includes = self.config.get('includes')
         
-        if not includes:
-            return
-
-        base_dir = os.path.dirname(self.options['config'])
-        
-        if self.can_tmsh:
-            tmsh_config_filename = os.path.join(base_dir, includes.get('tmsh'))
-            if not tmsh_config_filename:
-                LOG.warning('TMSH target but no TMSH specific configuration '
-                            'given. Will use the default one.')
-            else:
-                config = yaml.load(file(tmsh_config_filename, 'rb').read())
-                self.config.update(config)
-                LOG.info('Picked configuration: %s' % tmsh_config_filename)
+        if self.options.get('config'):
+            config_filename = self.options['config']
+            cwd = os.path.dirname(os.path.realpath(config_filename))
         else:
-            default_config_filename = os.path.join(base_dir, 
-                                                   includes.get('default'))
-            if default_config_filename:
-                LOG.info('Using default configuration: %s' % default_config_filename)
-                config = yaml.load(file(default_config_filename, 'rb').read())
-                self.config.update(config)
+            provider = get_provider(__package__)
+            manager = ResourceManager()
+            config_path = provider.get_resource_filename(manager, '')
+            base_dir = os.path.join(config_path, 'configs')
+            cwd = os.path.realpath(base_dir)
+
+            if self.can_tmsh:
+                config_filename = os.path.join(base_dir, DEFAULT_TMSH_CONFIG)
+            else:
+                config_filename = os.path.join(base_dir, DEFAULT_BIGPIPE_CONFIG)
+        
+        config = yaml.load(file(config_filename, 'rb').read())
+        extend(cwd, config)
+        self.config.update(config)
+        LOG.info('Picked configuration: %s' % config_filename)
 
     def print_header(self):
         tmpl = self.config['header']
@@ -712,7 +705,10 @@ class ConfigGenerator(Macro):
         tmpl = self.config['mgmt']
         formatter = self.formatter
         
-        mgmtip = self.config['static'][self._ip].get('mgmtip')
+        mgmtip = self.config['static'].get(self._ip)
+        if mgmtip:
+            mgmtip = mgmtip.get('mgmtip')
+        
         if mgmtip:
             formatter['ltm.ip'] = mgmtip['address']
             formatter['ltm.netmask'] = mgmtip['netmask']
@@ -768,7 +764,7 @@ class ConfigGenerator(Macro):
 
         if self._platform in ['A100']:
             tmpl = root['puma1']
-        elif self._platform in ['A107', 'A109']:
+        elif self._platform in ['A107', 'A109', 'A111']:
             tmpl = root['puma2']
         elif self._platform in ['D84']:
             tmpl = root['D84']
@@ -784,13 +780,15 @@ class ConfigGenerator(Macro):
     def print_self(self):
         tmpl = self.config['self']
         formatter = self.formatter
-        formatter['self.ip_base_int.C'] = self.ip_base_int[0] 
-        formatter['self.ip_base_int.D'] = self.ip_base_int[1]
-        formatter['self.ip_base_ext.C'] = self.ip_base_ext[0] 
-        formatter['self.ip_base_ext.D'] = self.ip_base_ext[1]
+        formatter['self.int_ip.addr'] = str(self.selfip_internal).split('/', 1)[0]
+        formatter['self.ext_ip.addr'] = str(self.selfip_external).split('/', 1)[0]
+        formatter['self.int_ip.prefix'] = self.selfip_internal.prefixlen()
+        formatter['self.ext_ip.prefix'] = self.selfip_external.prefixlen()
+        formatter['self.int_ip.netmask'] = self.selfip_internal.netmask()
+        formatter['self.ext_ip.netmask'] = self.selfip_external.netmask()
         
-        int_ip6 = ip4to6("%s/16" % self.ip_int)
-        ext_ip6 = ip4to6("%s/16" % self.ip_ext)
+        int_ip6 = ip4to6(str(self.selfip_internal))
+        ext_ip6 = ip4to6(str(self.selfip_external))
         formatter['self.int_ip6.addr'] = str(int_ip6).split('/', 1)[0]
         formatter['self.ext_ip6.addr'] = str(ext_ip6).split('/', 1)[0]
         formatter['self.int_ip6.prefix'] = int_ip6.prefixlen()
@@ -883,18 +881,23 @@ class ConfigGenerator(Macro):
         formatter = self.formatter
 
         p = self._peer
-        formatter['peer.ip_base_int.C'] = p['base_int'][0]
-        formatter['peer.ip_base_int.D'] = p['base_int'][1]
-        formatter['peer.ip_base_ext.C'] = p['base_ext'][0]
-        formatter['peer.ip_base_ext.D'] = p['base_ext'][1]
+        formatter['peer.int_ip.addr'] = str(p.selfip_internal).split('/', 1)[0]
+        formatter['peer.ext_ip.addr'] = str(p.selfip_external).split('/', 1)[0]
+        formatter['peer.int_ip.prefix'] = p.selfip_internal.prefixlen()
+        formatter['peer.ext_ip.prefix'] = p.selfip_external.prefixlen()
+        formatter['peer.int_ip.netmask'] = p.selfip_internal.netmask()
+        formatter['peer.ext_ip.netmask'] = p.selfip_external.netmask()
         formatter['self.unit'] = p['unit']
         formatter['peer.ip'] = p['ip']
+        formatter['peer.ip.addr'] = str(p['ip']).split('/', 1)[0]
+        formatter['peer.ip.netmask'] = p['ip'].netmask()
         LOG.debug('self.unit = %d', p['unit'])
 
         if self.can_scf:
             self.f_base.write(tmpl % formatter)
             if self.can_net_failover:
                 self.f_base.write(tmpl_nf % formatter)
+            
             if self.options.get('selfip_floating'):
                 ip = IP(self.options['selfip_floating'])
                 if ip._prefixlen == 32:
@@ -907,12 +910,53 @@ class ConfigGenerator(Macro):
         else:
             LOG.info('HA not supported on this target')
 
+    def do_check_availability(self, section):
+        value = section.get('min versions', ['bigip 9.0.0'])
+        value = value if isinstance(value, list) else value.split(',')
+        min_vers = [Version(x) for x in value]
+
+        value = section.get('max versions', ['bigip 99.0.0'])
+        value = value if isinstance(value, list) else value.split(',')
+        max_vers = [Version(x) for x in value]
+        
+        req_mods = section.get('require modules', None)
+        req_feats = section.get('require features', None)
+        licensed_modules = self._modules
+        licensed_features = self._features
+
+        good = True
+        v = self._version
+        for min_ver in min_vers:
+            if v.product == min_ver.product:
+                good &= v >= min_ver
+
+        for max_ver in max_vers:
+            if v.product == max_ver.product:
+                good &= v <= max_ver
+
+        if req_mods:
+            for req_mod in req_mods:
+                good &= req_mod in licensed_modules
+
+        if req_feats:
+            for req_feat in req_feats:
+                good &= req_feat in licensed_features
+        
+        if good:
+            return True
+
+        LOG.debug('Section %s not available.', section)
+        return False
+
     def print_system(self):
         root = self.config['system']
         tmpl = root['template']
         formatter = self.formatter
         formatter['gui.setup'] = root['gui setup']
         formatter['system.hostname'] = self._hostname
+        
+        if root.get('mail') and self.do_check_availability(root['mail']):
+            tmpl += root['mail']['data']
 
         self.f_base.write(tmpl % formatter)
 
@@ -952,6 +996,7 @@ class ConfigGenerator(Macro):
         context = {}
         context['partition.name'] = 'Common'
         context['partition.index'] = 0
+        self.formatter.update(context)
         n = self._partitions[0]
         n.data = tmpl
         n.context = context
@@ -972,19 +1017,17 @@ class ConfigGenerator(Macro):
         if not self.can_node:
             LOG.debug('Nodes not supported on this target')
             return
-        nodes = self.options['nodes']
+        nodes = self.options['node_count']
         tmpl = self.config['node template'][0]
-        node_offset = self.options['node_offset']
-        LOG.info('Node offset is: %d (%d.%d)', node_offset,
-                 *divmod(node_offset, 256))
+        node_start = IP(self.options.get('node_start') or DEFAULT_NODE_START)
+        LOG.info('Nodes: %s (+%d)', node_start, nodes)
 
         self._nodes = Nodes(3, PREFIX_NODE)
         for i in range(nodes):
             context = {}
             n = self._nodes[i]
             context['node.index'] = i + 1
-            context['node.C'], context['node.D'] = \
-                divmod(i + node_offset, 256)
+            context['node.ip'] = str(IP(node_start.ip + i))
             n.data = tmpl
             n.context = context
             self.g.add_node(n)
@@ -994,15 +1037,15 @@ class ConfigGenerator(Macro):
             LOG.debug('Pools not supported on this target')
             return
 
-        nodes = self.options['nodes']
-        pools = self.options['pools']
+        nodes = self.options['node_count']
+        pools = self.options['pool_count']
         nodes_per_pool = self.options['pool_members']
         tmpl = self.config['pool template'][0]
         pm_tmpl = self.config['pool member template']
         pm_prots = self.config['pool member protocols']
         pm_prots_count = len(pm_prots)
         local_context = {}
-        node_offset = self.options['node_offset']
+        node_start = IP(self.options.get('node_start') or DEFAULT_NODE_START)
 
         self._pools = Nodes(4, PREFIX_POOL)
         j = 0
@@ -1020,13 +1063,10 @@ class ConfigGenerator(Macro):
 
             for _ in range(nodes_per_pool):
                 pm_context = {}
-                pm_context['node.C'], pm_context['node.D'] = \
-                    divmod(j % nodes + node_offset, 256)
+                pm_context['node.ip'] = str(IP(node_start.ip + j % nodes))
                 pm_context['pool.proto'] = pm_prots[ j % pm_prots_count ]
                 pm_context['pool.monitor'] = pm_context['pool.proto']
-                #self.formatter.update(context)
                 context['pool.members'] += pm_tmpl % pm_context
-                #print pm_tmpl % self.formatter
                 j += 1
 
             n.data = tmpl
@@ -1038,15 +1078,24 @@ class ConfigGenerator(Macro):
             LOG.debug('VIPs not supported on this target')
             return
 
-        pools = self.options['pools']
-        vips = self.options['vips']
+        pools = self.options['pool_count']
+        vips = self.options['vip_count']
         tmpls = self.config['vip template']
         tmpl_count = len(tmpls)
-        vip_offset = self.options.get('vip_offset')
-        if not vip_offset:
-            vip_offset = 1 + 60 * (self.formatter['ltm.id'] - 1)
-        LOG.info('VIP offset is: %d (%d.%d)', vip_offset,
-                 *divmod(vip_offset, 256))
+        vip_start = self.options.get('vip_start')
+        if not vip_start:
+            subnet_id = int(self._ip.split('.')[2])
+            host_id = int(self._ip.split('.')[3])
+            subnet_index = SUBNET_MAP.get(subnet_id, 0)
+            
+            # Start from 10.11.10.0 - 10.11.97.240 (planned for 10 subnets, 8 VIPs each)
+            offset = 1 + 10*256 + DEFAULT_VIPS * (256 * subnet_index + host_id)
+
+            vip_start = IP(self.selfip_external.net().ip + offset)
+        else:
+            vip_start = IP(vip_start)
+        
+        LOG.info('VIPs: %s (+%d)', vip_start, vips)
 
         self._vips = Nodes(5, PREFIX_VIP)
         for i in range(vips):
@@ -1054,8 +1103,7 @@ class ConfigGenerator(Macro):
             context = {}
             context['pool.index'] = i % pools + 1
             context['vip.index'] = i + 1
-            context['vip.C'], context['vip.D'] = \
-                divmod(i + vip_offset, 256)
+            context['vip.ip'] = str(IP(vip_start.ip + i))
             n.data = tmpls[ i % tmpl_count ]
             n.context = context
             self.g.add_node(n)
@@ -1199,6 +1247,9 @@ class ConfigGenerator(Macro):
         options.admin_username = ADMIN_USERNAME
         options.root_username = ROOT_USERNAME
         options.store = ROOTCA_STORE
+        options.ssh_port = self.options.ssh_port
+        options.ssl_port = self.options.ssl_port
+        options.verbose = self.options.verbose
         
         if self.options.get('dry_run'):
             LOG.info('Would push key/cert pair')
@@ -1234,6 +1285,9 @@ class ConfigGenerator(Macro):
         return bool(modules.asm)
 
     def ready_wait(self):
+        if self.options.get('dry_run'):
+            return
+
         LOG.info('Waiting for reconfiguration...')
         timeout = self.options['timeout']
         SCMD.ssh.FileExists('/var/run/mprov.pid', ifc=self.ssh).run_wait(lambda x:x is False,
@@ -1367,7 +1421,7 @@ class ConfigGenerator(Macro):
             # XXX: disable altogether as w/o for 360368 
             # XXX: disable it again as w/o for 362126
             # XXX: disable it again: for 362853
-            if self.can_folders:
+            if self.can_folders and not self.options.get('dry_run'):
                 #self.call('bigstart restart devmgmtd')
                 #self.call('tmsh delete cm trust-domain all')
                 SCMD.ssh.Generic('tmsh delete cm trust-domain all', ifc=self.ssh).\
@@ -1486,46 +1540,34 @@ def main(*args, **kwargs):
         p = OptionParser(
                 usage = usage,
                 formatter = formatter,
-                version = "LTM config generator %s" % __version__,
+                version = "LTM Config Generator %s" % __version__,
         )
 
-        provider = get_provider(__package__)
-        manager = ResourceManager()
-        config_path = provider.get_resource_filename(manager, '')
-        config_file = os.path.join(config_path, 'configs', DEFAULT_CONFIG)
-
-        p.add_option("-c", "--config", metavar="FILE",
-                     default=config_file, type="string",
-                     help="The templates config. (default: %s)" % DEFAULT_CONFIG)
+        p.add_option("-c", "--config", metavar="FILE", type="string",
+                     help="Use this config template. (default: auto)")
 
         p.add_option("", "--partitions", metavar="NUMBER",
                      default=DEFAULT_PARTITIONS, type="int",
                      help="How many partitions. (default: %d)" % DEFAULT_PARTITIONS)
-        p.add_option("-n", "--nodes", metavar="NUMBER",
+        p.add_option("", "--node-start", metavar="NUMBER", type="string",
+                     help="The start address for nodes. (default: 10.10.0.50)")
+        p.add_option("-n", "--node-count", metavar="NUMBER",
                      default=DEFAULT_NODES, type="int",
                      help="How many nodes. (default: %d)" % DEFAULT_NODES)
-        p.add_option("", "--node-offset", metavar="NUMBER",
-                     default=DEFAULT_NODE_OFFSET, type="int",
-                     help="The start value for nodes. (default: %d)" % DEFAULT_NODE_OFFSET)
-        p.add_option("-o", "--pools", metavar="NUMBER",
+        p.add_option("-o", "--pool-count", metavar="NUMBER",
                      default=DEFAULT_POOLS, type="int",
                      help="How many pools. (default: %d)" % DEFAULT_POOLS)
         p.add_option("", "--pool-members", metavar="NUMBER",
                      default=DEFAULT_MEMBERS, type="int",
                      help="How many pool members per pool. (default: %d)" % DEFAULT_MEMBERS)
-        p.add_option("-v", "--vips", metavar="NUMBER",
+        p.add_option("", "--vip-start", metavar="NUMBER", type="string",
+                     help="The start address for vips. (default: auto)")
+        p.add_option("-v", "--vip-count", metavar="NUMBER",
                      default=DEFAULT_VIPS, type="int",
                      help="How many Virtual IPs. (default: %d)" % DEFAULT_VIPS)
-        p.add_option("", "--vip-offset", metavar="NUMBER",
-                     type="int",
-                     help="The start value for VIPs. "
-                     "Default is: 1 + (60 * <ltm_numer> - 1)")
         p.add_option("-p", "--password", metavar="STRING",
                      type="string", default=DEFAULT_ROOT_PASSWORD,
                      help="SSH root Password. (default: %s)" % DEFAULT_ROOT_PASSWORD)
-        p.add_option("", "--base", metavar="X",
-                     type="int",
-                     help="Set the VLANs and Self IPs to 10.[10,11].0.X style")
 
         p.add_option("", "--peer", metavar="HOST",
                      type="string",
@@ -1543,10 +1585,14 @@ def main(*args, **kwargs):
         p.add_option("", "--mgmtip", metavar="IP",
                      type="string",
                      help="The device management address (if different from --ltm)")
-        p.add_option("", "--selfip-internal", metavar="IP",
+        p.add_option("", "--ssl-port", metavar="INTEGER", type="int", default=443,
+                     help="SSL Port. (default: 443)")
+        p.add_option("", "--ssh-port", metavar="INTEGER", type="int", default=22,
+                     help="SSH Port. (default: 22)")
+        p.add_option("", "--selfip-internal", metavar="IP[/PREFIX]",
                      type="string",
                      help="Self IP address for internal vlan.")
-        p.add_option("", "--selfip-external", metavar="IP",
+        p.add_option("", "--selfip-external", metavar="IP[/PREFIX]",
                      type="string",
                      help="Self IP address for external vlan.")
         p.add_option("", "--selfip-floating", metavar="IP/PREFIX",

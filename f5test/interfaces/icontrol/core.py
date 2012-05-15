@@ -1,7 +1,7 @@
 from ..config import ConfigInterface, DeviceAccess
 from .driver import Icontrol, ICONTROL_URL
 from ...base import Interface
-from ...defaults import ADMIN_USERNAME, ADMIN_PASSWORD
+from ...defaults import ADMIN_USERNAME, ADMIN_PASSWORD, DEFAULT_PORTS
 import logging
 
 LOG = logging.getLogger(__name__)
@@ -10,7 +10,7 @@ LOG = logging.getLogger(__name__)
 class IcontrolInterface(Interface):
     
     def __init__(self, device=None, address=None, username=None, password=None, 
-                 timeout=90, debug=False, *args, **kwargs):
+                 port=None, proto='https', timeout=90, debug=False, *args, **kwargs):
         super(IcontrolInterface, self).__init__()
         if device or not address:
             self.device = device if isinstance(device, DeviceAccess) \
@@ -21,13 +21,17 @@ class IcontrolInterface(Interface):
                 password = self.device.get_admin_creds().password
             if address is None:
                 address = self.device.address
+            if port is None:
+                port = self.device.ports.get(proto)
         else:
             self.device = device
         self.address = address
         self.username = username or ADMIN_USERNAME
         self.password = password or ADMIN_PASSWORD
+        self.port = port or DEFAULT_PORTS[proto]
+        self.proto = proto
         self.timeout = timeout
-        self.debug = int(debug)
+        self.debug = debug
     
     @property
     def version(self):
@@ -65,6 +69,7 @@ class IcontrolInterface(Interface):
         username = self.username
         password = self.password
 
-        self.api = Icontrol(address, username, password, timeout=self.timeout,
+        self.api = Icontrol(address, username, password, port=self.port,
+                            timeout=self.timeout, proto=self.proto, 
                             debug=self.debug)
         return self.api

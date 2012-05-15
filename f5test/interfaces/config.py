@@ -1,8 +1,9 @@
 from ..base import Interface
 from ..defaults import ADMIN_PASSWORD, ADMIN_USERNAME, ROOT_PASSWORD, \
-    ROOT_USERNAME
+    ROOT_USERNAME, DEFAULT_PORTS
 from ..utils import net
 from ..compat import _bool
+import copy
 import logging
 import os
 import time
@@ -25,11 +26,14 @@ class DeviceDoesNotExist(ConfigError):
 
 
 def expand_devices(specs, section='devices'):
-    devices = specs.get(section) or []
-    if '^all' in devices:
-        cfgifc = ConfigInterface()
-        devices = [x.alias for x in cfgifc.get_all_devices()]
-    return devices
+    devices = []
+    cfgifc = ConfigInterface()
+    for device in specs.get(section) or []:
+        if device == '^all':
+            devices += list(cfgifc.get_all_devices())
+        else:
+            devices.append(cfgifc.get_device(device))
+    return set(devices)
 
 
 class DeviceCredential(object):
@@ -49,15 +53,19 @@ class DeviceCredential(object):
 
 class DeviceAccess(object):
     
-    def __init__(self, address, credentials=None, alias=None, hostname=None, 
-                 discover_address=None, tags=None, groups=None):
+    def __init__(self, address, credentials=None, alias=None, specs=None):
         self.address = address
         self.credentials = credentials
         self.alias = alias
-        self.hostname = hostname
-        self.discover_address = discover_address
-        self.tags = tags or set([])
-        self.groups = groups or set([])
+        self.specs = specs or {}
+        self.tags = set([])
+        self.groups = set([])
+        self.hostname = self.specs.get('address')
+        self.discover_address = self.specs.get('discover address')
+        self.set_tags(self.specs.get('tags'))
+        self.set_groups(self.specs.get('groups'))
+        self.ports = copy.copy(DEFAULT_PORTS)
+        self.ports.update(self.specs.get('ports', {}))
     
     def __repr__(self):
         return "%s:%s:[%s]" % (self.alias, self.address, self.credentials)
@@ -148,6 +156,9 @@ class ConfigInterface(Interface):
     
     def get_device(self, device=None, all_passwords=False, lock=True):
         
+        if isinstance(device, DeviceAccess):
+            return device
+        
         if device is None:
             device = self.get_default_key(self.config['devices'])
         
@@ -184,15 +195,12 @@ class ConfigInterface(Interface):
         
         return DeviceAccess(net.resolv(specs['address']),
                             credentials={ADMIN_USERNAME:admin, ROOT_USERNAME:root},
-                            alias=device, hostname=specs['address'],
-                            discover_address=specs.get('discover address'),
-                            tags=specs.get('tags'))
+                            alias=device, specs=specs)
 
     def get_device_by_address(self, address):
         for device in self.get_all_devices():
             if device.address == address or device.discover_address == address:
                 return device
-        raise DeviceDoesNotExist("A device with IP address of '%s' cannot be found" % address)
 
     def get_device_address(self, device):
         device_access = self.get_device(device)

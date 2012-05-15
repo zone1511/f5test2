@@ -81,7 +81,7 @@ def main():
     formatter = optparse.TitledHelpFormatter(indent_increment=2, 
                                              max_help_position=60)
     p = optparse.OptionParser(usage=usage, formatter=formatter,
-                            version="F5 Software Installer v%s" % __version__
+                            version="Big3d Updater v%s" % __version__
         )
     p.add_option("-v", "--verbose", action="store_true",
                  help="Debug messages")

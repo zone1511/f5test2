@@ -90,8 +90,8 @@ class Connection(paramiko.SSHClient):
         self.close()
 
     def __repr__(self):
-        return '<SSH Connection: %s:%s@%s>' % (self.username, self.password, 
-                                              self.address)
+        return '<SSH Connection: %s:%s@%s:%d>' % (self.username, self.password, 
+                                                  self.address, self.port)
 
     def is_connected(self):
         return bool(self._transport and self._transport.active)
@@ -111,6 +111,7 @@ class Connection(paramiko.SSHClient):
         assert self.is_connected(), "SSH channel not connected"
         chan = self._transport.open_session()
 
+        LOG.debug('run: %s on %s...', command, self)
         chan.settimeout(self.timeout)
         chan.exec_command(command)
         #stdin = chan.makefile('wb', bufsize)
@@ -134,7 +135,7 @@ class Connection(paramiko.SSHClient):
         status = None
 
         chan.settimeout(self.timeout)
-        LOG.debug('run_wait: %s', command)
+        LOG.debug('run_wait: %s on %s', command, self)
         chan.exec_command(command)
         max_loops = 1.0/interval * self.timeout
         LOG.debug('exec timeout: %d', self.timeout)
@@ -187,6 +188,7 @@ class Connection(paramiko.SSHClient):
         if not localpath:
             localpath = os.path.basename(remotepath)
         self._sftp_connect()
+        LOG.debug('get: %s -> %s on %s...', remotepath, localpath, self)
         
         if glob.has_magic(remotepath):
             assert os.path.isdir(localpath)
@@ -209,6 +211,8 @@ class Connection(paramiko.SSHClient):
         """
         if not remotepath:
             remotepath = os.path.split(localpath)[1]
+        LOG.debug('put: %s -> %s on %s...', localpath, remotepath, self)
+        
         self._sftp_connect()
         self._sftp.put(localpath, remotepath)
 
@@ -335,12 +339,11 @@ class Connection(paramiko.SSHClient):
 def main():
     """Little test when called directly."""
 
-    with Connection('172.27.58.179', username='root', password='f5site02') as myssh:
+    with Connection('172.27.58.179', username='root', password='default') as myssh:
         myssh.put('ssh.py')
         r = myssh.run('echo "haha!" > haha.txt && sleep 0 && b list')
         print r.status
         myssh.get('haha.txt')
-        #myssh.run('rm -f haha.txt')
         myssh.exchange_key()
 
 # start the ball rolling.

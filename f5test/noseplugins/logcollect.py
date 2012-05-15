@@ -252,27 +252,32 @@ class LogCollect(LogCapture):
                     LOG.warning('Unopened selennium interface: %s', interface)
                     continue
                 
-                for window in interface.api.window_handles:
-                    credentials = interface.get_credentials(window)
-                    
-                    if credentials.device:
-                        address = credentials.device.get_address()
-                    else:
-                        address = credentials.address or window
-
-                    if address not in visited['selenium']:
-                        log_root = self._get_or_create_dirs(address, test_root)
-    
-                        LOG.warning('Dumping screenshot for: %s (%s)', address, 
-                                    window)
-                        try:
-                            self.UI.common.screen_shot(log_root, window=window, 
-                                                       ifc=interface)
-                        except Exception, e:
-                            LOG.error('Screenshot faied: %s', e)
-
+                try:
+                    for window in interface.api.window_handles:
+                        credentials = interface.get_credentials(window)
+                        
                         if credentials.device:
-                            sshifcs.append(SSHInterface(device=credentials.device))
+                            address = credentials.device.get_address()
+                        else:
+                            address = credentials.address or window
+    
+                        if address not in visited['selenium']:
+                            log_root = self._get_or_create_dirs(address, test_root)
+        
+                            LOG.warning('Dumping screenshot for: %s (%s)', address, 
+                                        window)
+                            try:
+                                self.UI.common.screen_shot(log_root, window=window, 
+                                                           ifc=interface)
+                            except Exception, e:
+                                LOG.error('Screenshot faied: %s', e)
+    
+                            if credentials.device:
+                                sshifcs.append(SSHInterface(device=credentials.device))
+                except:
+                    err = sys.exc_info()
+                    tb = ''.join(traceback.format_exception(*err))
+                    LOG.debug('Error taking screenshot. (%s)', tb)
             
             elif isinstance(interface, SSHInterface):
                 sshifcs.append(SSHInterface(device=interface.device))

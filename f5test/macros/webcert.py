@@ -195,9 +195,11 @@ class WebCert(Macro):
     def push_certificate(self, cert_pem_override=None, key_pem_override=None):
         
         icifc = IcontrolInterface(device=self.options.device,
-                               address=self.address,
-                               username=self.options.admin_username,
-                               password=self.options.admin_password)
+                                  address=self.address,
+                                  username=self.options.admin_username,
+                                  password=self.options.admin_password,
+                                  port=self.options.ssl_port,
+                                  debug=self.options.verbose)
         ic = icifc.open()
         
         cert_pem = cert_pem_override or self._cert_pem
@@ -238,7 +240,8 @@ class WebCert(Macro):
         with SSHInterface(device=self.options.device,
                           address=self.address,
                           username=self.options.root_username,
-                          password=self.options.root_password) as ssh:
+                          password=self.options.root_password,
+                          port=self.options.ssh_port) as ssh:
             ssh.api.run('bigstart reinit httpd')
         
         return True
@@ -273,6 +276,10 @@ def main():
     p.add_option("", "--verbose", action="store_true",
                  help="Debug messages")
     
+    p.add_option("", "--ssl-port", metavar="INTEGER", type="int", default=443,
+                 help="SSL Port. (default: 443)")
+    p.add_option("", "--ssh-port", metavar="INTEGER", type="int", default=22,
+                 help="SSH Port. (default: 22)")
     p.add_option("", "--admin-username", metavar="USERNAME",
                  default=ADMIN_USERNAME, type="string",
                  help="An user with administrator rights (default: %s)"

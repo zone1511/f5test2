@@ -41,6 +41,8 @@ class InstallSoftware(Macro):
             self.options.admin_password = device.get_admin_creds().password
             self.options.root_username = device.get_root_creds().username
             self.options.root_password = device.get_root_creds().password
+            self.options.ssl_port = device.ports.get('https', 443)
+            self.options.ssh_port = device.ports.get('ssh', 22)
         else:
             self.address = address
 
@@ -49,6 +51,7 @@ class InstallSoftware(Macro):
         self.options.setdefault('root_username', ROOT_USERNAME)
         self.options.setdefault('root_password', ROOT_PASSWORD)
         self.options.setdefault('build_path', cm.ROOT_PATH)
+        self.has_essential_config = None
 
         LOG.info('Doing: %s', self.address)
         super(InstallSoftware, self).__init__(*args, **kwargs)
@@ -67,6 +70,7 @@ class InstallSoftware(Macro):
                           essential_config=self.options.essential_config,
                           image=filename, hfimage=hfiso)
         macro = EMInstallSoftware(devices, options)
+        self.has_essential_config = macro.has_essential_config
         return macro.run()
 
 #    def by_em_ui(self):
@@ -80,7 +84,8 @@ class InstallSoftware(Macro):
         if sshifc is None:
             sshifc = SSHInterface(address=self.address,
                                   username=self.options.root_username,
-                                  password=self.options.root_password)
+                                  password=self.options.root_password,
+                                  port=self.options.ssh_port)
         with sshifc:
             ssh = sshifc.api
             ssh.run('bigstart stop big3d;'
@@ -90,7 +95,7 @@ class InstallSoftware(Macro):
 
     def _initialize_em(self):
         LOG.info('Initializing EM...')
-        sshifc = SSHInterface(address=self.address)
+        sshifc = SSHInterface(address=self.address, port=self.options.ssh_port)
         with sshifc:
             ssh = sshifc.api
             ssh.run('bigstart stop;'
@@ -104,11 +109,12 @@ class InstallSoftware(Macro):
 
     def _wait_after_reboot(self, essential):
         if essential:
-            ssh = SSHInterface(address=self.address)
+            ssh = SSHInterface(address=self.address, port=self.options.ssh_port)
         else:
             ssh = SSHInterface(address=self.address,
                                username=self.options.root_username,
-                               password=self.options.root_password)
+                               password=self.options.root_password,
+                               port=self.options.ssh_port)
 
         try:
             SCMD.ssh.GetPrompt(ifc=ssh).run_wait(lambda x:x not in ('INOPERATIVE', '!'),
@@ -152,7 +158,7 @@ class InstallSoftware(Macro):
         with SSHInterface(address=self.address,
                           username=self.options.root_username,
                           password=self.options.root_password,
-                          timeout=timeout) as sshifc:
+                          timeout=timeout, port=self.options.ssh_port) as sshifc:
             ssh = sshifc.api
             version = SCMD.ssh.get_version(ifc=sshifc)
             LOG.info('running on %s', version)
@@ -213,11 +219,13 @@ class InstallSoftware(Macro):
 
         if hfiso:
             if essential:
-                ssh = SSHInterface(address=self.address, timeout=timeout)
+                ssh = SSHInterface(address=self.address, timeout=timeout,
+                                   port=self.options.ssh_port)
             else:
                 ssh = SSHInterface(address=self.address, timeout=timeout,
                                    username=self.options.root_username,
-                                   password=self.options.root_password)
+                                   password=self.options.root_password,
+                                   port=self.options.ssh_port)
 
             with ssh:
                 version = SCMD.ssh.get_version(ifc=ssh)
@@ -260,6 +268,8 @@ class InstallSoftware(Macro):
         
         if essential and current_version.product.is_em:
             self._initialize_em()
+        
+        self.has_essential_config = essential
 
 #    def by_tmsh(self):
 #        return
@@ -276,7 +286,8 @@ class InstallSoftware(Macro):
 
         icifc = IcontrolInterface(address=self.address,
                                   username=self.options.admin_username,
-                                  password=self.options.admin_password)
+                                  password=self.options.admin_password,
+                                  port=self.options.ssl_port)
         ic = icifc.open()
         running_volume = ICMD.software.get_active_volume(ifc=icifc)
         assert running_volume != self.options.volume, \
@@ -329,9 +340,10 @@ class InstallSoftware(Macro):
             
             LOG.info('Importing base iso %s', base)
             SCMD.ssh.scp_put(address=self.address,
-                              username=self.options.root_username,
-                              password=self.options.root_password,
-                              source=filename, nokex=False, timeout=timeout)
+                            username=self.options.root_username,
+                            password=self.options.root_password,
+                            port=self.options.ssh_port,
+                            source=filename, nokex=False, timeout=timeout)
 
             LOG.info('Wait for image to be imported %s', base)
             ICMD.software.GetSoftwareImage(filename=base, ifc=icifc) \
@@ -349,9 +361,10 @@ class InstallSoftware(Macro):
                 hfbase = os.path.basename(hfiso)
                 LOG.info('Importing hotfix iso %s', hfiso)
                 SCMD.ssh.scp_put(address=self.address,
-                                  username=self.options.root_username,
-                                  password=self.options.root_password,
-                                  source=hfiso, nokex=True)
+                                 username=self.options.root_username,
+                                 password=self.options.root_password,
+                                 port=self.options.ssh_port,
+                                 source=hfiso, nokex=True)
     
                 LOG.info('Wait for image to be imported %s', hfbase)
                 ICMD.software.GetSoftwareImage(filename=hfbase, ifc=icifc, is_hf=True) \
@@ -423,7 +436,8 @@ class InstallSoftware(Macro):
         # Grab a new iControl handle that uses the default admin credentials.
         if essential:
             icifc.close()
-            icifc = IcontrolInterface(address=self.address)
+            icifc = IcontrolInterface(address=self.address,
+                                      port=self.options.ssl_port)
             icifc.open()
 
         if uptime:
@@ -470,7 +484,9 @@ class InstallSoftware(Macro):
 
         if essential and current_version.product.is_em:
             self._initialize_em()
-
+        
+        self.has_essential_config = essential
+        
 #    def by_ui(self):
 #        return
 
@@ -525,12 +541,14 @@ class InstallSoftware(Macro):
         if self.options.format_partitions or self.options.format_volumes:
             with SSHInterface(address=self.address,
                               username=self.options.root_username,
-                              password=self.options.root_password) as sshifc:
+                              password=self.options.root_password,
+                              port=self.options.ssh_port) as sshifc:
                 version = SCMD.ssh.get_version(ifc=sshifc)
         else:
             with IcontrolInterface(address=self.address,
                                    username=self.options.admin_username,
-                                   password=self.options.admin_password) as icifc:
+                                   password=self.options.admin_password,
+                                   port=self.options.ssl_port) as icifc:
                 version = ICMD.system.get_version(ifc=icifc)
 
         if (iso_version.product.is_bigip and iso_version >= 'bigip 10.0.0' or
@@ -570,6 +588,7 @@ class EMInstallSoftware(Macro):
         self.devices = devices
         self.options = Options(options)
         self.options.setdefault('build_path', cm.ROOT_PATH)
+        self.has_essential_config = None
 
         super(EMInstallSoftware, self).__init__(*args, **kwargs)
 
@@ -613,7 +632,8 @@ class EMInstallSoftware(Macro):
         emifc.open()
         
         with SSHInterface(device=o.device, address=o.address, 
-                          username=o.root_username, password=o.root_password) as ssh:
+                          username=o.root_username, password=o.root_password,
+                          port=self.options.ssh_port) as ssh:
 #            version = SCMD.ssh.get_version(ifc=ssh)
 #            LOG.info('running on %s', version)
 #            if (version.product.is_bigip and version >= 'bigip 10.0.0' or
@@ -664,10 +684,11 @@ class EMInstallSoftware(Macro):
                 destination = '%s.%d' % (os.path.join(SHARED_TMP, base), os.getpid())
                 LOG.info('Importing base iso %s', base)
                 SCMD.ssh.scp_put(device=o.device, address=o.address,
-                                  destination=destination,
-                                  username=self.options.root_username,
-                                  password=self.options.root_password,
-                                  source=filename, nokex=False)
+                                 destination=destination,
+                                 username=self.options.root_username,
+                                 password=self.options.root_password,
+                                 port=self.options.ssh_port,
+                                 source=filename, nokex=False)
     
                 imuid = EMAPI.software.import_image(destination, ifc=emifc)
             else:
@@ -683,10 +704,11 @@ class EMInstallSoftware(Macro):
                     destination = '%s.%d' % (os.path.join(SHARED_TMP, hfbase), os.getpid())
                     LOG.info('Importing hotfix iso %s', hfbase)
                     SCMD.ssh.scp_put(device=o.device, address=o.address,
-                                      destination=destination,
-                                      username=self.options.root_username,
-                                      password=self.options.root_password,
-                                      source=hfiso, nokex=True)
+                                     destination=destination,
+                                     username=self.options.root_username,
+                                     password=self.options.root_password,
+                                     port=self.options.ssh_port,
+                                     source=hfiso, nokex=True)
                     hfuid = EMAPI.software.import_image(destination, ifc=emifc)
                 else:
                     hfuid = hf_list[hfiso_version]
@@ -721,6 +743,7 @@ class EMInstallSoftware(Macro):
             raise InstallFailed('Install did not succeed: %s' % 
                                 ', '.join(messages))
 
+        self.has_essential_config = o.essential_config
         return ret
 
     def setup(self):
@@ -749,7 +772,7 @@ def main():
     formatter = optparse.TitledHelpFormatter(indent_increment=2, 
                                              max_help_position=60)
     p = optparse.OptionParser(usage=usage, formatter=formatter,
-                            version="F5 Software Installer v%s" % __version__
+                            version="Remote Software Installer v%s" % __version__
         )
     p.add_option("", "--verbose", action="store_true",
                  help="Debug messages")
@@ -792,6 +815,10 @@ def main():
 
     p.add_option("", "--timeout", metavar="TIMEOUT", type="int", default=600,
                  help="Timeout. (default: 600)")
+    p.add_option("", "--ssl-port", metavar="INTEGER", type="int", default=443,
+                 help="SSL Port. (default: 443)")
+    p.add_option("", "--ssh-port", metavar="INTEGER", type="int", default=22,
+                 help="SSH Port. (default: 22)")
 
     p.add_option("", "--image", metavar="FILE", type="string",
                  help="Custom built ISO. (e.g. /tmp/bigip.iso) (optional)")

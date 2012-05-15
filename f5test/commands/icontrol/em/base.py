@@ -28,15 +28,16 @@ class EMCommand(Command):
     @param password: the admin password
     @type password: str
     """
-    def __init__(self, device=None, ifc=None, icontrol=None,
-                address=None, username=None, password=None, timeout=90,
-                *args, **kwargs):
+    def __init__(self, device=None, ifc=None, icontrol=None, address=None, 
+                 username=None, password=None, proto='https', port=None, timeout=90,
+                 *args, **kwargs):
         super(EMCommand, self).__init__(*args, **kwargs)
         
         self.ifc = ifc
         if self.ifc is None:
             self.ifc = EMInterface(device, icontrol, address, username, 
-                                   password, timeout)
+                                   password, proto=proto, port=port, 
+                                   timeput=timeout)
             self.api = self.ifc.open()
             self._keep_alive = False
         else:

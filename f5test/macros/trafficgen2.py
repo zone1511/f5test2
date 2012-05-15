@@ -19,7 +19,13 @@ import urlparse
 
 
 LOG = logging.getLogger(__name__)
-__version__ = '0.2'
+__version__ = '0.3'
+
+
+def partition(size, n):
+    q, r = divmod(size, n)
+    indices = [q*i + min(i, r) for i in xrange(n+1)]
+    return [indices[i+1]-indices[i] for i in xrange(n)]
 
 
 class TrafficGen(Macro):
@@ -81,7 +87,7 @@ class TrafficGen(Macro):
             #block_size = 1024
             block_count = 0
             kbps = o.rate
-            bucket = TokenBucket(10 * kbps, kbps)
+            bucket = TokenBucket(1000 * kbps, kbps)
             rate_limiter = RateLimit(bucket)
         
             rate_limiter(block_count, block_size)
@@ -97,21 +103,34 @@ class TrafficGen(Macro):
                 block_count += 1
                 rate_limiter(block_count, len(block))
 
-        group = gevent.pool.Pool(size=o.concurrency)
-        
+        def superrun(url, group):
+            for i, url in enumerate(itertools.repeat(url)):
+                client = self.make_client(url)
+                group.spawn(run, client, URL(url))
+                if i + 1 == o.requests:
+                    break
+            group.join()
+            
+        # Create individual Pools for each URL
+        groups = {}
+        for i, size in enumerate(partition(o.concurrency, len(self.urls))):
+            groups[self.urls[i]] = gevent.pool.Pool(size=size)
+
+        # Spin up one thread worker per URL
+        supergroup = gevent.pool.Pool(size=len(self.urls))
         now = time.time()
-        for i, url in enumerate(itertools.cycle(self.urls)):
-            client = self.make_client(url)
-            group.spawn(run, client, URL(url))
-            if i + 1 == o.requests:
-                break
-        group.join()
+        for url in self.urls:
+            supergroup.spawn(superrun, url, groups[url])
+        
+        try:
+            supergroup.join()
+        except KeyboardInterrupt:
+            pass
         
         delta = time.time() - now
-        req_per_sec = o.requests / delta
+        #req_per_sec = o.requests / delta
         
-        print "request count:%d, concurrency:%d, %f req/s, delta: %f" % (
-            i, o.concurrency, req_per_sec, delta)
+        LOG.info("delta: %f seconds" % delta)
 
 
 def main():
@@ -128,7 +147,7 @@ def main():
     formatter = optparse.TitledHelpFormatter(indent_increment=2, 
                                              max_help_position=60)
     p = optparse.OptionParser(usage=usage, formatter=formatter,
-                            version="iControl Tester version %s" % __version__
+                            version="HTTP/S Traffic Generator %s" % __version__
         )
     p.add_option("-v", "--verbose", action="store_true",
                  help="Debug logging")

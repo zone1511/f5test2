@@ -38,8 +38,6 @@ class Generic(WaitableCommand, SSHCommand):
         self.command = command
 
     def setup(self):
-        LOG.info('running `%s` on %s...', self.command, self.api)
-                
         ret = self.api.run(self.command)
         
         if not ret.status:
@@ -75,13 +73,14 @@ class ScpPut(SSHCommand):
         if not self.nokex:
             self.api.exchange_key()
         
-        shell = ShellInterface(timeout=self.timeout).open()
+        shell = ShellInterface(timeout=self.timeout, shell=True).open()
         
         LOG.info('Copying file %s to %s...', self.source, self.ifc)
         scpargs = ['-p', # Preserves modification times, access times, and modes from the original file.
                    '-o StrictHostKeyChecking=no', # Don't look in  ~/.ssh/known_hosts.
                    '-o UserKnownHostsFile=/dev/null', # Throw away the new identity
-                   '-c arcfour256'] # High performance cipher.
+                   '-c arcfour256', # High performance cipher.
+                   '-P %d' % self.ifc.port] 
         destdir = os.path.dirname(self.destination)
         self.api.run('mkdir -p %s' % destdir)
         if self.upload:
@@ -94,8 +93,6 @@ class ScpPut(SSHCommand):
                                     (' '.join(scpargs),
                                      self.ifc.username, self.ifc.address,
                                      self.source, self.destination))
-            # Add read permissions to group and others.
-            shell.run('chmod -R go+r %s' % self.destination)
 
         LOG.info('Done.')
 

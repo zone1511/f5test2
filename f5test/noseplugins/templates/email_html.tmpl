@@ -21,7 +21,7 @@ Testopia run: {{ config.testopia.address }}/tr_show_run.cgi?run_id={{ config.tes
 DUTs info:
 ==========
 {%- for dut in duts %}
- - {{ dut.device.alias|ljust(10) }} - {{ dut.device.address|ljust(16) }}: {{ dut.platform|ljust(4) }} {{ dut.version.product.to_tmos()|rjust(7) }} {{ dut.version.version }} {{ dut.version.build }} {% if config._reports and config._reports.cores[dut.device.alias] %}[CORED]{% endif %}
+ - {{ dut.device.alias|ljust(10) }} - <a href="https://{{ dut.device.address }}">{{ dut.device.address|ljust(16) }}</a>: {{ dut.platform|ljust(4) }} {{ dut.version.product.to_tmos()|rjust(7) }} {{ dut.version.version }} {{ dut.version.build }} {% if config._reports and config._reports.cores[dut.device.alias] %}[CORED]{% endif %}
 {%- endfor %}
 
 Skipped:

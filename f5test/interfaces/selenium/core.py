@@ -1,6 +1,6 @@
 """Selenium interface"""
 
-from ..config import ConfigInterface, DeviceAccess
+from ..config import ConfigInterface, DeviceAccess, ConfigNotLoaded
 from .driver import RemoteWrapper
 from ...base import Interface
 import logging
@@ -16,10 +16,31 @@ class SeleniumInterface(Interface):
     """Normally all UI tests share the same selenium handle, which is 
     initialized and torn down by the setUpModule and tearDownModule methods 
     of the 'ui' tests collection.
+
+    @param head: the name of the selenium head as defined in the config.
+    @type head: str
+    @param executor: URL of the Selenium server (e.g. http://127.0.0.1:4444/wd/hub)
+    @type executor: str
+    @param browser: firefox or internetexplorer or htmunit
+    @type browser: str
+    @param platform: ANY or LINUX or WINDOWS
+    @type platform: str
     """
     def __init__(self, head=None, executor=None, browser=None, platform=None, 
                  *args, **kwargs):
         super(SeleniumInterface, self).__init__()
+
+        try:
+            _, headdict = ConfigInterface().get_selenium_head(head)
+            if executor is None:
+                executor = headdict.get('address')
+            if browser is None:
+                browser = headdict.get('browser')
+            if platform is None:
+                platform = headdict.get('platform')
+        except ConfigNotLoaded:
+            LOG.debug('Config not loaded.')
+
         self.head = head
         self.executor = executor
         self.browser = browser
@@ -37,18 +58,21 @@ class SeleniumInterface(Interface):
         return self.api.current_window_handle
 
     def set_credentials(self, window=None, device=None, address=None, 
-                         username=None, password=None):
+                        username=None, password=None, port=None, proto='https'):
         """Set the credentials for the current window"""
         data = AttrDict()
+        data.proto = proto
         if device or not address:
             data.device = device if isinstance(device, DeviceAccess) \
                         else ConfigInterface().get_device(device)
             data.address = address or data.device.address
+            data.port = port or data.device.ports.get(proto, 443)
             data.username = username or data.device.get_admin_creds().username
             data.password = password or data.device.get_admin_creds().password
         else:
             data.device = device
             data.address = address
+            data.port = port
             data.username = username
             data.password = password
 
@@ -99,47 +123,34 @@ class SeleniumInterface(Interface):
     def version(self):
         from ...commands.icontrol.system import get_version
         return get_version(device=self.device, address=self.address, 
-                           username=self.username, password=self.password)
+                           username=self.username, password=self.password,
+                           port=self.port)
 
     @property
     def useragent(self):
         ua = self.api.execute_script("return navigator.userAgent")
-        return (ua, httpagentparser.detect(ua))
+        return (ua, AttrDict(httpagentparser.detect(ua)))
 
     def open(self): #@ReservedAssignment
         """Returns the handle to a Selenium 2 remote client.
 
-        @param head: the name of the selenium head as defined in the config.
-        @type head: str
-        @param device: the name of the selenium head as defined in the config.
-        @type device: str
         @return: the selenium remote client object.
         @rtype: L{RemoteWrapper}
         """
         if self.api:
             return self.api
-        if self.head or not self.address:
-            alias, head = ConfigInterface().get_selenium_head(self.head)
-            self.head = alias
-            executor = head['address']
-            browser = head['browser']
-            platform = head['platform']
-        else:
-            executor = self.executor
-            browser = self.browser
-            platform = self.platform
 
+        executor = self.executor
+        browser = self.browser
+        platform = self.platform
         self.api = RemoteWrapper(command_executor=executor, 
                                  desired_capabilities=dict(
                                                            #javascriptEnabled=True,
                                                            browserName=browser, 
                                                            platform=platform
                                  ))
+
         self.window = self.api.current_window_handle
-        #self.head = head
-        self.executor = executor
-        self.browser = browser
-        self.platform = platform
         return self.api
     
     def close(self, *args, **kwargs):

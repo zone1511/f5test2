@@ -1,5 +1,5 @@
 from ..base import SeleniumCommand
-from ..common import browse_to
+from ..common import browse_to, wait_for_loading
 import logging
 
 LOG = logging.getLogger(__name__) 
@@ -16,13 +16,19 @@ class EnableStats(SeleniumCommand):
         b = self.api
         
         v = self.ifc.version
-        if v.product.is_em and v < 'em 3.0':
+        if v.product.is_em and v < 'em 2.3':
+            locator = 'Enterprise Management | Statistics | Options | Data Collection'
+        elif v.product.is_em and v < 'em 3.0':
             locator = 'Enterprise Management | Options | Statistics | Data Collection' 
         else:
             locator = 'Statistics | Managed Devices | Options | Data Collection' 
         browse_to(locator, ifc=self.ifc)
         b.switch_to_frame('/contentframe')
-        e = b.wait('enableDataCollection')
+        
+        if v.product.is_em and v < 'em 2.2':
+            e = b.wait('enable_data_collection')
+        else:
+            e = b.wait('enableDataCollection')
         
         # @value of <select> is actually the value of the selected option.
         value = e.get_attribute('value')
@@ -36,20 +42,25 @@ class EnableStats(SeleniumCommand):
         
         o.click()
         
-        if old_enable and enable is False:
-            e = b.wait('disableStatsBtn')
+        if v.product.is_em and v < 'em 2.2':
+            e = b.find_element_by_name('save_collection_changes')
             e.click()
-            b.wait(value='disableStatsDlg:dialog')
-            e = b.find_element_by_xpath('//div[@id="disableStatsDlg:dialog"]//input[@value="Confirm"]')
-            e.click().wait('disableStatsDlg:dialog', negated=True)
-        elif old_enable is False and enable:
-            e = b.wait('enableStatsBtn')
-            e.click()
-            b.wait(value='enableStatsDlg:dialog')
-            e = b.find_element_by_xpath('//div[@id="enableStatsDlg:dialog"]//input[@value="Confirm"]')
-            e.click().wait('enableStatsDlg:dialog', negated=True)
+            wait_for_loading(css='success', ifc=self.ifc)
         else:
-            pass
+            if old_enable and enable is False:
+                e = b.wait('disableStatsBtn')
+                e.click()
+                b.wait(value='disableStatsDlg:dialog')
+                e = b.find_element_by_xpath('//div[@id="disableStatsDlg:dialog"]//input[@value="Confirm"]')
+                e.click().wait('disableStatsDlg:dialog', negated=True)
+            elif old_enable is False and enable:
+                e = b.wait('enableStatsBtn')
+                e.click()
+                b.wait(value='enableStatsDlg:dialog')
+                e = b.find_element_by_xpath('//div[@id="enableStatsDlg:dialog"]//input[@value="Confirm"]')
+                e.click().wait('enableStatsDlg:dialog', negated=True)
+            else:
+                pass
 
 
 get_stats_state = None

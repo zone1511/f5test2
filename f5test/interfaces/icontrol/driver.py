@@ -40,7 +40,7 @@ import logging
 import urllib
 LOG = logging.getLogger(__name__) 
 
-ICONTROL_URL = "https://%(username)s:%(password)s@%(hostname)s/iControl/iControlPortal.cgi"
+ICONTROL_URL = "%(proto)s://%(username)s:%(password)s@%(hostname)s:%(port)s/iControl/iControlPortal.cgi"
 ICONTROL_NS = "urn:iControl"
 
 
@@ -76,11 +76,13 @@ class Icontrol(object):
 
     """
 
-    def __init__(self, hostname, username, password, timeout=90, debug=0, 
-                 session=None):
+    def __init__(self, hostname, username, password, port=443, timeout=90,
+                 debug=0, proto='https', session=None):
         self.hostname = hostname
         self.username = username
         self.password = password
+        self.port = port
+        self.proto = proto
         self.timeout = timeout
         self._debug = debug
         self._session = session

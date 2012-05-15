@@ -28,11 +28,11 @@ class SSHCommand(base.Command):
     @param password: the password used to authenticate the SSH connection
     @type password: str
     """
-    def __init__(self, ifc=None, device=None,
-                 address=None, username=None, password=None, timeout=180, 
-                 *args, **kwargs):
+    def __init__(self, ifc=None, device=None, address=None, username=None, 
+                 password=None, port=22, timeout=180, *args, **kwargs):
         if ifc is None:
-            self.ifc = SSHInterface(device, address, username, password, timeout)
+            self.ifc = SSHInterface(device, address, username, password, 
+                                    port=port, timeout=timeout)
             self._keep_alive = False
         else:
             self.ifc = ifc
@@ -46,7 +46,8 @@ class SSHCommand(base.Command):
         opt['address'] = self.ifc.address
         opt['username'] = self.ifc.username
         opt['password'] = self.ifc.password
-        return parent + "(address=%(address)s username=%(username)s " \
+        opt['port'] = self.ifc.port
+        return parent + "(address=%(address)s port=%(port)s username=%(username)s " \
                         "password=%(password)s)" % opt
 
     def prep(self):

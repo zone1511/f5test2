@@ -8,14 +8,15 @@ from f5test.macros.base import Macro
 from f5test.base import Options
 from f5test.interfaces.subprocess import ShellInterface
 import os
-#import time
+import inspect
+import time
 import logging
 
 
 DISPLAY = ':99'
 SELENIUM_JAR = 'selenium-server-standalone.jar'
 LOG = logging.getLogger(__name__)
-__version__ = '0.1'
+__version__ = '0.2'
 
 
 class SeleniumRC(Macro):
@@ -24,35 +25,50 @@ class SeleniumRC(Macro):
         self.options = Options(options.__dict__)
         self.action = action
 
-        env = os.environ
-        VIRTUAL_ENV = env.get('VIRTUAL_ENV', options.env)
+        if options.env:
+            venv_dir = options.env
+            bin_dir = os.path.join(venv_dir, 'bin')
+        else:
+            bin_dir = os.path.dirname(os.path.realpath(inspect.stack()[-1][1]))
+            venv_dir = os.path.dirname(bin_dir)
+
+        LOG.info('Using sandbox directory: %s', venv_dir)
         params = Options()
         params.display = options.display
-        if VIRTUAL_ENV:
-            params.jar = os.path.join(VIRTUAL_ENV, 'bin', SELENIUM_JAR)
-            assert os.path.exists(params.jar), '%s not found' % params.jar
-            
-            var_run = os.path.join(VIRTUAL_ENV, 'var', 'run')
-            var_log = os.path.join(VIRTUAL_ENV, 'var', 'log')
-            if not os.path.exists(var_run):
-                os.makedirs(var_run)
-            
-            if not os.path.exists(var_log):
-                os.makedirs(var_log)
-            
-            params.xvfb_pid_file = os.path.join(var_run, 'xvfb.pid')
-            params.xvfb_log_file = os.path.join(var_log, 'xvfb.log')
-            params.sel2_pid_file = os.path.join(var_run, 'selenium.pid')
-            params.sel2_log_file = os.path.join(var_log, 'selenium.log')
-        else:
-            params.xvfb_pid_file = 'xvfb.pid'
-            params.xvfb_log_file = 'xvfb.log'
-            params.sel2_pid_file = 'selenium.pid'
-            params.sel2_log_file = 'selenium.log'
-            params.jar = SELENIUM_JAR
+        
+        params.jar = os.path.join(bin_dir, SELENIUM_JAR)
+        assert os.path.exists(params.jar), '%s not found' % params.jar
+        
+        var_run = os.path.join(venv_dir, 'var', 'run')
+        var_log = os.path.join(venv_dir, 'var', 'log')
+        if not os.path.exists(var_run):
+            os.makedirs(var_run)
+        
+        if not os.path.exists(var_log):
+            os.makedirs(var_log)
+        
+        params.xvfb_pid_file = os.path.join(var_run, 'xvfb.pid')
+        params.xvfb_log_file = os.path.join(var_log, 'xvfb.log')
+        params.sel2_pid_file = os.path.join(var_run, 'selenium.pid')
+        params.sel2_log_file = os.path.join(var_log, 'selenium.log')
         
         self.params = params
         super(SeleniumRC, self).__init__()
+
+    def do_kill_wait(self, pid, signal, timeout=10, interval=0.1):
+        os.kill(pid, signal)
+        now = start = time.time()
+        
+        while now - start < timeout:
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                break
+            
+            time.sleep(interval)
+            now = time.time()
+        else:
+            LOG.error('Timeout waiting for PID %d to finish.', pid)
 
     def stop(self):
         LOG.info('Action: %s', self.action)
@@ -63,7 +79,7 @@ class SeleniumRC(Macro):
             pid = int(open(params.xvfb_pid_file).read())
             LOG.info('Sending SIGTERM to Xvfb: %d', pid)
             try:
-                os.kill(pid, 15)
+                self.do_kill_wait(pid, 15)
             finally:
                 os.remove(params.xvfb_pid_file)
         
@@ -71,7 +87,7 @@ class SeleniumRC(Macro):
             pid = int(open(params.sel2_pid_file).read())
             LOG.info('Sending SIGTERM to Selenium: %d', pid)
             try:
-                os.kill(pid, 15)
+                self.do_kill_wait(pid, 15)
             finally:
                 os.remove(params.sel2_pid_file)
         
@@ -133,7 +149,7 @@ def main():
     formatter = optparse.TitledHelpFormatter(indent_increment=2, 
                                              max_help_position=60)
     p = optparse.OptionParser(usage=usage, formatter=formatter,
-                            version="F5 Software Installer v%s" % __version__
+                            version="Selenium RC Tool v%s" % __version__
         )
     p.add_option("-v", "--verbose", action="store_true",
                  help="Debug messages")
@@ -141,8 +157,7 @@ def main():
     p.add_option("-d", "--display", metavar="DISPLAY",
                  default=DISPLAY, type="string",
                  help="The display to be used (default: %s)" % DISPLAY)
-    p.add_option("-e", "--env", metavar="DIRECTORY",
-                 default='.', type="string",
+    p.add_option("-e", "--env", metavar="DIRECTORY", type="string",
                  help="The sandbox directory (default: .)")
     p.add_option("-t", "--timeout", metavar="TIMEOUT", type="int", default=60,
                  help="Timeout. (default: 60)")

@@ -32,22 +32,29 @@ class SyncTo(SeleniumCommand):
             wait_for_loading(ifc=self.ifc)
             success = not wait_for_task(timeout=600, ifc=self.ifc)
         else:
-            browse_to('Device Management | Device Groups', ifc=self.ifc)
-            table = b.wait('list_table', frame='/contentframe')
-            links = table.find_elements_by_xpath('tbody//a')
-            for a in links:
-                dg = a.text
-                a.click().wait('update')
+            checked_dgs = set([])
+            while True:
+                browse_to('Device Management | Device Groups', ifc=self.ifc)
+                table = b.wait('list_table', frame='/contentframe')
+                links = set([(x, x.text) for x in table.find_elements_by_xpath('tbody//a')])
+                
+                not_synced_dgs = [x for x in links if x[1] not in checked_dgs]
+                if not not_synced_dgs:
+                    break
+                
+                dg = not_synced_dgs.pop()
+                checked_dgs.add(dg[1])
+                dg[0].click().wait('update')
                 browse_to_tab('ConfigSync', ifc=self.ifc)
                 button = b.wait('export', frame='/contentframe')
                 td = b.find_element_by_xpath("//table[@id='properties_table']/tbody/tr/td[2]")
                 status = td.text.strip()
-                LOG.debug("%s: %s", dg, status)
-                if status != 'In Sync':
+                LOG.debug("%s: %s", dg[1], status)
+                if status != 'In Sync' and button.is_enabled():
                     button.click()
                     alert = b.switch_to_alert()
                     alert.accept()
-                    LOG.info('Syncing %s...', dg)
+                    LOG.info('Syncing %s...', dg[1])
                     wait_for_loading(ifc=self.ifc)
                     success &= not wait_for_task(timeout=600, ifc=self.ifc)
         

@@ -9,7 +9,7 @@ from ..config import ConfigInterface, DeviceAccess
 #from .driver import Icontrol
 from .core import IcontrolInterface
 from ...base import Interface
-from ...defaults import ADMIN_USERNAME, ADMIN_PASSWORD
+from ...defaults import ADMIN_USERNAME, ADMIN_PASSWORD, DEFAULT_PORTS
 
 
 class EmApi(object):
@@ -66,7 +66,8 @@ class EmApi(object):
 class EMInterface(Interface):
     
     def __init__(self, device=None, icifc=None, address=None, username=None, 
-                 password=None, timeout=180, *args, **kwargs):
+                 password=None, port=None, proto='https', timeout=180, 
+                 *args, **kwargs):
         super(EMInterface, self).__init__()
 
         self.icifc = icifc
@@ -79,11 +80,15 @@ class EMInterface(Interface):
                 password = self.device.get_admin_creds().password
             if address is None:
                 address = self.device.address
+            if port is None:
+                port = self.device.ports.get(proto)
         else:
             self.device = device
         self.address = address
         self.username = username or ADMIN_USERNAME
         self.password = password or ADMIN_PASSWORD
+        self.port = port or DEFAULT_PORTS[proto]
+        self.proto = proto
         self.timeout = timeout
 
     @property
@@ -94,14 +99,13 @@ class EMInterface(Interface):
     def open(self): #@ReservedAssignment
         if self.api:
             return self.api
-        address = self.address
-        username = self.username
-        password = self.password
 
         if not self.icifc:
-            self.icifc = IcontrolInterface(address=address, 
-                                           username=username, 
-                                           password=password, 
+            self.icifc = IcontrolInterface(address=self.address, 
+                                           username=self.username, 
+                                           password=self.password, 
+                                           port=self.port,
+                                           proto=self.proto,
                                            timeout=self.timeout,
                                            debug=False)
             self.icifc.open()

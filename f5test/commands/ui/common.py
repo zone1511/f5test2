@@ -137,20 +137,23 @@ class Login(SeleniumCommand):
     @param password: The password.
     @type password: str
     """
-    def __init__(self, device=None,
-                 address=None, username=None, password=None, timeout=120, 
-                 *args, **kwargs):
+    def __init__(self, device=None, address=None, username=None, password=None, 
+                 port=None, proto='https', timeout=120, *args, **kwargs):
         super(Login, self).__init__(*args, **kwargs)
         self.timeout = timeout
+        self.proto = proto
+        self.path = '/tmui/login.jsp'
         if device or not address:
             self.device = device if isinstance(device, DeviceAccess) \
                         else ConfigInterface().get_device(device)
             self.address = address or self.device.address
+            self.port = port or self.device.ports.get(proto, 443)
             self.username = username or self.device.get_admin_creds().username
             self.password = password or self.device.get_admin_creds().password
         else:
             self.device = device
             self.address = address
+            self.port = port
             self.username = username
             self.password = password
 
@@ -158,10 +161,11 @@ class Login(SeleniumCommand):
         b = self.api
         # Set the api login data
         self.ifc.set_credentials(device=self.device, address=self.address,
-                                 username=self.username, password=self.password)
+                                 username=self.username, password=self.password,
+                                 port=self.port, proto=self.proto)
 
-        b.get("https://%s/tmui/login.jsp" % self.address).wait('username', 
-                                                               timeout=self.timeout)
+        b.get("{0[proto]}://{0[address]}:{0[port]}{0[path]}".format(self.__dict__)).wait('username', 
+                                                                                         timeout=self.timeout)
         
         e = b.find_element_by_name("username")
         e.click()
@@ -401,7 +405,7 @@ class SetPlatformConfiguration(SeleniumCommand):
     """Sets the values in System->Platform page.
     
     @param values: Values to be updates.
-    @type timeout: int
+    @type values: dict
     """
     def __init__(self, values=None, *args, **kwargs):
         super(SetPlatformConfiguration, self).__init__(*args, **kwargs)
@@ -527,3 +531,25 @@ class ShowAll(SeleniumCommand):
             showall_caption = None
             LOG.debug('No paginator found.')
         return showall_caption
+
+
+get_bs3textarea_text = None
+class GetBs3textareaText(SeleniumCommand):
+    """A cross-browser command that returns the text of a textarea element 
+    updated through a BS3 call.
+    
+    @param element: The textarea element
+    @type element: WebDriverElement instance
+    @return: The text
+    @rtype: str
+    """
+    def __init__(self, element, *args, **kwargs):
+        super(GetBs3textareaText, self).__init__(*args, **kwargs)
+        self.element = element
+
+    def setup(self):
+        _, uap = self.ifc.useragent
+        if uap.browser.name == 'Microsoft Internet Explorer':
+            return self.element.text
+        else:
+            return self.element.get_attribute('value')
