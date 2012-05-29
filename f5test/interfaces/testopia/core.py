@@ -18,13 +18,18 @@ class TestopiaInterface(Interface):
     def open(self): #@ReservedAssignment
         if not self.api is None:
             return self.api
-        config = ConfigInterface().open()
-        testopia = config.testopia
-        url = urlparse.urljoin(testopia.address, testopia.uri)
-        address = self.address or url
-        username = self.username or testopia.username
-        password = self.password or testopia.password
+
+        if not self.address:
+            config = ConfigInterface().open()
+            testopia = config.testopia
+            url = urlparse.urljoin(testopia.address, testopia.uri)
+            self.address = url
+            self.username = self.username or testopia.username
+            self.password = self.password or testopia.password
+
+        address = self.address
+        username = self.username
+        password = self.password
 
         self.api = Testopia(address, username, password, timeout=self.timeout)
         return self.api
-

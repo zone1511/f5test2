@@ -27,7 +27,11 @@ def parse_xmlsql(value):
         tmp = []
         for field in row.getElementsByTagName('field'):
             if len(field.childNodes) > 0 :
-                tmp.append(field.childNodes[0].data)
+                # Try to guess integers. Ugly!
+                try:
+                    tmp.append(int(field.childNodes[0].data))
+                except ValueError:
+                    tmp.append(field.childNodes[0].data)
             elif field.hasAttribute('xsi:nil'):
                 tmp.append(None)
             else:

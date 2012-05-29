@@ -1,7 +1,11 @@
 TestRun report
 ==============
 
-Ran {{ result.testsRun }} tests (errors={{ result.errors|length }}, failures={{ result.failures|length }}, skips={{ result.skipped|length }})
+Good:    {{ bars.good }}
+Bad:     {{ bars.bad }}
+Skipped: {{ bars.unknown }}
+
+{% if testtime %}Duration: {{ testtime.delta_str }}{% endif %}
 
 Session logs: {{ sessionurl }}
 {%- if config.testopia._testrun %}

@@ -19,28 +19,34 @@ class TestopiaCommand(base.Command):
     @param password: the bugzilla password
     @type password: str
     """
-    def __init__(self, api=None,
-                address=None, username=None, password=None, *args, **kwargs):
+    def __init__(self, ifc=None, address=None, username=None, password=None,
+                 *args, **kwargs):
+        if ifc is None:
+            self.ifc = TestopiaInterface(address, username, password)
+            self.api = self.ifc.open()
+            self._keep_alive = False
+        else:
+            self.ifc = ifc
+            self._keep_alive = True
+
         super(TestopiaCommand, self).__init__(*args, **kwargs)
-        
-        self.api = api
-        if not api:
-            self.interface = TestopiaInterface(address, username, password)
 
     def __repr__(self):
         parent = super(TestopiaCommand, self).__repr__()
         opt = {}
-        opt['address'] = self.api.hostname
-        opt['username'] = self.api.username
-        opt['password'] = self.api.password
+        opt['address'] = self.ifc.address
+        opt['username'] = self.ifc.username
+        opt['password'] = self.ifc.password
         return parent + "(address=%(address)s username=%(username)s " \
                         "password=%(password)s)" % opt
 
     def prep(self):
         """Open a new interface if none is provided"""
-        if not self.api:
-            self.api = self.interface.open()
+        if not self.ifc.is_opened():
+            self.ifc.open()
+        self.api = self.ifc.api
 
     def cleanup(self):
         """Testopia interface is not persistent, so we don't need to close it"""
-        pass
+        if not self._keep_alive:
+            self.ifc.close()

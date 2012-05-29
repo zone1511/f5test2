@@ -4,7 +4,7 @@ from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.remote.command import Command
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import (NoSuchElementException, 
-    StaleElementReferenceException, WebDriverException) # ElementNotVisibleException
+    StaleElementReferenceException, WebDriverException, NoSuchWindowException)
 import copy
 import time
 import logging
@@ -55,7 +55,20 @@ class RemoteWrapper(RemoteWebDriver):
     
     def __init__(self, *args, **kwargs):
         self._frames = {}
+        self._current_window_handle = None
         return super(RemoteWrapper, self).__init__(*args, **kwargs)
+
+    @property
+    def current_window_handle(self):
+        """
+        Cache and return the handle of the current window.
+
+        :Usage:
+            driver.current_window_handle
+        """
+        if not self._current_window_handle:
+            self._current_window_handle = super(RemoteWrapper, self).current_window_handle
+        return self._current_window_handle
 
     def switch_to_frame(self, frame_path='.', window_handle=None, forced=False):
         """Switches focus to a frame by index or name.
@@ -116,14 +129,32 @@ class RemoteWrapper(RemoteWebDriver):
         """Switches to the topmost frame (aka _top)."""
         return self.switch_to_frame('/')
 
-    def switch_to_window(self, window_name, frame=None):
+    def switch_to_window(self, window_name, frame=None, timeout=3):
         """Switching the window automatically resets the current frame to _top.
         
         @param window_name: Window handle or name
         @param frame: Frame path to set inside the window. By default it'll set 
         the last frame path and if none is set it'll be /.
+        @param timeout: Wait this long for the window to become available.
+        @type timeout: int (seconds)
         """
-        super(RemoteWrapper, self).switch_to_window(window_name)
+        interval = 0.1
+        now = start = time.time()
+        
+        while True:
+            try:
+                super(RemoteWrapper, self).switch_to_window(window_name)
+                # Kill the cached value
+                self._current_window_handle = None
+                break
+            except NoSuchWindowException:
+                LOG.debug('Window %s not yet present.', window_name)
+                if now - start >= timeout:
+                    raise
+
+            time.sleep(interval)
+            now = time.time()
+
         if frame is None:
             frame = self.get_current_frame()
         self.switch_to_frame(frame, forced=True)
@@ -160,9 +191,9 @@ class RemoteWrapper(RemoteWebDriver):
         else:
             LOG.warning("maximize_window not supported in %s." % self.name)
 
-    def wait(self, value=None, by=By.ID, frame='.', it=Is.DISPLAYED, 
+    def wait(self, value=None, by=By.ID, frame=None, it=Is.DISPLAYED, 
              negated=False, timeout=10, interval=0.1, stabilize=0, element=None, 
-             test=None):
+             test=None, multiple=False):
         """Waits for an element to satisfy a certain condition.
         
         @param value: the locator 
@@ -195,8 +226,8 @@ class RemoteWrapper(RemoteWebDriver):
         f['value'] = value
         f['negated'] = negated and 'not' or 'to be'
         
-        if frame is '.':
-            f['frame'] = self.get_current_frame()
+        if frame is None:
+            f['frame'] = '*current*'
         else:
             f['frame'] = frame
         
@@ -214,6 +245,9 @@ class RemoteWrapper(RemoteWebDriver):
         if element is None:
             element = self
         
+        if multiple and not test:
+            raise TypeError('When testing for multiple elements a test callback needs to be specified.')
+
         if test:
             assert callable(test), '"test" must be a callback function with 2 params: element and exception.'
 
@@ -227,13 +261,16 @@ class RemoteWrapper(RemoteWebDriver):
                 # Caveat: If this is the first iteration *and* we're using a 
                 # relative frame *and* switch_to_frame fails halfway, then the 
                 # subsequent iterations will all fail! 
-                self.switch_to_frame(frame)
-                # Absolutize the frame (in case the one provided was relative)
-                frame = self.get_current_frame()
+                if frame:
+                    self.switch_to_frame(frame)
+                    # Absolutize the frame (in case the one provided was relative)
+                    frame = self.get_current_frame()
 
-                e = element.find_element(by=by, value=value)
+                e = element.find_elements(by=by, value=value) if multiple \
+                    else element.find_element(by=by, value=value)
 
-                if it == Is.TEST:
+                #LOG.debug(e)
+                if multiple or it == Is.TEST:
                     if test(e, None):
                         LOG.debug("Custom condition met.")
                         good = True
@@ -244,6 +281,7 @@ class RemoteWrapper(RemoteWebDriver):
                     else:
                         LOG.debug("Waiting for '%s'.", c_text)
                 elif (not getattr(e, it)() ^ (not negated)):
+                #elif not (sum(map(lambda x:getattr(x, it)(), e)) == len(e) if multiple else getattr(e, it)() ^ (not negated)):
                     LOG.debug("Condition '%s' met.", c_text)
                     good = True
                 else:
@@ -255,7 +293,7 @@ class RemoteWrapper(RemoteWebDriver):
                     if test(None, exc):
                         LOG.debug("Custom condition met.")
                         good = True
-                elif (it == Is.PRESENT and negated):
+                elif (it in (Is.PRESENT, Is.DISPLAYED) and negated):
                     LOG.debug("Condition '%s' met.", c_text)
                     good = True
                 LOG.debug("Waiting for '%s'.", c_text)

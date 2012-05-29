@@ -32,7 +32,11 @@ def secs_to_str(seconds):
     return "%s:%s:%s" % (hours, mins, secs)
 
 class Testopia(Plugin):
-
+    """
+    Testopia plugin. Enabled with ``--with-testopia``. Provides integration with
+    Testopia by reporting test case run results and test run results. Depends on
+    the ``testopia`` section in config.
+    """
     enabled = False
     name = "testopia"
     score = 518
@@ -49,7 +53,7 @@ class Testopia(Plugin):
                           help="The name of the TestRun. (default: Automated run %(session)s)")
         parser.add_option('--testopia-syncplan', action='store_true',
                           dest='syncplan', default=False,
-                          help="Sync the testplan with the test collection. ")
+                          help="Sync the testplan with the test collection.")
         parser.add_option('--testopia-remove-cases', action='store_true',
                           dest='remove_cases', default=False,
                           help="Used together with syncplan option. When "
@@ -58,6 +62,9 @@ class Testopia(Plugin):
         parser.add_option('--with-testopia', action='store_true',
                           dest='with_testopia', default=False,
                           help="Enable testopia. (default: no)")
+        parser.add_option('--testopia-strip', metavar="NUM", default=0,
+                          type="int", dest='strip',
+                          help="Strip NUM leading components from testcase name.")
 
     def configure(self, options, noseconfig):
         """ Call the super and then validate and call the relevant parser for
@@ -160,9 +167,9 @@ class Testopia(Plugin):
         config.testopia.test plan
         """
         filename, module, method = test.address()
-        adr = "%s:%s" % (module, method)
+        strip = self.options.strip
+        adr = "%s:%s" % ('.'.join(module.split('.')[strip:]), method)
         tc = self.tcs.get(adr)
-        
 
         if not self.options.syncplan:
             if tc and STATUS_ID_TEXT[tc['case_status_id']] != 'CONFIRMED':

@@ -27,17 +27,19 @@ class SeleniumInterface(Interface):
     @type platform: str
     """
     def __init__(self, head=None, executor=None, browser=None, platform=None, 
-                 *args, **kwargs):
+                 options=None, *args, **kwargs):
         super(SeleniumInterface, self).__init__()
 
         try:
-            _, headdict = ConfigInterface().get_selenium_head(head)
+            head, headdict = ConfigInterface().get_selenium_head(head)
             if executor is None:
                 executor = headdict.get('address')
             if browser is None:
                 browser = headdict.get('browser')
             if platform is None:
-                platform = headdict.get('platform')
+                platform = headdict.get('platform', 'ANY')
+            if options is None:
+                options = headdict.get('options', AttrDict())
         except ConfigNotLoaded:
             LOG.debug('Config not loaded.')
 
@@ -45,6 +47,7 @@ class SeleniumInterface(Interface):
         self.executor = executor
         self.browser = browser
         self.platform = platform
+        self.options = options
         self.device = None
         self.address = None
         self.username = None

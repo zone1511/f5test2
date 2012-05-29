@@ -26,6 +26,10 @@ def datetime_to_str(date):
     return date_str[:date_str.find('.')] # Remove microseconds
 
 class IrackCheckout(Plugin):
+    """
+    iRack plugin. Enable with ``--with-irack``. This plugin checks in/out
+    devices from iRack: http://go/irack
+    """
     enabled = False
     name = "irack"
     score = 530
@@ -88,7 +92,14 @@ class IrackCheckout(Plugin):
             end_str = datetime_to_str(end)
             
             headers = {"Content-type": "application/json"}
-            payload = json.dumps(dict(notes='By TestRunner @ %s' % get_local_ip(address), 
+            notes = 'runner={0}\n' \
+                    'id={1}\n' \
+                    'config={2}\n' \
+                    'url={3}\n'.format(get_local_ip(address), 
+                                     self.config_ifc.get_session().name,
+                                     config._filename,
+                                     self.config_ifc.get_session().get_url())
+            payload = json.dumps(dict(notes=notes, 
                                       assets=[x['resource_uri'] for x in ret.data.objects],
                                       #to=URI_USER_NOBODY, # nobody
                                       start=now_str,

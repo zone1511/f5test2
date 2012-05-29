@@ -45,6 +45,7 @@ class Big3dUtil(Macro):
             else:
                 raise ValueError(device)
         
+        assert mgmtips, 'No devices discovered on EM?'
         with SSHInterface(**self.sshparams) as sshifc:
             with EMInterface(**self.icparams) as emifc:
                 emapi = emifc.api

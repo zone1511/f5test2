@@ -15,7 +15,6 @@ from f5test.utils.parsers.audit import get_inactive_volume
 import logging
 import os.path
 import time
-#import socket
 
 LOG = logging.getLogger(__name__)
 SHARED_IMAGES = '/shared/images'
@@ -34,24 +33,8 @@ class InstallSoftware(Macro):
 
     def __init__(self, options, address=None, *args, **kwargs):
         self.options = Options(options)
-        if self.options.device:
-            device = ConfigInterface().get_device(options.device)
-            self.address = device.get_address()
-            self.options.admin_username = device.get_admin_creds().username
-            self.options.admin_password = device.get_admin_creds().password
-            self.options.root_username = device.get_root_creds().username
-            self.options.root_password = device.get_root_creds().password
-            self.options.ssl_port = device.ports.get('https', 443)
-            self.options.ssh_port = device.ports.get('ssh', 22)
-        else:
-            self.address = address
-
-        self.options.setdefault('admin_username', ADMIN_USERNAME)
-        self.options.setdefault('admin_password', ADMIN_PASSWORD)
-        self.options.setdefault('root_username', ROOT_USERNAME)
-        self.options.setdefault('root_password', ROOT_PASSWORD)
-        self.options.setdefault('build_path', cm.ROOT_PATH)
         self.has_essential_config = None
+        self.address = address
 
         LOG.info('Doing: %s', self.address)
         super(InstallSoftware, self).__init__(*args, **kwargs)
@@ -487,13 +470,30 @@ class InstallSoftware(Macro):
         
         self.has_essential_config = essential
         
-#    def by_ui(self):
-#        return
-
     def prep(self):
         LOG.debug('prepping for install')
 
+    def set_defaults(self):
+        if self.options.device:
+            device = ConfigInterface().get_device(self.options.device)
+            self.address = device.get_address()
+            self.options.admin_username = device.get_admin_creds().username
+            self.options.admin_password = device.get_admin_creds().password
+            self.options.root_username = device.get_root_creds().username
+            self.options.root_password = device.get_root_creds().password
+            self.options.ssl_port = device.ports.get('https', 443)
+            self.options.ssh_port = device.ports.get('ssh', 22)
+
+        self.options.setdefault('admin_username', ADMIN_USERNAME)
+        self.options.setdefault('admin_password', ADMIN_PASSWORD)
+        self.options.setdefault('root_username', ROOT_USERNAME)
+        self.options.setdefault('root_password', ROOT_PASSWORD)
+        self.options.setdefault('build_path', cm.ROOT_PATH)
+    
     def setup(self):
+        # Set the admin and root usernames and passwords
+        self.set_defaults()
+        
         if self.options.image:
             title = 'Installing custom base image on %s' % self.address
         else:
@@ -717,8 +717,7 @@ class EMInstallSoftware(Macro):
             
             EMSQL.software.get_hotfix_list(ifc=ssh)
 
-            all_mgmtips = [x.address for x in self.devices]
-            EMSQL.device.CountActiveTasks(all_mgmtips, ifc=ssh) \
+            EMSQL.device.CountActiveTasks(ifc=ssh) \
                         .run_wait(lambda x: x == 0, timeout=timeout,
                                   progress_cb=lambda x:'waiting for other tasks')
 

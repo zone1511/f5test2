@@ -3,6 +3,7 @@ Created on Feb 9, 2012
 
 @author: jono
 '''
+from __future__ import absolute_import
 from f5test.macros.confgen import (ConfigGenerator, DEFAULT_MEMBERS, 
                                    DEFAULT_NODE_START, DEFAULT_NODES, 
                                    DEFAULT_PARTITIONS, DEFAULT_POOLS, 
@@ -10,7 +11,8 @@ from f5test.macros.confgen import (ConfigGenerator, DEFAULT_MEMBERS,
 from f5test.macros.keyswap import KeySwap
 from f5test.macros.ha import FailoverMacro
 from f5test.interfaces.testopia import TestopiaInterface
-from f5test.interfaces.config import expand_devices, ConfigInterface
+from f5test.interfaces.config import (expand_devices, ConfigInterface, 
+                                      KEYSET_COMMON, KEYSET_LOCK)
 from f5test.interfaces.ssh import SSHInterface
 from f5test.interfaces.icontrol import IcontrolInterface
 from f5test.interfaces.subprocess import ShellInterface
@@ -21,6 +23,7 @@ import f5test.commands.shell as SCMD
 import f5test.commands.icontrol.em as EMAPI
 import f5test.commands.shell.em as EMSQL
 from nose.config import _bool
+import inspect
 import os
 import time
 
@@ -33,17 +36,58 @@ import logging
 LOG = logging.getLogger(__name__)
 DEFAULT_PRIORITY = 100
 DEFAULT_TIMEOUT = 600
+DEFAULT_DISCOVERY_DELAY = 30
+ENABLE_KEY = '_enabled'
 
-
-def process_stages(stages, ifcs, stages_map):
-    if not stages:
-        return
-
-    q = Queue()
-    pool = []
+def carry_flag(d, flag=None):
+    """
+    Given the dict:
+    key1:
+        _enabled: 1
+        subkey1:
+            key: val
+        subkey2:
+            key: val
     
-    # Sort stages by priority attribute and stage name
-    stages = sorted(stages.iteritems(), key=lambda x:(x[1] and 
+    The resulting dict after running carry_flag() on it will be:
+    key1:
+        _enabled: 1
+        subkey1:
+            _enabled: 1
+            key: val
+        subkey2:
+            _enabled: 1
+            key: val
+    """
+    if flag != None:
+        d[ENABLE_KEY] = flag
+    else:
+        flag = d.get(ENABLE_KEY)
+    
+    for v in d.itervalues():
+        if isinstance(v, dict):
+            carry_flag(v, flag)
+
+def process_stages(stages, section, ifcs):
+    if not stages:
+        LOG.debug('No stages found.')
+        return
+    
+    # Replicate the "_enabled" flag.
+    carry_flag(stages)
+
+    # Build the stage map with *ALL* defined stage classes in this file.
+    stages_map = {}
+    for value in globals().values():
+        if inspect.isclass(value) and issubclass(value, Stage) and value != Stage:
+            stages_map[value.name] = value
+
+    # Focus only on our stages section
+    for key in section.split('.'):
+        stages = stages.get(key, Options())
+    
+    # Sort stages by priority attribute and stage name.
+    stages = sorted(stages.iteritems(), key=lambda x:(isinstance(x[1], dict) and 
                                                       x[1].get('priority', 
                                                                DEFAULT_PRIORITY), 
                                                       x[0]))
@@ -51,27 +95,29 @@ def process_stages(stages, ifcs, stages_map):
     # group and wait for threads within a group to finish.
     sg_dict = {}
     sg_list = []
-    for stage in stages:
-        specs = stage[1]
-        if not specs:
+    for name, specs in stages:
+        if not specs or name.startswith('_'):
             continue
+        
         specs = Options(specs)
-
-        key = specs.get('group', "{0}-{1}".format(stage[0], specs.type))
+        key = specs.get('group', "{0}-{1}".format(name, specs.type))
         
         group = sg_dict.get(key)
         if not group:
             sg_dict[key] = []
             sg_list.append(sg_dict[key])
-        sg_dict[key].append(stage)
+        sg_dict[key].append((name, specs))
 
     LOG.debug("sg_list: %s", sg_list)
     for stages in sg_list:
+        q = Queue()
+        pool = []
         for stage in stages:
             description, specs = stage
-            if not specs:
+            if not specs or not _bool(specs.get(ENABLE_KEY)):
                 continue
             
+            LOG.info("Processing stage: %s", description)
             # items() reverts <Options> to a simple <dict>
             specs = Options(specs)
             if not stages_map.get(specs.type):
@@ -89,7 +135,6 @@ def process_stages(stages, ifcs, stages_map):
                 t.start()
                 pool.append(t)
                 if not stage_class.parallelizable:
-                    LOG.debug('Waiting for each thread...')
                     t.join()
 
         LOG.debug('Waiting for threads...')
@@ -224,7 +269,7 @@ class SetPasswordStage(Stage, Macro):
 
     def run(self):
         LOG.debug('Unlocking device %s', self.device)
-        ICMD.system.set_password(device=self.device, lock=False)
+        ICMD.system.set_password(device=self.device, keyset=KEYSET_COMMON)
 
 
 class PrintDevicesInfo(Macro):
@@ -234,9 +279,6 @@ class PrintDevicesInfo(Macro):
 
     def run(self, config):
         cfgifc = ConfigInterface()
-        #if not _bool(config_ifc.open().isbvt):
-        #    return
-        
         devices = cfgifc.get_all_devices()
         
         LOG.info('=' * 80)
@@ -280,8 +322,11 @@ class SanityCheck(Macro):
     def run(self):
         configifc = ConfigInterface()
         config = configifc.open()
-
-        LOG.info('BVT Sanity check...')
+        
+        if not config.paths:
+            LOG.info('Test runner sanity skipped.')
+            return
+        
         assert config.paths.get('root ca'), 'Root CA path is not set in the config'
         assert config.paths.build, 'CM Build path is not set in the config'
         assert config.paths.logs, 'Logs path is not set in the config'
@@ -304,7 +349,7 @@ class SanityCheck(Macro):
         if not (stats.f_bsize * stats.f_bavail)/1024**2 > 100:
             raise StageError("Logs dir: %s has not enough space left" % sample)
         
-        LOG.info('BVT Sanity passed!')
+        LOG.info('Test runner sanity check passed!')
 
 
 class InstallSoftwareStage(Stage, InstallSoftware):
@@ -332,14 +377,16 @@ class InstallSoftwareStage(Stage, InstallSoftware):
                           timeout=specs.get('timeout', DEFAULT_TIMEOUT))
         super(InstallSoftwareStage, self).__init__(options, *args, **kwargs)
 
-    def setup(self):
+    def prep(self):
+        super(InstallSoftwareStage, self).prep()
         LOG.info('Resetting password before install...')
         assert ICMD.system.set_password(device=self.options.device)
-        
+
         if not self.specs.get('no remove em certs'):
             LOG.info('Removing EM certs...')
             SCMD.ssh.remove_em(device=self.options.device)
-    
+
+    def setup(self):
         ret = super(InstallSoftwareStage, self).setup()
 
         if not self.specs.get('no reset password after'):
@@ -379,7 +426,7 @@ class ConfigGeneratorStage(Stage, ConfigGenerator):
     def __init__(self, device, specs, *args, **kwargs):
         configifc = ConfigInterface()
         config = configifc.open()
-        password = configifc.get_device_root_creds(device).password
+        password = configifc.get_device(device).get_root_creds().password
         self.ifcs = specs.get('_IFCS')
 
         options = Options(device=device, 
@@ -411,7 +458,8 @@ class ConfigGeneratorStage(Stage, ConfigGenerator):
         ret = super(ConfigGeneratorStage, self).setup()
         LOG.debug('Locking device %s...', self.options.device)
         assert ICMD.system.set_password(device=self.options.device)
-        
+        self.options.device.specs._x_tmm_bug = True
+
         return ret
 
     def revert(self):
@@ -447,20 +495,21 @@ class EMDiscocveryStage(Stage, Macro):
     def __init__(self, device, specs, *args, **kwargs):
         self.ifcs = specs.get('_IFCS', [])
         self.device = device
+        self.specs = specs
         self.to_discover = expand_devices(specs, 'devices')
 
         super(EMDiscocveryStage, self).__init__(*args, **kwargs)
 
     def run(self):
-        cfgifc = ConfigInterface()
         devices = self.to_discover
         assert devices, 'No devices to discover on DUT?'
     
         # XXX: Not sure why self IPs take a little longer to come up.
-        if _bool(cfgifc.open().isbvt) and \
-           [x for x in devices if x.get_discover_address() != x.get_address()]:
-            LOG.info('BUG: Waiting 30s for self IPs...')
-            time.sleep(30)
+        if sum([x.specs._x_tmm_bug or 0 for x in devices 
+                               if x.get_discover_address() != x.get_address()]):
+            delay = self.specs.get('delay', DEFAULT_DISCOVERY_DELAY)
+            LOG.info('XXX: Waiting %d seconds for tmm to come up...' % delay)
+            time.sleep(delay)
         
         # Enable SSH access for this EM.
         with IcontrolInterface(device=self.device) as icifc:
@@ -479,7 +528,8 @@ class EMDiscocveryStage(Stage, Macro):
                                    username=x.get_admin_creds().username,
                                    password=x.get_admin_creds().password)
                            for x in devices 
-                           if x.get_discover_address() not in reachable_devices]
+                           if x.get_discover_address() not in reachable_devices
+                              and not x.is_default()] # 2.3+ autodiscover self
             
             # Set the autoRefreshEnabled to false to avoid AutoRefresh tasks.
             try:
@@ -545,19 +595,23 @@ class EMInstallSoftwareStage(Stage, EMInstallSoftware):
         for device_ in expand_devices(specs, 'targets'):
             device = Options(device=device_,
                              address=device_.address,
-                             username=device_.get_admin_creds().username,
-                             password=device_.get_admin_creds().password)
+                             username=device_.get_admin_creds(keyset=KEYSET_LOCK).username,
+                             password=device_.get_admin_creds(keyset=KEYSET_LOCK).password)
             devices.append(device)
         super(EMInstallSoftwareStage, self).__init__(devices, options, 
                                                      *args, **kwargs)
 
-    def setup(self):
+    def prep(self):
+        ret = super(EMInstallSoftwareStage, self).prep()
         for device_attrs in self.devices:
             LOG.debug('Resetting password before: %s...', device_attrs.device)
             assert ICMD.system.set_password(device=device_attrs.device)
             SCMD.ssh.remove_em(device=device_attrs.device)
-    
+        return ret
+
+    def setup(self):
         ret = super(EMInstallSoftwareStage, self).setup()
+        
         for device_attrs in self.devices:
             LOG.debug('Resetting password after: %s...', device_attrs.device)
             assert ICMD.system.set_password(device=device_attrs.device)

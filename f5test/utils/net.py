@@ -1,15 +1,18 @@
 from IPy import IP
-from socket import socket, gethostbyname_ex, SOCK_DGRAM, AF_INET
+import socket
 
 BASE_IPV6 = 'FD32:00F5:0000::'
 
 def resolv(hostname):
-    """Only IPv4 support for now"""
-    _, _, ip_list = gethostbyname_ex(hostname)
+    """Resolves a hostname into an IP address."""
+    try:
+        _, _, ip_list = socket.gethostbyaddr(hostname)
+    except socket.herror: # [Errno 1] Unknown host
+        return hostname
     return ip_list[0]
 
 def get_local_ip(peer):
-    s = socket(AF_INET, SOCK_DGRAM)
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.connect((peer.split(':', 1)[0], 0))
     ip = s.getsockname()[0]
     s.close()

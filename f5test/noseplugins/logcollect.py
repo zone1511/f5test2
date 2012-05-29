@@ -72,11 +72,9 @@ class LoggingProxy(object):
 
 class LogCollect(LogCapture): 
     """
-    Plugin that installs a SKIP error class for the SkipTest
-    exception.  When SkipTest is raised, the exception will be logged
-    in the skipped attribute of the result, 'S' or 'SKIP' (verbose)
-    will be output, and the exception will not be counted as an error
-    or failure.
+    Log Collector plugin. Enabled by default. Disable with ``--no-logcollect``.
+    Upon a test failure this plugin iterates through each open interface and
+    tries to collect troubleshooting data, like screenshots and log files.
     """
     enabled = True
     name = 'logcollect'
@@ -119,7 +117,7 @@ class LogCollect(LogCapture):
         cfgifc = ConfigInterface()
         path = cfgifc.get_session().path
         
-        if not os.path.exists(path):
+        if path and not os.path.exists(path):
             oldumask = os.umask(0)
             os.makedirs(path)
             os.umask(oldumask)
@@ -150,6 +148,8 @@ class LogCollect(LogCapture):
         root_logger = logging.getLogger()
 
         log_dir = self._get_session_dir()
+        if not log_dir:
+            return
         run_filename = os.path.join(log_dir, 'run.log')
 
         fmt = logging.Formatter(self.logformat, self.logdatefmt)
@@ -271,13 +271,15 @@ class LogCollect(LogCapture):
                                                            ifc=interface)
                             except Exception, e:
                                 LOG.error('Screenshot faied: %s', e)
-    
+
                             if credentials.device:
                                 sshifcs.append(SSHInterface(device=credentials.device))
                 except:
                     err = sys.exc_info()
                     tb = ''.join(traceback.format_exception(*err))
                     LOG.debug('Error taking screenshot. (%s)', tb)
+                finally:
+                    interface.api.switch_to_window('')
             
             elif isinstance(interface, SSHInterface):
                 sshifcs.append(SSHInterface(device=interface.device))

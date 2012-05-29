@@ -20,7 +20,7 @@ BANNED_FEATURES = set(('Appliance Mode', 'TrustedIP Subscription'))
 MAP = Options()
 MAP.eval = {}
 MAP.eval.bigip = {}
-MAP.eval.bigip['VE'] = 'F5-BIG-LTM-VE-LAB-LIC'
+MAP.eval.bigip['VE'] = 'F5-BIG-LTM-VE-1G-LIC'
 MAP.eval.bigip['1600'] = 'F5-BIG-LTM-1600-4G-LIC'
 MAP.eval.bigip['3600'] = 'F5-BIG-LTM-3600-4G-LIC'
 MAP.eval.bigip['3900'] = 'F5-BIG-LTM-3900-8G-LIC'
@@ -42,7 +42,7 @@ MAP.eval.em['4000'] = 'F5-EM-4000-LIC'
 
 MAP.dev = {}
 MAP.dev.bigip = {}
-MAP.dev.bigip['VE'] = 'F5-BIG-LTM-VE-LAB-LIC-DEV'
+MAP.dev.bigip['VE'] = 'F5-BIG-LTM-VE-1G-LIC-DEV'
 MAP.dev.bigip['1600'] = 'F5-BIG-LTM-1600-4G-DEV'
 MAP.dev.bigip['3600'] = 'F5-BIG-LTM-3600-4G-DEV'
 MAP.dev.bigip['3900'] = 'F5-BIG-LTM-3900-4G-DEV'

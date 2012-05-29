@@ -1,8 +1,6 @@
 $extends:
     - base.yaml
 
-isbvt: 0
-
 devices:
     
     em-1:
@@ -11,12 +9,10 @@ devices:
         admin password:         ADMINPASSWORD
         #lock admin password:    ADMINPASSWORD2
         root password:          ROOTPASSWORD
-
-#    x-em:
-#        address:                MGMT_IPV4_ADDRESS
-#        admin password:         ADMINPASSWORD
-#        #lock admin password:    ADMINPASSWORD2
-#        root password:          ROOTPASSWORD
+        tags:
+            - root-trust-domain
+        groups:
+            - dg1
 
     bigip-1:
         address:                MGMT_IPV4_ADDRESS
@@ -24,113 +20,80 @@ devices:
         admin password:         ADMINPASSWORD
         #lock admin password:    ADMINPASSWORD2
         root password:          ROOTPASSWORD
-
-    bigip-2:
-        address:                MGMT_IPV4_ADDRESS
-        admin password:         ADMINPASSWORD
-        #lock admin password:    ADMINPASSWORD2
-        root password:          ROOTPASSWORD
+        tags:
+            - root-trust-domain
+        groups:
+            - dg1
 
 stages:
     main:
         setup:
-            stage01:
-            ##########################
+            stage01-install-em:
+            ###################
                 type: install
                 group: installation
                 devices:
                     - em-1
                 parameters:
                     product:        em
-                    version:        stirling-em
+                    #version:        stirling-em
+                    version:        solar-em
+                    #build:          808.0
                     #hotfix:         hf1
                     essential config: yes
                     timeout:        1200
 
-            stage02:
-            ##########################
+            stage01-install-bigip-1:
+            ########################
                 type: install
                 group: installation
                 devices:
                     - bigip-1
                 parameters:
                     product:        bigip
-                    version:        stirling
+                    version:        11.2.0
+                    #build:          2267.0
                     #hotfix:         hf1
                     essential config: yes
                     timeout:        1200
 
-            stage03:
-            ##########################
-                type: install
-                group: installation
-                devices:
-                    - bigip-2
-                parameters:
-                    product:        bigip
-                    version:        11.1.0
-                    hotfix:         hf2
-                    essential config: yes
-                    timeout:        1200
-
-#            stage03:
-#            ##########################
-#                type: eminstall
-#                group: installation
-#                devices:
-#                    - x-em
-#                parameters:
-#                    targets:
-#                        - bigip-2
-#                    product:        bigip
-#                    version:        9.3.1
-#                    hotfix:         hf8
-#                    essential config: yes
-#                    timeout:        3060
-
-            stage04:
-            ############
+            stage02-config-em:
+            ##################
                 type: config
+                group: configuration
                 devices:
                     - em-1
                 parameters:
                     partitions: 0
 
-            stage05-1:
-            ############
+            stage02-config-bigip-1:
+            #######################
                 type: config
+                group: configuration
                 devices:
                     - bigip-1
                 parameters:
                     partitions: 3
-                    provision: asm
+                    provision: asm,gtm
                     timeout: 300
 
-            stage05-2:
-            ############
-                type: config
-                devices:
-                    - bigip-2
-                parameters:
-                    partitions: 3
-                    provision: gtm
-
-            stage06:
-            #####################
+            stage03-keyswap:
+            ################
                 type: keyswap
                 devices:
                     - ^all
 
-            stage07:
-            ############
+            stage04-tweak-logrotate:
+            ########################
                 type: tweaks
                 devices:
                     - ^all
                 parameters:
                     logrotate: on
 
-            stage08:
-            ########################
+            stage05-discovery:
+            ##################
+                _enabled: true
                 type: emdiscovery
                 devices:
                     - em-1
@@ -138,15 +101,23 @@ stages:
                     devices:
                         - ^all
 
+            stage10-tweak-db:
+            #################
+                type: tweaks
+                devices:
+                    - em-1
+                parameters:
+                    shell: cat /VERSION
+
         teardown:
-            stage01:
-            ######################
+            stage01-setpassword:
+            ####################
                 type: setpassword
                 devices:
                     - ^all
             
-            stage02:
-            ##################
+            stage02-cores:
+            ##############
                 type: cores
                 devices:
                     - ^all

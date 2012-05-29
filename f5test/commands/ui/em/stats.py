@@ -28,7 +28,7 @@ class EnableStats(SeleniumCommand):
         if v.product.is_em and v < 'em 2.2':
             e = b.wait('enable_data_collection')
         else:
-            e = b.wait('enableDataCollection')
+            e = b.wait('enableDataCollection', timeout=30)
         
         # @value of <select> is actually the value of the selected option.
         value = e.get_attribute('value')

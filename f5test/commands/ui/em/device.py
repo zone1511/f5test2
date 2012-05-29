@@ -11,14 +11,15 @@ LOG = logging.getLogger(__name__)
 refresh = None
 class Refresh(SeleniumCommand):
     """Refresh one device given the access address."""
-    def __init__(self, mgmtip, timeout=60, *args, **kwargs):
+    def __init__(self, mgmtip, timeout=120, *args, **kwargs):
         super(Refresh, self).__init__(*args, **kwargs)
         self.mgmtip = [mgmtip] if isinstance(mgmtip, basestring) else mgmtip
         self.timeout = timeout
 
     def setup(self):
         b = self.api
-        
+        v = self.ifc.version
+
         browse_to('Enterprise Management | Devices', ifc=self.ifc)
         b.wait('tableForm:emDeviceTable_table', frame='/contentframe')
 
@@ -32,7 +33,11 @@ class Refresh(SeleniumCommand):
                             "emdeviced is down." % mgmtip
             e.click()
         LOG.info('Refreshing %d device(s)...', len(self.mgmtip))
-        b.wait('tableForm:emDeviceTable_mask', negated=True)
+        if v.product.is_em and v < 'em 3.1':
+            b.wait('tableForm:emDeviceTable_mask', negated=True)
+        else:
+            b.wait("//div[starts-with(@id, 'tableForm:emDeviceTable_mask_row')]", 
+                   by=By.XPATH, negated=True)
 
         e = b.find_element_by_name('tableForm:emDeviceTable:updateStatusButton')
         e.click()

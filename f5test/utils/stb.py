@@ -5,6 +5,7 @@ Created on Apr 4, 2012
 '''
 # This snippet is based on http://stackoverflow.com/questions/456649/throttling-with-urllib2
 
+from __future__ import absolute_import
 import io
 import time
 import threading

@@ -2,7 +2,7 @@ from .base import IcontrolCommand
 from ..base import CachedCommand, WaitableCommand
 from ...utils import Version
 from ...utils.parsers.version_file import colon_pairs_dict
-from ...interfaces.config import ConfigInterface
+from ...interfaces.config import ConfigInterface, KEYSET_LOCK
 from ...defaults import ADMIN_USERNAME, ROOT_USERNAME
 from ...interfaces.icontrol import IcontrolInterface, AuthFailed 
 from ...interfaces.icontrol.driver import UnknownMethod, IControlFault 
@@ -126,35 +126,24 @@ class SetPassword(WaitableCommand, IcontrolCommand):
     @type rootpassword: str
     """
 
-    def __init__(self, adminpassword=None, rootpassword=None, lock=True, 
-                 *args, **kwargs):
+    def __init__(self, keyset=KEYSET_LOCK, *args, **kwargs):
         super(SetPassword, self).__init__(*args, **kwargs)
         
-        self.lock = lock
-        self.new_admin_password = adminpassword
-        self.new_root_password = rootpassword
+        self.keyset = keyset
 
     def setup(self):
         """- Change the active partition to 'Common'.
            - Set passwords to both 'admin' and 'root' accounts.
         """
         config = ConfigInterface()
-        if self.new_admin_password:
-            adminpassword = self.new_admin_password
-        else:
-            assert self.ifc.device
-            alias = self.ifc.device.get_alias()
-            adminpassword = config.get_device_admin_creds(alias, lock=self.lock).password
-        if self.new_root_password:
-            rootpassword = self.new_root_password
-        else:
-            assert self.ifc.device
-            alias = self.ifc.device.get_alias()
-            rootpassword = config.get_device_root_creds(alias, lock=self.lock).password
-
-        access = config.get_device(device=alias, all_passwords=True)
+        assert self.ifc.device
+        alias = self.ifc.device.get_alias()
+        access = config.get_device(device=alias)
         
-        for password in access.get_admin_creds().password:
+        adminpassword = config.get_device(alias).get_admin_creds(keyset=self.keyset).password
+        rootpassword = config.get_device(alias).get_root_creds(keyset=self.keyset).password
+
+        for password in access.get_admin_creds().passwords.values():
             ic = IcontrolInterface(address=access.address, 
                                    password=password).open()
             try:
@@ -166,7 +155,8 @@ class SetPassword(WaitableCommand, IcontrolCommand):
                 ic.Management.UserManagement.change_password(
                     user_names=[ADMIN_USERNAME, ROOT_USERNAME],
                     passwords=[adminpassword, rootpassword])
-                LOG.info('Passwords on %s set.', access.address)
+                LOG.info('Passwords on %s set (admin:%s, root:%s).', access.address, adminpassword, rootpassword)
+                access.specs._keyset = self.keyset
                 return True
             except AuthFailed:
                 LOG.info('Bad password "%s" for %s.', password, access.address)

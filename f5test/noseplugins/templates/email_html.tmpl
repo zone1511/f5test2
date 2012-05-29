@@ -12,6 +12,8 @@ Good:    {{ bars.good }}
 Bad:     {{ bars.bad }}
 Skipped: {{ bars.unknown }}
 
+{% if testtime %}Duration: {{ testtime.delta_str }}{% endif %}
+
 Session logs: {{ sessionurl }}
 {%- if config.testopia._testrun %}
 Testopia run: {{ config.testopia.address }}/tr_show_run.cgi?run_id={{ config.testopia._testrun }}

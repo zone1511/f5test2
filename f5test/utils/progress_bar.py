@@ -10,10 +10,9 @@ Created on Jan 4, 2012
 # 
 
 
-
+from __future__ import absolute_import
 import sys
 import time
-
 
 
 class ProgressBar:

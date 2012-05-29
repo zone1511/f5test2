@@ -7,6 +7,7 @@ import paramiko
 import logging
 import time
 import glob
+#from  f5test.interfaces.ssh.paramikospawn import ParamikoSpawn
 
 LOG = logging.getLogger(__name__)
 SSH_DIR = os.path.join(os.path.expanduser('~'), '.ssh')
@@ -335,6 +336,13 @@ class Connection(paramiko.SSHClient):
             f.write('\n%s %s %s' % (key.get_name(), hkey, myname))
             f.close()
 
+    def interactive(self):
+        from  .paramikospawn import ParamikoSpawn
+        
+        assert self.is_connected(), "SSH channel not connected"
+        client = ParamikoSpawn(None)
+        client.channel = self.invoke_shell()
+        return client
 
 def main():
     """Little test when called directly."""

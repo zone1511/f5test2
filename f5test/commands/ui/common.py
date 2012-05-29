@@ -176,7 +176,7 @@ class Login(SeleniumCommand):
         #e.submit().wait('mainmenu-overview')
         #e.submit().wait('mainmenu-overview-welcome')
         #e.submit().wait('status')
-        e.submit().wait('#navbar > #trail span', by=By.CSS_SELECTOR, timeout=20)
+        e.submit().wait('#navbar > #trail span', by=By.CSS_SELECTOR, timeout=30)
         b.maximize_window()
 
         # XXX: DISABLE XUI menus hover behavior. This should stay here until
@@ -260,9 +260,14 @@ class BrowseToTab(SeleniumCommand):
         super(BrowseToTab, self).__init__(*args, **kwargs)
         self.locator = locator
 
+    def __repr__(self):
+        parent = super(BrowseToTab, self).__repr__()
+        opt = {}
+        opt['locator'] = self.locator
+        return parent + "(locator=%(locator)s)" % opt
+
     def setup(self):
         b = self.api
-        LOG.info('Browsing to tab: %s', self.locator)
         b.switch_to_default_content()
         locator = self.locator
 
@@ -307,9 +312,14 @@ class BrowseTo(SeleniumCommand):
         super(BrowseTo, self).__init__(*args, **kwargs)
         self.locator = locator
 
+    def __repr__(self):
+        parent = super(BrowseTo, self).__repr__()
+        opt = {}
+        opt['locator'] = self.locator
+        return parent + "(locator=%(locator)s)" % opt
+
     def setup(self):
         b = self.api
-        LOG.info('Browsing to: %s', self.locator)
 
         b.switch_to_default_content()
         bits = self.locator.split(':', 1)

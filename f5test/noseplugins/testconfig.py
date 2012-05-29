@@ -7,27 +7,42 @@ import logging
 
 log = logging.getLogger(__name__)
 config = None
+EXTENDS_KEYWORD = '$extends'
 
-def merge(user, default):
-    if isinstance(user, dict) and isinstance(default,dict):
-        for k,v in default.iteritems():
-            if k not in user:
-                user[k] = v
+def merge(dst, src):
+    if isinstance(dst, dict) and isinstance(src,dict):
+        for k,v in src.iteritems():
+            if k.startswith('$'):
+                continue
+            if k not in dst:
+                dst[k] = v
             else:
-                user[k] = merge(user[k],v)
-    return user
+                dst[k] = merge(dst[k],v)
+    else:
+        return src
+    return dst
 
 def extend(cwd, config, loader):
-    if isinstance(config.get('$extends'), list):
-        for filename in config.get('$extends'):
+    if isinstance(config.get(EXTENDS_KEYWORD), list):
+        for filename in reversed(config.get(EXTENDS_KEYWORD)):
             filename = os.path.join(cwd, filename)
             base_config = extend(cwd, loader(filename), loader)
-            config = merge(config, base_config)
-    elif isinstance(config.get('$extends'), str):
-        filename = os.path.join(cwd, config.get('$extends'))
-        base_config = loader(filename)
-        config = merge(config, base_config)
+            config = merge(base_config, config)
     return config
+
+def subst_variables(src, root=None):
+    if not root:
+        root = src
+    
+    if isinstance(src, dict):
+        for k,v in src.iteritems():
+            if isinstance(v, dict):
+                subst_variables(v, root)
+            elif isinstance(v, basestring):
+                try:
+                    src[k] = src[k].format(CFG=root, ENV=os.environ)
+                except KeyError:
+                    log.debug('Key %s cannot be formatted.', v)
 
 def load_yaml(yaml_file):
     """ Load the passed in yaml configuration file """
@@ -60,16 +75,21 @@ def load_python(py_file):
 
 
 class TestConfig(Plugin):
-
+    """
+    Test Config plugin. Enabled by when ``--tc-file`` is passed. Parses a config
+    file (usually in YAML format) and stores it in a global variable as a
+    dictionary. Use ConfigInterface to read/write from/to this config
+    variable.
+    """
     enabled = False
     name = "test_config"
     # High score means further head in line.
     score = 550
 
     env_opt = "NOSE_TEST_CONFIG_FILE"
-    format = "ini" #@ReservedAssignment
-    valid_loaders = { 'yaml' : load_yaml, 'ini' : load_ini,
-                      'python' : load_python }
+    valid_loaders = { 'yaml' : load_yaml, 'yml' : load_yaml,
+                      'ini' : load_ini,
+                      'python' : load_python, 'py' : load_python }
 
     def __init__(self, override_config=None):
         Plugin.__init__(self)
@@ -89,9 +109,9 @@ class TestConfig(Plugin):
                  " [NOSE_TEST_CONFIG_FILE]")
         parser.add_option(
             "--tc-format", action="store",
-            default=env.get('NOSE_TEST_CONFIG_FILE_FORMAT') or self.format, 
+            default=env.get('NOSE_TEST_CONFIG_FILE_FORMAT'), 
             dest="testconfigformat",
-            help="Test config file format, default is configparser ini format"
+            help="Test config file format, default is: autodetect"
                  " [NOSE_TEST_CONFIG_FILE_FORMAT]")
         parser.add_option(
             "--tc", action="append", 
@@ -111,25 +131,26 @@ class TestConfig(Plugin):
         the configuration file passed in """
         if not options.testconfig:
             return
-        Plugin.configure(self, options, noseconfig)
 
+        self.enabled = True
+        Plugin.configure(self, options, noseconfig)
+        filename = os.path.expandvars(options.testconfig)
         self.config = noseconfig
-        if not options.capture:
-            self.enabled = False
+        
         if options.testconfigformat:
             self.format = options.testconfigformat
             if self.format not in self.valid_loaders.keys():
-                raise Exception('%s is not a valid configuration file format' \
-                                                                % self.format)
+                raise ValueError('%s is not a valid configuration file format' % self.format)
+        else:
+            self.format = os.path.splitext(filename)[1][1:]
 
         # Load the configuration file:
         global config
-        filename = os.path.expandvars(options.testconfig)
         if not self.override_config:
-            config = self.valid_loaders[self.format](filename)
+            main_config = self.valid_loaders[self.format](filename)
         
         cwd = os.path.dirname(filename)
-        config = extend(cwd, config, self.valid_loaders[self.format])
+        config = extend(cwd, main_config, self.valid_loaders[self.format])
         
         if options.overrides:
             self.overrides = []
@@ -138,14 +159,17 @@ class TestConfig(Plugin):
                 keys, val = override.split(":")
                 # Attempt to convert the string into int/bool/float or default
                 # to string
-                needquotes = False
-                try:
-                    val = ast.literal_eval(val)
-                except ValueError:
-                    needquotes = True
-
-                if needquotes or isinstance(val, basestring):
-                    val = '"%s"' % val
+                if val == '':
+                    val = None
+                else:
+                    needquotes = False
+                    try:
+                        val = ast.literal_eval(val)
+                    except ValueError:
+                        needquotes = True
+    
+                    if needquotes or isinstance(val, basestring):
+                        val = '"%s"' % val
 
                 if options.exact:
                     config[keys] = val
@@ -155,6 +179,8 @@ class TestConfig(Plugin):
                     # defined in the configuration file already. TBD
                     exec('config%s = %s' % (ns, val))
         
+        # Substitute {0[..]} tokens.
+        subst_variables(config)
         config = AttrDict(config)
         config['_filename'] = filename
 

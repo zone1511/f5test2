@@ -48,6 +48,7 @@ class Command(object):
 
     def run(self):
         """The main method of the Command"""
+        LOG.debug("In command: %s", self)
         try:
             self.prep()
             return self.setup()

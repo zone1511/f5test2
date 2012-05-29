@@ -196,6 +196,11 @@ network failover: |
              interface eth0
              port 62960
           }
+       unicast peer ha {
+             dest addr %(peer.ip.addr)s
+             port 1026
+             source addr %(ltm.ip)s
+          }
     }
 
 failover: |

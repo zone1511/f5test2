@@ -78,3 +78,5 @@ class Testopia(xmlrpclib.ServerProxy):
         # Record the user ID in case the script wants this
         self.user_id = ret['id']
 
+    def __nonzero__(self):
+        return 1

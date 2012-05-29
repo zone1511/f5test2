@@ -705,10 +705,20 @@ class ConfigGenerator(Macro):
         tmpl = self.config['mgmt']
         formatter = self.formatter
         
-        mgmtip = self.config['static'].get(self._ip)
-        if mgmtip:
-            mgmtip = mgmtip.get('mgmtip')
-        
+        if self.options.mgmtip:
+            ip = IP(self.options.mgmtip)
+            if ip._prefixlen == 32:
+                ip._prefixlen = 24
+                LOG.info('Assuming /24 to the management IP.')
+            mgmtip = {}
+            mgmtip['address'] = str(ip).split('/', 1)[0]
+            mgmtip['netmask'] = ip.netmask()
+            mgmtip['gateway'] = "%s.254" % mgmtip['address'].rsplit('.', 1)[0]
+        else:
+            mgmtip = self.config['static'].get(self._ip)
+            if mgmtip:
+                mgmtip = mgmtip.get('mgmtip')
+
         if mgmtip:
             formatter['ltm.ip'] = mgmtip['address']
             formatter['ltm.netmask'] = mgmtip['netmask']
@@ -716,53 +726,38 @@ class ConfigGenerator(Macro):
             self.f_base.write(tmpl % formatter)
             return
 
-        if self.can_tmsh:
-            ret = self.call('tmsh list sys management-ip')
-            bits = ret.stdout.split()
-            if len(bits) < 2:
-                ret = self.call('grep "^sys management-ip" /config/bigip_base.conf')
-                bits = ret.stdout.split()
-        else:
-            ret = self.call('b mgmt list')
-            bits = ret.stdout.split()
+        # Try to find the existing IP on eth0
+        dev = 'mgmt' if self.can_cluster else 'eth0'
+        ret = self.call(r"ip a s dev {0}|grep '\binet\b.*scope global {0}\b'".format(dev))
+        # inet 172.27.27.62/24 brd 172.27.27.255 scope global eth0
+        bits = ret.stdout.split()
+        ip = IP(bits[1])
         
         if not ret or ret.stdout.strip() == 'No Management IP Addresses were found.':
             LOG.warning(ret)
             return
         
-        if self.can_tmsh:
-            ip, netmask = bits[2].split('/')
-        else:
-            ip = bits[1]
-            netmask = bits[4]
-        
-        if self.can_tmsh:
-            try:
-                ret = self.call('tmsh list sys management-route default gateway')
-                bits = ret.stdout.split()
-            except:
-                ret = self.call(' grep -A2 "^sys management-route" /config/bigip_base.conf')
-                bits = ret.stdout.split()
-            gw = bits[5]
-        else:
-            ret = self.call('b mgmt route list')
-            bits = ret.stdout.split()
-            gw = bits[6]
+        ret = self.call(r"ip r s|grep 'default\b'")
+        bits = ret.stdout.split()
+        gw = IP(bits[2])
         
         if not ret or ret.stdout.strip() == 'No Management Routes were found.':
             gw = ''
 
-        formatter['ltm.ip'] = ip
-        formatter['ltm.netmask'] = netmask
-        formatter['ltm.gateway'] = gw
+        formatter['ltm.ip'] = str(ip).split('/', 1)[0]
+        formatter['ltm.netmask'] = ip.netmask()
+        formatter['ltm.gateway'] = str(gw)
 
         self.f_base.write(tmpl % formatter)
 
     def print_vlan(self):
         root = self.config['vlan']
         formatter = self.formatter
-
-        if self._platform in ['A100']:
+        
+        if self._platform in ['Z101']:
+            ret = self.call(r"tmsh list net vlan")
+            tmpl = ret.stdout
+        elif self._platform in ['A100']:
             tmpl = root['puma1']
         elif self._platform in ['A107', 'A109', 'A111']:
             tmpl = root['puma2']
@@ -1088,8 +1083,8 @@ class ConfigGenerator(Macro):
             host_id = int(self._ip.split('.')[3])
             subnet_index = SUBNET_MAP.get(subnet_id, 0)
             
-            # Start from 10.11.10.0 - 10.11.97.240 (planned for 10 subnets, 8 VIPs each)
-            offset = 1 + 10*256 + DEFAULT_VIPS * (256 * subnet_index + host_id)
+            # Start from 10.11.50.0 - 10.11.147.240 (planned for 10 subnets, 8 VIPs each)
+            offset = 1 + 50*256 + DEFAULT_VIPS * (256 * subnet_index + host_id)
 
             vip_start = IP(self.selfip_external.net().ip + offset)
         else:
@@ -1250,6 +1245,7 @@ class ConfigGenerator(Macro):
         options.ssh_port = self.options.ssh_port
         options.ssl_port = self.options.ssl_port
         options.verbose = self.options.verbose
+        options.timeout = self.options.timeout
         
         if self.options.get('dry_run'):
             LOG.info('Would push key/cert pair')
@@ -1582,7 +1578,7 @@ def main(*args, **kwargs):
         p.add_option("", "--hostname", metavar="HOSTNAME",
                      type="string",
                      help="The device hostname")
-        p.add_option("", "--mgmtip", metavar="IP",
+        p.add_option("", "--mgmtip", metavar="IP/PREFIX",
                      type="string",
                      help="The device management address (if different from --ltm)")
         p.add_option("", "--ssl-port", metavar="INTEGER", type="int", default=443,

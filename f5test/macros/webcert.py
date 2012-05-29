@@ -19,6 +19,7 @@ MAXINT = 4294967295
 RANDPOOL_FILENAME = 'randpool.dat'
 ROOTCA_PK_NAME = 'rootca.key'
 ROOTCA_CRT_NAME = 'rootca.crt'
+DEFAULT_TIMEOUT = 300
 
 __version__ = '0.9'
 
@@ -188,8 +189,6 @@ class WebCert(Macro):
         self._cert_pem = cert_pem
         self._key_pem = key_pem
 
-        LOG.debug(key_pem)
-        LOG.debug(cert_pem)
         return (key_pem, cert_pem)
 
     def push_certificate(self, cert_pem_override=None, key_pem_override=None):
@@ -250,7 +249,7 @@ class WebCert(Macro):
         LOG.info('Started...')
         self.get_certificate()
         #self.push_certificate()
-        wait(self.push_certificate, timeout=300)
+        wait(self.push_certificate, timeout=self.options.timeout)
         LOG.info('Done.')
 
 
@@ -301,6 +300,9 @@ def main():
                  "DNS. Otherwise the CN defaults to the IP address.")
     p.add_option("", "--force", action="store_true",
                  help="Generate a fresh key/certificate pair.")
+    p.add_option("", "--timeout",
+                 default=DEFAULT_TIMEOUT, type="int",
+                 help="The SSH timeout. (default: %d)" % DEFAULT_TIMEOUT)
 
     options, args = p.parse_args()
 

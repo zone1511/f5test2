@@ -210,6 +210,12 @@ class FailoverMacro(Macro):
                                                                   )]
                                                    )
 
+        LOG.info('Setting unicast failover on %s...', device.alias)
+        address = dict(address=icifc.address, port=1026)
+        ic.Management.Device.set_unicast_addresses(devices=[device.alias],
+                                                   addresses=[[dict(effective=address,
+                                                               source=address)]])
+
         LOG.info('Setting primary mirror address on %s to %s...', device.alias, 
                  internal_selfip)
         ic.Management.Device.set_primary_mirror_address(devices=[device.alias],

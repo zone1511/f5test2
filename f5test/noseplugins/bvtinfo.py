@@ -17,15 +17,19 @@ LOG = logging.getLogger(__name__)
 
 
 class BVTInfo(Plugin):
-    enabled = True
+    """
+    BVTInfo plugin. Enable with ``--with-bvtinfo``. This plugin reports the test
+    run results to ATT's team http://bvtinfo.att.pdsea.f5net.com/bvtinfo/
+    """
+    enabled = False
     name = "bvtinfo"
     score = 519
 
     def options(self, parser, env):
         """Register commandline options."""
-        parser.add_option('--no-bvtinfo', action='store_true',
-                          dest='no_bvtinfo', default=False,
-                          help="Disable BVTInfo reporting. (default: no)")
+        parser.add_option('--with-bvtinfo', action='store_true',
+                          dest='with_bvtinfo', default=False,
+                          help="Enable BVTInfo reporting. (default: no)")
 
     def configure(self, options, noseconfig):
         """ Call the super and then validate and call the relevant parser for
@@ -34,8 +38,8 @@ class BVTInfo(Plugin):
 
         Plugin.configure(self, options, noseconfig)
         self.options = options
-        if options.no_bvtinfo:
-            self.enabled = False
+        if options.with_bvtinfo:
+            self.enabled = True
         self.config_ifc = ConfigInterface()
         if self.enabled:
             config = self.config_ifc.open()
@@ -43,8 +47,7 @@ class BVTInfo(Plugin):
             "You can disable this plugin by passing --no-bvtinfo."
 
     def _get_duts_info(self):
-        # XXX: Lock bit should be configurable at a higher level
-        devices = [x for x in self.config_ifc.get_all_devices(lock=False) 
+        devices = [x for x in self.config_ifc.get_all_devices() 
                      if 'no-bvtinfo-reporting' not in x.tags]
         if not devices:
             return

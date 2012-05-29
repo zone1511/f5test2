@@ -15,7 +15,6 @@ class SeleniumCommand(base.Command):
         parent = super(SeleniumCommand, self).__repr__()
         opt = {}
         opt['session_id'] = self.api.session_id
-        opt['command_executor'] = self.api.command_executor
-        return parent + "(command_executor=%(command_executor)s" \
-                        "session_id=%(session_id)s)" % opt
+        opt['url'] = self.api.command_executor._url
+        return parent + "(url=%(url)s session_id=%(session_id)s)" % opt
     

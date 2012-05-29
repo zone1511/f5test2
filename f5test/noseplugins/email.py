@@ -36,10 +36,14 @@ def customfilter_rjust(string, width, fillchar=' '):
     return string.rjust(width, fillchar)
 
 class Email(Plugin):
-
+    """
+    Email plugin. Enabled by default. Disable with ``--no-email``. This plugin
+    sends an email report at the end of a test run. Uses Jinja2 as the template
+    language.
+    """
     enabled = True
     name = "email"
-    score = 520
+    score = 517
 
     def options(self, parser, env):
         """Register commandline options.
@@ -64,8 +68,7 @@ class Email(Plugin):
         pass
 
     def _get_duts_info(self):
-        # XXX: Lock bit should be configurable at a higher level
-        devices = self.config_ifc.get_all_devices(lock=False)
+        devices = self.config_ifc.get_all_devices()
         if not devices:
             return
         
@@ -83,8 +86,7 @@ class Email(Plugin):
         return info
 
     def _get_dut_info(self):
-        # XXX: Lock bit should be configurable at a higher level
-        device = self.config_ifc.get_device(lock=False)
+        device = self.config_ifc.get_device()
         if not device:
             return
         
@@ -124,10 +126,14 @@ class Email(Plugin):
         ctx.dut = self._get_dut_info()
         ctx.test_runner_ip = get_local_ip(MAIL_HOST)
         ctx.sessionurl = self.config_ifc.get_session().get_url(ctx.test_runner_ip)
+        ctx.testtime = ctx.config._attrs.get('testtime')
         self._set_bars(result, ctx)
 
         headers = AttrDict()
         email = ctx.config.get('email', AttrDict())
+        if not email:
+            LOG.warning('Email plugin not configured.')
+            return
         headers['From'] = email.get('from', DEFAULT_FROM)
         headers['To'] = email.get('to')
         assert headers['To'], "Please set the email section in the config file."
