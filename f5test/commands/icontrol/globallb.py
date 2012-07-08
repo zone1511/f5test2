@@ -7,7 +7,7 @@ from .base import IcontrolCommand
 from ..base import CommandError
 from .locallb import create_ltm_app, delete_ltm_app
 from ...base import Options
-from IPy import IP
+from netaddr import IPAddress
 import re
 
 import logging
@@ -340,8 +340,8 @@ class CreateGtmApp(IcontrolCommand):
         resource.type = 'RESOURCE_TYPE_POOL'
         resource.default_pool_name = ''
         
-        ip_vs = IP(vs.address.split('%',1)[0]) # Take care of Route Domains
-        if ip_vs.version() == 6:
+        ip_vs = IPAddress(vs.address.split('%',1)[0]) # Take care of Route Domains
+        if ip_vs.version == 6:
             wildmask = 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff'
         else:
             wildmask = '255.255.255.255'

@@ -6,9 +6,9 @@ A command cannot call other commands; macros can.
 import hashlib
 from ..base import Aliasificator, AttrDict
 from ..utils.version import Version
+from ..utils.wait import CallableWait
 from ..interfaces.config import ConfigInterface, ConfigNotLoaded
 import logging
-import time
 
 LOG = logging.getLogger(__name__) 
 LOCALCONFIG = AttrDict()
@@ -119,6 +119,26 @@ class CachedCommand(Command):
     def _hash(self):
         raise NotImplementedError('Must implement _hash() in superclass')
 
+
+class CommandWait(CallableWait):
+
+    def __init__(self, command, *args, **kwargs):
+        self._command = command
+        return super(CommandWait, self).__init__(None, *args, **kwargs)
+    
+    def function(self, *args, **kwargs):
+        self._command.prep()
+        return self._command.setup(*args, **kwargs)
+
+    def test_error(self, exc_type, exc_value, exc_traceback):
+        self._command.revert()
+        return super(CommandWait, self).test_error(exc_type, exc_value, exc_traceback)
+
+    def cleanup(self):
+        self._command.cleanup()
+        return super(CommandWait, self).cleanup()
+
+
 class WaitableCommand(Command):
     """Helper class for Commands that provides a run_wait method. This method
     won't return unless the condition is met. The Command's prep, revert and
@@ -136,59 +156,6 @@ class WaitableCommand(Command):
     @type stabilize: int
     """
 
-    def run_wait(self, condition=None, progress_cb=None, timeout=180, 
-                 interval=5, stabilize=0, message=None):
-        
-        if not condition:
-            condition = lambda x:x
-        
-        assert callable(condition), "The condition must be callable!"
-        now = start = time.time()
-        
-        last_ret = ret = None
-        stable = 0
-        while now - start < timeout:
-            good = False
-            success = False
-            try:
-                self.prep()
-                ret = self.setup()
-                success = True
-                if condition(ret):
-                    good = True
-            except Exception, e:
-                LOG.debug('Error running command. (%s)', e)
-                self.revert()
-            finally:
-                self.cleanup()
-                if good:
-                    LOG.debug('Criteria met (%s). Cleaning up...', ret)
-                    if stable >= stabilize:
-                        break
-                    else:
-                        if last_ret == ret:
-                            LOG.debug('Criteria met and stable')
-                            stable += interval
-                        else:
-                            LOG.debug('Criteria met but not stable')
-                            stable = 0
-                    last_ret = ret
-                else:
-                    stable = 0
-                    if success:
-                        if progress_cb:
-                            info = progress_cb(ret)
-                            if info:
-                                LOG.info(info)
-                        else:
-                            LOG.debug('Criteria not met (%s). Sleeping %ds...', ret, 
-                                      interval)
-                time.sleep(interval)
-                now = time.time()
-        else:
-            LOG.warn('Criteria not met. Giving up...')
-            if message:
-                raise CommandTimedOut(message, ret)
-            raise CommandTimedOut('Condition not met after %d seconds.' % 
-                                  timeout, ret)
-        return ret
+    def run_wait(self, *args, **kwargs):
+        w = CommandWait(self, *args, **kwargs)
+        return w.run()

@@ -16,7 +16,7 @@ import logging
 DISPLAY = ':99'
 SELENIUM_JAR = 'selenium-server-standalone.jar'
 LOG = logging.getLogger(__name__)
-__version__ = '0.2'
+__version__ = '0.3'
 
 
 class SeleniumRC(Macro):
@@ -36,8 +36,9 @@ class SeleniumRC(Macro):
         params = Options()
         params.display = options.display
         
-        params.jar = os.path.join(bin_dir, SELENIUM_JAR)
-        assert os.path.exists(params.jar), '%s not found' % params.jar
+        jar_file = os.path.join(bin_dir, SELENIUM_JAR)
+        params.jar = "-jar %s" % jar_file
+        assert os.path.exists(jar_file), '%s not found' % jar_file
         
         var_run = os.path.join(venv_dir, 'var', 'run')
         var_log = os.path.join(venv_dir, 'var', 'log')
@@ -47,10 +48,37 @@ class SeleniumRC(Macro):
         if not os.path.exists(var_log):
             os.makedirs(var_log)
         
-        params.xvfb_pid_file = os.path.join(var_run, 'xvfb.pid')
-        params.xvfb_log_file = os.path.join(var_log, 'xvfb.log')
-        params.sel2_pid_file = os.path.join(var_run, 'selenium.pid')
-        params.sel2_log_file = os.path.join(var_log, 'selenium.log')
+        params.dirs = dict(run=var_run,
+                           log=var_log,
+                           bin=bin_dir)
+        
+        params.pids = dict(xvfb='xvfb.pid',
+                           selenium='selenium.pid', 
+                           selenium_node='selenium_node.pid',
+                           selenium_hub='selenium_hub.pid')
+
+        params.logs = dict(xvfb='xvfb.log',
+                           selenium='selenium.log', 
+                           selenium_node='selenium_node.log',
+                           selenium_hub='selenium_hub.log')
+
+        if self.options.hub:
+            params.hub = "-hub http://%s:4444/grid/register" % self.options.hub
+            if not self.options.role:
+                self.options.role = 'node'
+        else:
+            params.hub = ''
+
+        if self.options.role:
+            if self.options.role == 'hub':
+                self.options.no_xvfb = True
+            
+            if self.options.role == 'node' and not self.options.hub:
+                raise ValueError('--hub needs to be specified')
+            
+            params.role = "-role %s" % self.options.role
+        else:
+            params.role = ''
         
         self.params = params
         super(SeleniumRC, self).__init__()
@@ -70,32 +98,70 @@ class SeleniumRC(Macro):
         else:
             LOG.error('Timeout waiting for PID %d to finish.', pid)
 
+    def do_start_xvfb(self, shell, params, env):
+        pid_file = os.path.join(params.dirs.run, params.pids.xvfb)
+        log_file = os.path.join(params.dirs.log, params.logs.xvfb)
+        
+        if not self.options.force and os.path.exists(pid_file):
+            LOG.error('Selenium pid file exists: %s Stop first or use --force to override.', pid_file)
+            return
+
+        proc = shell.api.run('Xvfb -ac -extension GLX +render %(display)s -screen 0 1366x768x24' % params, 
+                             env=env, fork=True,
+                             stream=open(log_file, 'w'))
+        
+        LOG.info('Xvfb pid: %d', proc.pid)
+        with file(pid_file, 'w') as f:
+            f.write(str(proc.pid))
+
+    def do_start_selenium(self, shell, params, env):
+        if self.options.role:
+            if self.options.role == 'hub':
+                pid_file = params.pids.selenium_hub
+                log_file = params.logs.selenium_hub
+            else:
+                pid_file = params.pids.selenium_node
+                log_file = params.logs.selenium_node
+        else:
+            pid_file = params.pids.selenium
+            log_file = params.logs.selenium
+
+        pid_file = os.path.join(params.dirs.run, pid_file)
+        log_file = os.path.join(params.dirs.log, log_file)
+        
+        if not self.options.force and os.path.exists(pid_file):
+            LOG.error('Selenium pid file exists: %s. Stop first or use --force to override.', pid_file)
+            return
+
+        proc = shell.api.run('java %(jar)s %(role)s %(hub)s' % params, 
+                             env=env, fork=True, 
+                             stream=open(log_file, 'w'))
+        
+        LOG.info('Selenium pid: %d', proc.pid)
+        with file(pid_file, 'w') as f:
+            f.write(str(proc.pid))
+
     def stop(self):
-        LOG.info('Action: %s', self.action)
-        #with ShellInterface(timeout=self.options.timeout) as shell:
+        LOG.info('Stopping...')
         params = self.params
         
-        if os.path.exists(params.xvfb_pid_file):
-            pid = int(open(params.xvfb_pid_file).read())
-            LOG.info('Sending SIGTERM to Xvfb: %d', pid)
-            try:
-                self.do_kill_wait(pid, 15)
-            finally:
-                os.remove(params.xvfb_pid_file)
-        
-        if os.path.exists(params.sel2_pid_file):
-            pid = int(open(params.sel2_pid_file).read())
-            LOG.info('Sending SIGTERM to Selenium: %d', pid)
-            try:
-                self.do_kill_wait(pid, 15)
-            finally:
-                os.remove(params.sel2_pid_file)
-        
+        for pid_file in params.pids.values():
+            pid_file = os.path.join(params.dirs.run, pid_file)
+            if os.path.exists(pid_file):
+                pid = int(open(pid_file).read())
+                LOG.info('Sending SIGTERM to: %d', pid)
+                try:
+                    self.do_kill_wait(pid, 15)
+                except OSError, e:
+                    LOG.warning(e)
+                finally:
+                    os.remove(pid_file)
+
     def start(self):
-        LOG.info('Action: %s', self.action)
+        LOG.info('Starting...')
+        params = self.params
         
         with ShellInterface(timeout=self.options.timeout) as shell:
-            params = self.params
             os.environ.update({'DISPLAY': params.display})
             env = os.environ
             is_remote = bool(params.display.split(':')[0])
@@ -103,31 +169,11 @@ class SeleniumRC(Macro):
             # Open the log file and leave it open so the process can still write
             # while it's running.
             if not self.options.no_xvfb and not is_remote:
-                if not self.options.force and os.path.exists(params.xvfb_pid_file):
-                    LOG.error('Selenium pid file exists: %s Stop first or use --force to override.', params.xvfb_pid_file)
-                    return
-
-                proc = shell.api.run('Xvfb -ac -extension GLX +render %(display)s -screen 0 1366x768x24' % params, 
-                                     env=env, fork=True,
-                                     stream=open(params.xvfb_log_file, 'w'))
-                
-                LOG.info('Xvfb pid: %d', proc.pid)
-                with file(params.xvfb_pid_file, 'w') as f:
-                    f.write(str(proc.pid))
+                self.do_start_xvfb(shell, params, env)
 
             if not self.options.no_selenium:
-                if not self.options.force and os.path.exists(params.sel2_pid_file):
-                    LOG.error('Selenium pid file exists: %s. Stop first or use --force to override.', params.sel2_pid_file)
-                    return
+                self.do_start_selenium(shell, params, env)
 
-                proc = shell.api.run('java -jar %(jar)s' % params, 
-                                     env=env, fork=True, 
-                                     stream=open(params.sel2_log_file, 'w'))
-                
-                LOG.info('Selenium pid: %d', proc.pid)
-                with file(params.sel2_pid_file, 'w') as f:
-                    f.write(str(proc.pid))
-        
     def setup(self):
         if self.action == 'start':
             return self.start()
@@ -167,6 +213,10 @@ def main():
                  help="Don't start Selenium Server.")
     p.add_option("", "--force", action="store_true",
                  help="Overwrite pid files.")
+    p.add_option("-r", "--role", metavar="ROLE", type="string",
+                 help="Selenium role. Can be either node or hub. (default: standalone)")
+    p.add_option("", "--hub", metavar="IP", type="string",
+                 help="Selenium Grid hub url.")
 
     options, args = p.parse_args()
 
@@ -185,7 +235,7 @@ def main():
         p.print_version()
         p.print_help()
         sys.exit(2)
-    
+
     cs = SeleniumRC(options=options, action=args[0])
     cs.run()
 

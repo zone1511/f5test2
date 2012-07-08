@@ -97,6 +97,10 @@ class AttrDict(dict):
                              copy.deepcopy(value, memo))
         return result
 
+    def setifnone(self, key, value):
+        if self.get(key) is None:
+            self.update({key: value})
+
     def update(self, *args, **kwargs):
         """Takes similar args as dict.update() and converts them to AttrDict.
         

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 '''
 Created on Jan 23, 2012
 
@@ -13,7 +14,7 @@ from pprint import pprint
 
 
 LOG = logging.getLogger(__name__)
-__version__ = '1.0'
+__version__ = '1.1'
 
 
 class Ictester(Macro):
@@ -40,20 +41,24 @@ class Ictester(Macro):
             ic = icifc.api
             method = re.sub(r'[\./:]{1,2}', r'.', self.params[0])
 
+            limited_globals = dict(__builtins__=None)
+            
             params = []
             for param in self.params[1:]:
+                param = param.decode('utf-8')
                 name, value = param.split('=', 1)
+                # Convert the command-line arguments to Python objects.
                 try:
-                    ret = eval(value)
-                    params.append("%s=%s" % (name, ret))
+                    obj = eval(value, limited_globals)
+                    params.append("%s=%s" % (name, obj))
                 except (NameError, SyntaxError):
                     if value.startswith('[') or value.startswith('{'):
                         LOG.warning("Did you forget quotes around %s?", value)
                     params.append("%s=%s" % (name, repr(value)))
                 
-            LOG.debug("Calling: {0}({1})".format(method, ', '.join(params)))
-            x = eval("ic.{0}({1})".format(method, ','.join(params)), 
-                     {"__builtins__":None}, {'ic':ic})
+            LOG.debug(u"Calling: {0}({1})".format(method, ', '.join(params)))
+            x = eval(u"ic.{0}({1})".format(method, ','.join(params)), 
+                     limited_globals, {'ic':ic})
             #print "--- RETURN ---"
             if self.options.yaml:
                 import yaml
@@ -72,7 +77,7 @@ def main():
     import sys
 
     usage = """%prog [options] <address> <method> [param]...""" \
-    """
+    u"""
   
   SDK Help: http://172.27.32.101/iControl-11.2.0/sdk/api_reference/iControl.html
   
@@ -80,7 +85,7 @@ def main():
   %prog 172.27.58.94 -pf5site02 System.SystemInfo.get_version
   %prog 172.27.58.94 -pf5site02 Management.KeyCertificate.get_certificate_list mode=MANAGEMENT_MODE_DEFAULT -y
   %prog 172.27.58.94 -pf5site02 System.Services.set_service services="['SERVICE_BIG3D']" service_action=SERVICE_ACTION_RESTART
-  %prog 172.27.58.94 -pf5site02 Management.Device.set_comment devices='["em4000-94.mgmt.pdsea.f5net.com"]' comments='["A \\"comment\\""]'"""
+  %prog 172.27.58.94 -pf5site02 Management.Device.set_comment devices='["em4000-94.mgmt.pdsea.f5net.com"]' comments='[u"UTF-8 \\"Ionuţ\\""]'"""
 
     formatter = optparse.TitledHelpFormatter(indent_increment=2, 
                                              max_help_position=60)

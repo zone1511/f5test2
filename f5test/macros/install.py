@@ -4,13 +4,14 @@ from f5test.base import Options
 from f5test.interfaces.config import ConfigInterface
 from f5test.interfaces.icontrol import IcontrolInterface, EMInterface
 from f5test.interfaces.ssh import SSHInterface
+from f5test.interfaces.rest import RestInterface
 from f5test.defaults import ADMIN_PASSWORD, ADMIN_USERNAME, ROOT_PASSWORD, \
                             ROOT_USERNAME
 import f5test.commands.icontrol as ICMD
 import f5test.commands.shell as SCMD
 import f5test.commands.icontrol.em as EMAPI
 import f5test.commands.shell.em as EMSQL
-from f5test.utils import cm, Version, net
+from f5test.utils import cm, net
 from f5test.utils.parsers.audit import get_inactive_volume
 import logging
 import os.path
@@ -79,6 +80,7 @@ class InstallSoftware(Macro):
     def _initialize_em(self):
         LOG.info('Initializing EM...')
         sshifc = SSHInterface(address=self.address, port=self.options.ssh_port)
+        timeout = self.options.timeout
         with sshifc:
             ssh = sshifc.api
             ssh.run('bigstart stop;'
@@ -88,7 +90,7 @@ class InstallSoftware(Macro):
                     'bigstart start')
             SCMD.ssh.FileExists('/etc/em/.initial_boot', ifc=sshifc).run_wait(lambda x:x is False,
                                                  progress_cb=lambda x:'EM still not initialized...',
-                                                 timeout=180)
+                                                 timeout=timeout)
 
     def _wait_after_reboot(self, essential):
         if essential:
@@ -98,19 +100,20 @@ class InstallSoftware(Macro):
                                username=self.options.root_username,
                                password=self.options.root_password,
                                port=self.options.ssh_port)
-
+        
+        timeout = self.options.timeout
         try:
             SCMD.ssh.GetPrompt(ifc=ssh).run_wait(lambda x:x not in ('INOPERATIVE', '!'),
-                                                 timeout=900)
+                                                 timeout=timeout)
             SCMD.ssh.FileExists('/var/run/mcpd.pid', ifc=ssh).run_wait(lambda x:x,
                                                  progress_cb=lambda x:'mcpd not up...',
-                                                 timeout=120)
+                                                 timeout=timeout)
             SCMD.ssh.FileExists('/var/run/mprov.pid', ifc=ssh).run_wait(lambda x:x is False,
                                                  progress_cb=lambda x:'mprov still running...',
-                                                 timeout=120)
+                                                 timeout=timeout)
             SCMD.ssh.FileExists('/var/run/grub.conf.lock', ifc=ssh).run_wait(lambda x:x is False,
                                                  progress_cb=lambda x:'grub.lock still running...',
-                                                 timeout=60)
+                                                 timeout=timeout)
             version = SCMD.ssh.get_version(ifc=ssh)
         finally:
             ssh.close()
@@ -134,9 +137,6 @@ class InstallSoftware(Macro):
         
         if self.options.format_partitions or self.options.format_volumes:
             reboot = True
-            timeout = max(1200, timeout)
-        else:
-            timeout = max(600, timeout)
         
         with SSHInterface(address=self.address,
                           username=self.options.root_username,
@@ -192,10 +192,6 @@ class InstallSoftware(Macro):
                                       reboot=reboot,
                                       repo_version=iso_version)
             
-            
-#            LOG.info('Rebooting...')
-#            SCMD.ssh.reboot(ifc=sshifc)
-
         if reboot:
             # Grab a new iControl handle that uses the default admin credentials.
             self._wait_after_reboot(essential)
@@ -259,7 +255,7 @@ class InstallSoftware(Macro):
 
     def by_icontrol(self, filename, hfiso=None):
         iso_version = cm.version_from_metadata(filename)
-        timeout = max(self.options.timeout, 600)
+        timeout = self.options.timeout
         if hfiso:
             hfiso_version = cm.version_from_metadata(hfiso)
         else:
@@ -313,8 +309,6 @@ class InstallSoftware(Macro):
                            items)) == all_count
         
         is_clustered = ic.System.Cluster.is_clustered_environment()
-        if is_clustered:
-            timeout = 1200
         
         LOG.info('Timeout: %d', timeout)
         if not haz_it:
@@ -429,32 +423,23 @@ class InstallSoftware(Macro):
 
         LOG.info('Wait for box to be ready...')
         ICMD.system.IsServiceUp('MCPD', ifc=icifc).run_wait(timeout=timeout,
-                message="Target doesn't seem to be willing to come back up "
-                        "after %d seconds." % timeout)
-        ICMD.system.IsServiceUp('TMM', ifc=icifc).run_wait(message="Target "
-                  "doesn't seem to be willing to come back up after 3 minutes.")
+                timeout_message="Target doesn't seem to be willing to come back up "
+                                "after {0} seconds.")
+        ICMD.system.IsServiceUp('TMM', ifc=icifc).run_wait(timeout_message="Target "
+                  "doesn't seem to be willing to come back up after {0} seconds.")
         
-#        ICMD.system.FileExists('/var/run/bigstart.tmm', 
-#                               ifc=icifc).run_wait(lambda x:x is False,
-#                                  progress_cb=lambda x:'bigstart still running...',
-#                                  timeout=300)
-
         ICMD.management.GetDbvar('Configsync.LocalConfigTime', 
                              ifc=icifc).run_wait(lambda x:int(x) > 0,
                                   progress_cb=lambda x:'waiting configsync...',
-                                  timeout=60)
-        #ICMD.management.GetDbvar('License.operational', 
-        #                     ifc=icifc).run_wait(lambda x:x == 'true',
-        #                          progress_cb=lambda x:'waiting license...',
-        #                          timeout=60)
+                                  timeout=timeout)
         ICMD.system.FileExists('/var/run/mprov.pid', 
                                ifc=icifc).run_wait(lambda x:x is False,
                                   progress_cb=lambda x:'mprov still running...',
-                                  timeout=300)
+                                  timeout=timeout)
         ICMD.system.FileExists('/var/run/grub.conf.lock', 
                                ifc=icifc).run_wait(lambda x:x is False,
                               progress_cb=lambda x:'grub.lock still present...',
-                              timeout=60)
+                              timeout=timeout)
 
         current_version = ICMD.system.get_version(ifc=icifc, build=True)
         expected_version = hfiso_version or iso_version
@@ -490,32 +475,34 @@ class InstallSoftware(Macro):
         self.options.setdefault('root_password', ROOT_PASSWORD)
         self.options.setdefault('build_path', cm.ROOT_PATH)
     
-    def setup(self):
-        # Set the admin and root usernames and passwords
-        self.set_defaults()
-        
-        if self.options.image:
-            title = 'Installing custom base image on %s' % self.address
-        else:
-            title = 'Installing %s %s on %s' % (self.options.product, 
-                                                self.options.pversion, 
-                                                self.address)
-        LOG.info(title)
+    def _find_iso(self):
         identifier = self.options.pversion
         build = self.options.pbuild
 
         if identifier:
-            ver = identifier = str(identifier)
-            if build:
-                build = str(build)
-                ver = "%s %s" % (identifier, build)
-    
-            if cm.is_version_string(ver):
-                wanted_version = Version(ver, product=self.options.product)
-            else:
-                wanted_version = ver
-    
-            LOG.debug('wanted: %s', wanted_version)
+            identifier = str(identifier)
+
+        if build:
+            build = str(build)
+
+        # BotD mode - All constants hardcoded here for now.
+        if build and build.lower() in ('bod', 'botd', 'auto'):
+            assert self.options.product, "A product identifier needs to be specified for BotD mode."
+            
+            if self.options.phf:
+                LOG.warning("Hotfix parameter ignored in BotD mode.")
+                
+            with RestInterface(address='bvtinfo.att.pdsea.f5net.com',
+                               proto='http') as restifc:
+                r = restifc.api
+                LOG.info('Querying build of the day...')
+                response = r.get('/bvtinfo/api/build_of_the_day/')
+                botd = response.data.branches[identifier].build_id
+                filename = cm.isofile(identifier=identifier,
+                                      product=self.options.product,
+                                      build=botd)
+                LOG.info("Found: %s", filename)
+                return filename, None
 
         if self.options.image:
             filename = self.options.image
@@ -524,8 +511,6 @@ class InstallSoftware(Macro):
             filename = cm.isofile(identifier=identifier, build=base_build, 
                                   product=self.options.product,
                                   root=self.options.build_path)
-
-        iso_version = cm.version_from_metadata(filename)
 
         if self.options.phf:
             if self.options.hfimage:
@@ -537,6 +522,22 @@ class InstallSoftware(Macro):
                                    root=self.options.build_path)
         else:
             hfiso = None
+            
+        return filename, hfiso
+
+    def setup(self):
+        # Set the admin and root usernames and passwords
+        self.set_defaults()
+        
+        if self.options.image:
+            title = 'Installing custom base image on %s' % self.address
+        else:
+            title = 'Installing %s %s on %s' % (self.options.product, 
+                                                self.options.pversion, 
+                                                self.address)
+        LOG.info(title)
+        filename, hfiso = self._find_iso()
+        iso_version = cm.version_from_metadata(filename)
 
         if self.options.format_partitions or self.options.format_volumes:
             with SSHInterface(address=self.address,
@@ -564,7 +565,7 @@ class InstallSoftware(Macro):
             assert self.options.em_address, "--em-address is needed for legacy installations."
             ret = self.by_em_api(filename, hfiso)
         else:
-            raise VersionNotSupported('%s is not supported' % wanted_version)
+            raise VersionNotSupported('%s is not supported' % iso_version)
 
         LOG.debug('done')
         return ret
@@ -594,7 +595,7 @@ class EMInstallSoftware(Macro):
 
     def by_api(self):
         o = self.options
-        timeout = max(o.timeout, 600)
+        timeout = o.timeout
 
         identifier = self.options.pversion
         build = self.options.pbuild
@@ -608,17 +609,16 @@ class EMInstallSoftware(Macro):
             filename = self.options.image
         else:
             filename = cm.isofile(identifier=identifier, build=build, 
-                                  product=self.options.product,
-                                  root=self.options.build_path)
+                                  product=o.product, root=o.build_path)
 
         if self.options.phf:
             if self.options.hfimage:
                 hfiso = self.options.hfimage
             else:
                 hfiso = cm.isofile(identifier=identifier, build=build, 
-                                   hotfix=self.options.phf,
-                                   product=self.options.product,
-                                   root=self.options.build_path)
+                                   hotfix=o.phf,
+                                   product=o.product,
+                                   root=o.build_path)
         else:
             hfiso = None
 
@@ -726,7 +726,7 @@ class EMInstallSoftware(Macro):
             ret = EMSQL.software.GetInstallationTask(ret['uid'], ifc=ssh) \
                           .run_wait(lambda x: x['status'] != 'started',
                                     progress_cb=lambda x:'install: %d%%' % x.progress_percent,
-                                    timeout=max(o.timeout, 1800))
+                                    timeout=o.timeout)
         
         LOG.info('Deleting %d device(s)...', len(targets))
         EMAPI.device.delete(uids=[x['device_uid'] for x in targets], ifc=emifc)
@@ -812,8 +812,8 @@ def main():
                  help="An user with root rights (default: %s)"
                  % ROOT_PASSWORD)
 
-    p.add_option("", "--timeout", metavar="TIMEOUT", type="int", default=600,
-                 help="Timeout. (default: 600)")
+    p.add_option("", "--timeout", metavar="TIMEOUT", type="int", default=900,
+                 help="Timeout. (default: 900)")
     p.add_option("", "--ssl-port", metavar="INTEGER", type="int", default=443,
                  help="SSL Port. (default: 443)")
     p.add_option("", "--ssh-port", metavar="INTEGER", type="int", default=22,

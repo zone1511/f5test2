@@ -6,10 +6,10 @@ Created on Apr 3, 2012
 from f5test.macros.base import Macro
 from f5test.base import Options
 from f5test.utils.stb import RateLimit, TokenBucket
+import gevent #@UnusedImport
 import gevent.pool
 from geventhttpclient import HTTPClient, URL
 from ssl import PROTOCOL_TLSv1, CERT_NONE
-#import pycurl
 from dns.resolver import Resolver
 import dns
 import itertools
@@ -42,7 +42,6 @@ class TrafficGen(Macro):
         resolver = Resolver(configure=False)
 
         if o.dns:
-            print o.dns
             resolver.nameservers = [o.dns]
             u = urlparse.urlparse(url)
             qname = u.hostname
@@ -77,7 +76,7 @@ class TrafficGen(Macro):
                 response = client.get(qs)
             except Exception, e:
                 LOG.debug("Connect %s: %s", url, e)
-                time.sleep(0.1)
+                gevent.sleep(0.1)
                 return
             #response.read()
             #assert response.status_code == 200
@@ -104,17 +103,18 @@ class TrafficGen(Macro):
                 rate_limiter(block_count, len(block))
 
         def superrun(url, group):
+            client = self.make_client(url)
             for i, url in enumerate(itertools.repeat(url)):
-                client = self.make_client(url)
                 group.spawn(run, client, URL(url))
                 if i + 1 == o.requests:
                     break
             group.join()
             
+        LOG.info('Running...')
         # Create individual Pools for each URL
         groups = {}
         for i, size in enumerate(partition(o.concurrency, len(self.urls))):
-            groups[self.urls[i]] = gevent.pool.Pool(size=size)
+            groups[self.urls[i]] = gevent.pool.Pool(size=size or 1)
 
         # Spin up one thread worker per URL
         supergroup = gevent.pool.Pool(size=len(self.urls))
@@ -142,7 +142,7 @@ def main():
   
   Examples:
   %prog https://10.11.41.73/1MB https://10.11.41.69/1MB -v
-  %prog https://10.11.41.73/1MB https://10.11.41.69/1MB -s -p 2:300:-2:300"""
+  """
 
     formatter = optparse.TitledHelpFormatter(indent_increment=2, 
                                              max_help_position=60)

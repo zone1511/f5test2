@@ -2,12 +2,20 @@ from nose.plugins.base import Plugin
 from nose.util import tolist
 from ..base import AttrDict
 import ast
+from blinker import Signal
 import os
 import logging
+import threading
 
 log = logging.getLogger(__name__)
-config = None
+CONFIG = threading.local()
+#CONFIG = AttrDict()
 EXTENDS_KEYWORD = '$extends'
+
+class Signals(object):
+    on_before_load = Signal()
+    on_before_extend = Signal()
+    on_after_extend = Signal()
 
 def merge(dst, src):
     if isinstance(dst, dict) and isinstance(src,dict):
@@ -91,14 +99,6 @@ class TestConfig(Plugin):
                       'ini' : load_ini,
                       'python' : load_python, 'py' : load_python }
 
-    def __init__(self, override_config=None):
-        Plugin.__init__(self)
-        self.override_config = False
-        if override_config:
-            global config
-            config = override_config
-            self.override_config = True
-
     def options(self, parser, env=os.environ):
         """ Define the command line options for the plugin. """
         parser.add_option(
@@ -132,6 +132,9 @@ class TestConfig(Plugin):
         if not options.testconfig:
             return
 
+        #if noseconfig.plugin_testconfig:
+        #    CONFIG.data = noseconfig.plugin_testconfig
+
         self.enabled = True
         Plugin.configure(self, options, noseconfig)
         filename = os.path.expandvars(options.testconfig)
@@ -145,11 +148,11 @@ class TestConfig(Plugin):
             self.format = os.path.splitext(filename)[1][1:]
 
         # Load the configuration file:
-        global config
-        if not self.override_config:
-            main_config = self.valid_loaders[self.format](filename)
+        Signals.on_before_load.send(self, filename=filename)
+        main_config = self.valid_loaders[self.format](filename)
         
         cwd = os.path.dirname(filename)
+        Signals.on_before_extend.send(self, config=main_config)
         config = extend(cwd, main_config, self.valid_loaders[self.format])
         
         if options.overrides:
@@ -184,27 +187,30 @@ class TestConfig(Plugin):
         config = AttrDict(config)
         config['_filename'] = filename
 
+        CONFIG.data = config
+        Signals.on_after_extend.send(self, config=config)
+
 # Use an environment hack to allow people to set a config file to auto-load
 # in case they want to put tests they write through pychecker or any other
 # syntax thing which does an execute on the file.
-if config is None:
+if getattr(CONFIG, 'data', None) is None:
     if 'NOSE_TESTCONFIG_AUTOLOAD_YAML' in os.environ:
         filename = os.path.expandvars(os.environ['NOSE_TESTCONFIG_AUTOLOAD_YAML'])
         tmp = load_yaml(filename)
         cwd = os.path.dirname(filename)
         config = extend(cwd, tmp, load_yaml)
-        config = AttrDict(config)
+        CONFIG.data = AttrDict(config)
     
     if 'NOSE_TESTCONFIG_AUTOLOAD_INI' in os.environ:
         filename = os.path.expandvars(os.environ['NOSE_TESTCONFIG_AUTOLOAD_INI'])
         tmp = load_ini(filename)
         cwd = os.path.dirname(filename)
         config = extend(cwd, tmp, load_ini)
-        config = AttrDict(config)
+        CONFIG.data = AttrDict(config)
     
     if 'NOSE_TESTCONFIG_AUTOLOAD_PYTHON' in os.environ:
         filename = os.path.expandvars(os.environ['NOSE_TESTCONFIG_AUTOLOAD_PYTHON'])
         tmp = load_python(filename)
         cwd = os.path.dirname(filename)
         config = extend(cwd, tmp, load_python)
-        config = AttrDict(config)
+        CONFIG.data = AttrDict(config)

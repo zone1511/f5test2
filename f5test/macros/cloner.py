@@ -16,7 +16,7 @@ from f5test.interfaces.icontrol.driver import IControlFault, IControlTransportEr
 from f5test.defaults import ROOT_PASSWORD, ROOT_USERNAME, ADMIN_USERNAME, \
     ADMIN_PASSWORD
 from f5test.interfaces.icontrol.em import EMInterface
-from IPy import IP
+from netaddr import IPAddress
 import logging
 
 
@@ -90,11 +90,11 @@ class DeviceCloner(Macro):
                     "Template device must be discovered by its self IP."
             device_uid = int(template.uid)
             LOG.info('Template: %s', template.host_name)
-            start_ip = IP(template.access_address)
+            start_ip = IPAddress(template.access_address)
             LOG.info('Inserting device rows...')
             for i in range(1, self.options.clones + 1, 1):
                 template.uid = max_device_uid + UIDOFFSET + i
-                template.access_address = IP(start_ip.ip + ip_offset + i).strNormal()
+                template.access_address = str(start_ip + ip_offset + i)
                 template.system_id = None
                 template.last_refresh = None
                 query = "INSERT INTO `device` %s" % self.do_prep_insert(template)
@@ -125,7 +125,7 @@ class DeviceCloner(Macro):
                 bulk_sql[:MAXSQL] = []
 
         LOG.info('Creating SelfIPs on %s...', bpmgmt)
-        self_ips = [IP(start_ip.ip + ip_offset + x).strNormal() 
+        self_ips = [str(start_ip + ip_offset + x) 
                     for x in range(1, self.options.clones + 1, 1)]
         vlan_names = ['internal'] * self.options.clones
         netmasks = ['255.255.0.0'] * self.options.clones

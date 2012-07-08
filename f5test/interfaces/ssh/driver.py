@@ -36,9 +36,9 @@ class SSHResult(object):
         
         if self.command:
             return "SSHResult: '%(command)s' -> " \
-                  "ret=%(status)d:stdout=%(stdout)s:stderr=%(stderr)s" % outdict
+                  "status=%(status)d:stdout=%(stdout)s:stderr=%(stderr)s" % outdict
         return "SSHResult: " \
-                  "ret=%(status)d:stdout=%(stdout)s:stderr=%(stderr)s" % outdict
+                  "status=%(status)d:stdout=%(stdout)s:stderr=%(stderr)s" % outdict
 
 
 class Connection(paramiko.SSHClient):

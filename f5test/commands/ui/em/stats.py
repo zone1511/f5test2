@@ -46,6 +46,10 @@ class EnableStats(SeleniumCommand):
             e = b.find_element_by_name('save_collection_changes')
             e.click()
             wait_for_loading(css='success', ifc=self.ifc)
+        elif v.product.is_em and v >= 'em 3.1':
+            e = b.find_element_by_id('saveBtn')
+            e.click()
+            wait_for_loading(css='success', ifc=self.ifc)
         else:
             if old_enable and enable is False:
                 e = b.wait('disableStatsBtn')

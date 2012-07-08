@@ -77,7 +77,7 @@ class BVTInfo(Plugin):
         if config.testopia._testrun:
             result_url = bvtinfocfg.result_url % {'run_id': config.testopia._testrun}
         else:
-            result_url = ''
+            result_url = self.config_ifc.get_session().get_url()
         result_text = "Total: %d, Fail: %d, Err: %d, Skip: %d" % \
                         ( result.testsRun,
                           len(result.failures),
@@ -90,15 +90,16 @@ class BVTInfo(Plugin):
                 LOG.error("Can't submit results without version or platform.")
                 continue
 
-            if dut.version.product.is_bigip  and \
-               dut.version < 'bigip 10.0.1':
-                LOG.info("Skipping old version: %s." % dut.version)
-                continue
-
             LOG.info('BVTInfo report for: %s...', dut.device)
             project = dut.project or dut.version.version
             if dut.edition.startswith('Hotfix'):
                 project = '%s-%s' % (project, dut.edition.split()[1].lower())
+
+            # XXX: EM 3,0 is an oddball. /VERSION includes a project field and
+            # bvtinfo project is called Em3.0.0 which is non-standard.
+            if dut.version.product.is_em  and \
+               abs(dut.version) == 'em 3.0':
+                project = 'Em3.0.0'
     
             params = urllib.urlencode(dict(
                 bvttool = bvtinfocfg.name,

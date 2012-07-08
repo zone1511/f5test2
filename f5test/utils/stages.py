@@ -4,10 +4,7 @@ Created on Feb 9, 2012
 @author: jono
 '''
 from __future__ import absolute_import
-from f5test.macros.confgen import (ConfigGenerator, DEFAULT_MEMBERS, 
-                                   DEFAULT_NODE_START, DEFAULT_NODES, 
-                                   DEFAULT_PARTITIONS, DEFAULT_POOLS, 
-                                   DEFAULT_VIPS)
+from f5test.macros.confgen import ConfigGenerator
 from f5test.macros.keyswap import KeySwap
 from f5test.macros.ha import FailoverMacro
 from f5test.interfaces.testopia import TestopiaInterface
@@ -91,6 +88,8 @@ def process_stages(stages, section, ifcs):
                                                       x[1].get('priority', 
                                                                DEFAULT_PRIORITY), 
                                                       x[0]))
+    
+    config = ConfigInterface().config
     # Group stages of the same type. The we spin up one thread per stage in a
     # group and wait for threads within a group to finish.
     sg_dict = {}
@@ -131,7 +130,7 @@ def process_stages(stages, section, ifcs):
             for device in expand_devices(specs):
                 stage = stage_class(device, parameters)
                 name = '%s :: %s' % (description, device.alias) if device else description
-                t = MacroThread(stage, q, name=name)
+                t = MacroThread(stage, q, name=name, config=config)
                 t.start()
                 pool.append(t)
                 if not stage_class.parallelizable:
@@ -270,6 +269,12 @@ class SetPasswordStage(Stage, Macro):
     def run(self):
         LOG.debug('Unlocking device %s', self.device)
         ICMD.system.set_password(device=self.device, keyset=KEYSET_COMMON)
+        
+        # Save the config after password change otherwise it will be reverted
+        # upon reboot.
+        with IcontrolInterface(device=self.device) as icifc:
+            icifc.api.System.ConfigSync.save_configuration(filename='', 
+                                                           save_flag="SAVE_HIGH_LEVEL_CONFIG")
 
 
 class PrintDevicesInfo(Macro):
@@ -327,7 +332,6 @@ class SanityCheck(Macro):
             LOG.info('Test runner sanity skipped.')
             return
         
-        assert config.paths.get('root ca'), 'Root CA path is not set in the config'
         assert config.paths.build, 'CM Build path is not set in the config'
         assert config.paths.logs, 'Logs path is not set in the config'
         
@@ -335,10 +339,6 @@ class SanityCheck(Macro):
         if not os.path.exists(sample):
             raise StageError("%s does not exist" % sample)
 
-        sample = os.path.join(config.paths.get('root ca'), 'cache')
-        if not os.access(sample, os.W_OK):
-            raise StageError("RootCA dir: %s is not writable" % sample)
-        
         sample = config.paths.get('logs')
         sample = os.path.expanduser(sample)
         sample = os.path.expandvars(sample)
@@ -430,22 +430,23 @@ class ConfigGeneratorStage(Stage, ConfigGenerator):
         self.ifcs = specs.get('_IFCS')
 
         options = Options(device=device, 
+                          config=specs.get('config file'),
                           peer_device=specs.get('peer'),
                           unitid=specs.get('unitid'),
+                          license=specs.get('license'),
+                          timeout=specs.get('timeout'),
                           selfip_floating=specs.get('floating ip'),
-                          config=specs.get('config file'),
-                          rootca_path=config.paths.get('root ca'),
+                          selfip_internal=specs.get('selfip internal'),
+                          selfip_external=specs.get('selfip external'),
                           provision=specs.get('provision'),
-                          partitions=specs.get('partitions', DEFAULT_PARTITIONS),
-                          nodes=specs.get('node count', DEFAULT_NODES),
-                          pools=specs.get('pool count', DEFAULT_POOLS),
-                          vips=specs.get('vip count', DEFAULT_VIPS),
-                          pool_members=specs.get('pool members', DEFAULT_MEMBERS),
-                          node_offset=specs.get('node start', DEFAULT_NODE_START),
+                          partitions=specs.get('partitions'),
+                          node_count=specs.get('node count'),
+                          pool_count=specs.get('pool count'),
+                          vip_count=specs.get('vip count'),
+                          pool_members=specs.get('pool members'),
+                          node_start=specs.get('node start'),
+                          vip_start=specs.get('vip start'),
                           password=password)
-        
-        if specs.get('timeout'):
-            options.timeout = specs['timeout']
         
         if config.irack:
             options.irack_address = config.irack.address

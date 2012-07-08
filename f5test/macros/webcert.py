@@ -1,197 +1,213 @@
 #!/usr/bin/env python
-from M2Crypto import RSA, X509, EVP, m2, Rand
+from OpenSSL import crypto
 from f5test.macros.base import Macro
 from f5test.interfaces.config import ConfigInterface
 from f5test.interfaces.icontrol import IcontrolInterface
 from f5test.interfaces.ssh import SSHInterface
 from f5test.defaults import ADMIN_PASSWORD, ADMIN_USERNAME, ROOT_PASSWORD, \
-                            ROOT_USERNAME, ROOTCA_STORE
+                            ROOT_USERNAME
 from f5test.base import Options
 from f5test.utils.wait import wait
 import logging
 import os
 import socket
+import sys
 import random
 
+__version__ = '1.0'
 LOG = logging.getLogger(__name__)
 
+F5TEST_SUBJECT = Options(CN='NotSet',
+                         emailAddress='emtest@f5.com',
+                         OU='Enterprise Manager',
+                         O='F5 Networks',
+                         L='Seattle',
+                         ST='Washington',
+                         C='US'
+)
+
 MAXINT = 4294967295
-RANDPOOL_FILENAME = 'randpool.dat'
-ROOTCA_PK_NAME = 'rootca.key'
-ROOTCA_CRT_NAME = 'rootca.crt'
 DEFAULT_TIMEOUT = 300
 
-__version__ = '0.9'
+# Subject: CN=F5 EM Testing/emailAddress=emtest@f5.com, OU=Enterprise Manager, O=F5 Networks, L=Seattle, ST=Washington, C=US
+# Validity
+#    Not Before: Mar  5 02:22:01 2010 GMT
+#    Not After : Mar  2 02:22:01 2020 GMT
+
+ROOTCA_CRT = """-----BEGIN CERTIFICATE-----
+MIICxTCCAi6gAwIBAgIBATANBgkqhkiG9w0BAQUFADCBnTEWMBQGA1UEAxMNRjUg
+RU0gVGVzdGluZzEcMBoGCSqGSIb3DQEJARYNZW10ZXN0QGY1LmNvbTEbMBkGA1UE
+CxMSRW50ZXJwcmlzZSBNYW5hZ2VyMRQwEgYDVQQKEwtGNSBOZXR3b3JrczEQMA4G
+A1UEBxMHU2VhdHRsZTETMBEGA1UECBMKV2FzaGluZ3RvbjELMAkGA1UEBhMCVVMw
+HhcNMTAwMzA1MDIyMjAxWhcNMjAwMzAyMDIyMjAxWjCBnTEWMBQGA1UEAxMNRjUg
+RU0gVGVzdGluZzEcMBoGCSqGSIb3DQEJARYNZW10ZXN0QGY1LmNvbTEbMBkGA1UE
+CxMSRW50ZXJwcmlzZSBNYW5hZ2VyMRQwEgYDVQQKEwtGNSBOZXR3b3JrczEQMA4G
+A1UEBxMHU2VhdHRsZTETMBEGA1UECBMKV2FzaGluZ3RvbjELMAkGA1UEBhMCVVMw
+gZ8wDQYJKoZIhvcNAQEBBQADgY0AMIGJAoGBALzE7nq8L8hL2M+1lCE2MNpyVSZw
+YFK93n/EtWyz5NeZNtNWTDDtQCx18nPBqn7G+pQnm16t12MP3qr8LBanrBIbZcb6
+I6/jc37al3zMsLx+Eht4Wy2kJWmh7eOUgPH/7pbasvTXywhYgBllOlkALUXiDKdi
+BOF9EnkzfLShIosnAgMBAAGjEzARMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcN
+AQEFBQADgYEAeg/a/RP7UoOcQ0X65C2WHgPM37aKQs/dIfCZuQ0WqNSFy94Uan3u
+mpZI2dBUGF66+AjsMsu1+XteBTXkY25eJdOq9N1R0dwQFMT9HVBMv1RxzLKPB1SJ
+8AR0KI04X6oWaWnEpnNA/6OOy90QwbsqsRB3mHzLUe4jJtqVjaRk8P4=
+-----END CERTIFICATE-----"""
+
+ROOTCA_KEY = """-----BEGIN PRIVATE KEY-----
+MIICdgIBADANBgkqhkiG9w0BAQEFAASCAmAwggJcAgEAAoGBALzE7nq8L8hL2M+1
+lCE2MNpyVSZwYFK93n/EtWyz5NeZNtNWTDDtQCx18nPBqn7G+pQnm16t12MP3qr8
+LBanrBIbZcb6I6/jc37al3zMsLx+Eht4Wy2kJWmh7eOUgPH/7pbasvTXywhYgBll
+OlkALUXiDKdiBOF9EnkzfLShIosnAgMBAAECgYBwhshOe73UHXqKHwjFX4NxxLQD
+rPuOd0aaTY2E1hv1dYzcIFZc2CDoIAs+e9UBq+WVyaJxpxl9IOmwbZBulNcaEgmN
+V0ILsk/CRUwgbvdMqAm8e2j4JSDk5EcE05d3J27AFNcvE1zYr+18mxXZjZREAF7Z
+wuzlNsHjZo8epLGt6QJBAN0U1DpBc546Oaks1lMvrfkMVfPRxK2A96rTfKbF4oRL
+9HFFM6NtobPsnhsy66SF69vWtns315NLKk9tGHGpX/0CQQDalZmUZYJFqOaW2HHp
+5MsibrLoHF+jWv6EHvZQYcKNn5w1fuXCYO0RxYWtoRgBIJoI6wIkwPesH0XEMOq4
+9obzAkAz3n8sa87EgMSmfG6MddNLayl/WufaDTgOTDAisKrEf02KhcHnxgD6RbmS
+iA/hOcpseaO2pRNe63Oxzta9VA/BAkEAkqEGPEj34bjSrmAV0lvbdIaj1xaphVCW
+KZUHkJZzx0NJq40rnYAdp+1DplzJWIBBNDhJ4NPdkQYNa/WQj3E4xwJAV08tiAuu
+uLfuCyGJZ0FkPX2ixMRiXerlDM1INo+AsU9nU6smWwKY8wqspxqf6Zo6D7+pdZKX
+z8hiS4Tqr8Pqlw==
+-----END PRIVATE KEY-----"""
+
+
+if sys.version_info < (3, 0):
+    def b(s):
+        return s
+    bytes = str #@ReservedAssignment
+else:
+    def b(s):
+        return s.encode("charmap")
+    bytes = bytes #@ReservedAssignment
 
 
 class WebCert(Macro):
-
-    # The ROOTCA path will store cert/key pair for the ROOTCA, the last serial
-    # in a plain text file and the rand pool 
     def __init__(self, options, address=None):
         self.options = Options(options.__dict__)
         
-        if self.options.device:
-            self.address = ConfigInterface().get_device_address(options.device)
-        else:
-            self.address = address
-        
-        LOG.info('Doing: %s', self.address)
-        LOG.debug('ROOTCA path is: %s', options.store)
-        filename = os.path.join(self.options.store, RANDPOOL_FILENAME)
-        Rand.load_file(filename, -1)
-        super(WebCert, self).__init__()
-
-    def gen_key(self, size = 1024):
-        key = RSA.gen_key(size, m2.RSA_F4, lambda: None)
-        pkey = EVP.PKey()
-        pkey.assign_rsa(key)
-        return pkey
-
-    def load_key(self, filename):
-        key = RSA.load_key(filename)
-        pkey = EVP.PKey()
-        pkey.assign_rsa(key)
-        return pkey
-
-    def load_cert(self, filename):
-        return X509.load_cert(filename)
-
-    def gen_request(self, pkey, cn):
-        req = X509.Request()
-        req.set_version(2)
-        req.set_pubkey(pkey)
-        name = X509.X509_Name()
-        name.CN = cn
-        name.Email = 'emtest@f5.com'
-        name.OU = 'Enterprise Manager'
-        name.O = 'F5 Networks'
-        name.L = 'Seattle'
-        name.ST = 'Washington'
-        name.C = 'US'
-        req.set_subject_name(name)
-
-        req.sign(pkey, 'sha1')
-        return req
-
-    def gen_certificate(self, req, ca_key, ca_cert=None, aliases=None):
-        
-        pkey = req.get_pubkey()
-        
-        if not req.verify(pkey):
-            # XXX: What error object should I use?
-            raise ValueError, 'Error verifying request'
-        
-        sub = req.get_subject()
-        # If this were a real certificate request, you would display
-        # all the relevant data from the request and ask a human operator
-        # if you were sure. Now we just create the certificate blindly based
-        # on the request.
-        cert = X509.X509()
-
-        serial = random.randint(0, MAXINT)
-        cert.set_serial_number(serial)
-        cert.set_version(2)
-        cert.set_subject(sub)
-        
-        if not ca_cert:
-            issuer = sub
-        else:
-            issuer = ca_cert.get_subject()
-
-        # Set the issuer, pubkey and not valid before/after dates
-        cert.set_issuer(issuer)
-        cert.set_pubkey(pkey)
-        notBefore = m2.x509_get_not_before(cert.x509)
-        notAfter = m2.x509_get_not_after(cert.x509)
-        m2.x509_gmtime_adj(notBefore, 0)
-        
-        # Expires in 10 years!
-        days = 365 * 10
-        m2.x509_gmtime_adj(notAfter, 60 * 60 * 24 * days)
-
-        # If aliases are specified add them as an extension
-        if aliases:
-            tmp = ','.join(['DNS:%s' % name for name in aliases])
-            cert.add_ext(
-                X509.new_extension('subjectAltName', tmp))
-
-        # If we're creating the initial CA selfsigned cert set the CA flag
-        if not ca_cert:
-            ext = X509.new_extension('basicConstraints', 'critical,CA:true')
-            ext.set_critical(1)
-            cert.add_ext(ext)
-
-        # Finally sign the brand new certificate
-        cert.sign(ca_key, 'sha1')
-
-        return cert
-
-    def resolv_address(self, address):
-        fqdn, _, ip_list = socket.gethostbyname_ex(address)
-        return (ip_list[0], fqdn)
-
-    def get_certificate(self):
-
-        ip, fqdn = self.resolv_address(self.address)
-        
-        if ip != fqdn:
-            hostname = fqdn.split('.', 1)[0]
-        else:
-            hostname = ip
+        self.address = ConfigInterface().get_device_address(options.device) \
+                       if self.options.device else address
 
         if self.options.alias is None:
             self.options.alias = []
 
-        aliases = self.options.alias + list(set([ip, fqdn, hostname]))
-        
-        cert_pem = None
-        key_pem = None
-        cert_fn = os.path.join(self.options.store, 'cache', "%s.crt" % ip)
-        key_fn = os.path.join(self.options.store, 'cache', "%s.key" % ip)
-        
-        if not self.options.force:
-            if os.path.exists(cert_fn) and os.path.exists(key_fn) :
-                f = open(cert_fn)
-                cert_pem = f.read()
-                f.close()
-                f = open(key_fn)
-                key_pem = f.read()
-                f.close()
-                LOG.debug('Using cached key/certificate pair')
+        super(WebCert, self).__init__()
+
+    @staticmethod
+    def create_key_pair(ktype, bits):
+        """
+        Create a public/private key pair.
+    
+        Arguments: type - Key type, must be one of TYPE_RSA and TYPE_DSA
+                   bits - Number of bits to use in the key
+        Returns:   The public/private key pair in a PKey object
+        """
+        pkey = crypto.PKey()
+        pkey.generate_key(ktype, bits)
+        return pkey
+    
+    @staticmethod
+    def create_cert_request(pkey, digest="md5", **name):
+        """
+        Create a certificate request.
+    
+        Arguments: pkey   - The key to associate with the request
+                   digest - Digestion method to use for signing, default is md5
+                   **name - The name of the subject of the request, possible
+                            arguments are:
+                              C     - Country name
+                              ST    - State or province name
+                              L     - Locality name
+                              O     - Organization name
+                              OU    - Organizational unit name
+                              CN    - Common name
+                              emailAddress - E-mail address
+        Returns:   The certificate request in an X509Req object
+        """
+        req = crypto.X509Req()
+        subj = req.get_subject()
+    
+        for (key,value) in name.items():
+            setattr(subj, key, value)
+    
+        req.set_pubkey(pkey)
+        req.sign(pkey, digest)
+        return req
+    
+    @staticmethod
+    def create_certificate(req, (issuer_key, issuer_cert), serial, 
+                           (not_before, not_after), digest="sha1", extensions=None):
+        """
+        Generate a certificate given a certificate request.
+    
+        Arguments: req        - Certificate reqeust to use
+                   issuerCert - The certificate of the issuer
+                   issuerKey  - The private key of the issuer
+                   serial     - Serial number for the certificate
+                   notBefore  - Timestamp (relative to now) when the certificate
+                                starts being valid
+                   notAfter   - Timestamp (relative to now) when the certificate
+                                stops being valid
+                   digest     - Digest method to use for signing, default is md5
+        Returns:   The signed certificate in an X509 object
+        """
+        cert = crypto.X509()
+        cert.set_version(2)
+        cert.set_serial_number(serial)
+        cert.gmtime_adj_notBefore(not_before)
+        cert.gmtime_adj_notAfter(not_after)
+        cert.set_issuer(issuer_cert.get_subject())
+        cert.set_subject(req.get_subject())
+        cert.set_pubkey(req.get_pubkey())
+        if extensions:
+            cert.add_extensions(extensions)
+        cert.sign(issuer_key, digest)
+        return cert
+
+    def gen_certificate(self, cn, alt_names=None):
+        assert cn
+        # Load ROOTCA certificate and private key.
+        if self.options.ca_crt and self.options.ca_key:
+            crt = open(os.path.join(self.options.ca_crt))
+            key = open(os.path.join(self.options.ca_key))
+            capair = (
+                crypto.load_privatekey(crypto.FILETYPE_PEM, key.read()),
+                crypto.load_certificate(crypto.FILETYPE_PEM, crt.read()))
+            crt.close()
+            key.close()
         else:
-            LOG.debug('Generating new key/certificate pair')
+            capair = (
+                crypto.load_privatekey(crypto.FILETYPE_PEM, ROOTCA_KEY),
+                crypto.load_certificate(crypto.FILETYPE_PEM, ROOTCA_CRT))
+        
+        pkey = WebCert.create_key_pair(crypto.TYPE_RSA, 1024)
+        subject = F5TEST_SUBJECT
+        subject.CN = cn
+        req = WebCert.create_cert_request(pkey, **subject)
 
-        if not cert_pem or not key_pem:
-            key = self.gen_key(1024)
+        serial = random.randint(0, MAXINT)
+        
+        extensions = []
+        if alt_names:
+            tmp = ','.join(['DNS:%s' % name for name in alt_names])
+            extensions.append(crypto.X509Extension(b('subjectAltName'), False, b(tmp)))
+        
+        # Stick some nifty extensions- just for fun.
+        extensions.append(crypto.X509Extension(b('basicConstraints'), False, 
+                                               b('CA:FALSE')))
+        extensions.append(crypto.X509Extension(b('keyUsage'), False, 
+                                               b('digitalSignature,keyEncipherment')))
+        extensions.append(crypto.X509Extension(b('extendedKeyUsage'), False, 
+                                               b('serverAuth,clientAuth')))
+        extensions.append(crypto.X509Extension(b('authorityInfoAccess'), False, 
+                                               b('caIssuers;email:emtest@f5.com')))
+        extensions.append(crypto.X509Extension(b('crlDistributionPoints'), False, 
+                                               b('URI:http://172.27.58.1/rootca.crl')))
 
-            cakey_fn = os.path.join(self.options.store, ROOTCA_PK_NAME)
-            cacert_fn = os.path.join(self.options.store, ROOTCA_CRT_NAME)
+        return (pkey, WebCert.create_certificate(req, capair, serial,
+                                                 (-60*60*24*1, 60*60*24*365*10),  # -1 .. 10 years
+                                                 extensions=extensions))
 
-            cakey = self.load_key(cakey_fn)
-            cacert = self.load_cert(cacert_fn)
-
-            # Have the option to use the IP as Common Name to satisfy Firefox.
-            if self.options.fqdn_cn:
-                req = self.gen_request(key, fqdn)
-            else:
-                req = self.gen_request(key, ip)
-            cert = self.gen_certificate(req, cakey, cacert, aliases=aliases)
-            key_pem = key.as_pem(None)
-            cert_pem = cert.as_pem()
-            key.save_key(key_fn, None)
-            cert.save_pem(cert_fn)
-
-            # Update the rand pool stuff
-            filename = os.path.join(self.options.store, RANDPOOL_FILENAME)
-            Rand.save_file(filename)
-
-        self._cert_pem = cert_pem
-        self._key_pem = key_pem
-
-        return (key_pem, cert_pem)
-
-    def push_certificate(self, cert_pem_override=None, key_pem_override=None):
+    def push_certificate(self, pkey, cert):
         
         icifc = IcontrolInterface(device=self.options.device,
                                   address=self.address,
@@ -200,11 +216,9 @@ class WebCert(Macro):
                                   port=self.options.ssl_port,
                                   debug=self.options.verbose)
         ic = icifc.open()
+        key_pem = crypto.dump_privatekey(crypto.FILETYPE_PEM, pkey)
+        cert_pem = crypto.dump_certificate(crypto.FILETYPE_PEM, cert)
         
-        cert_pem = cert_pem_override or self._cert_pem
-        key_pem = key_pem_override or self._key_pem
-        assert cert_pem and key_pem
-
         try:
             ic.Management.KeyCertificate.certificate_delete(
                 mode='MANAGEMENT_MODE_WEBSERVER', cert_ids=['server'])
@@ -245,17 +259,20 @@ class WebCert(Macro):
         
         return True
 
-    def prep(self):
-        LOG.info('Started...')
-        self.get_certificate()
-        #self.push_certificate()
-        wait(self.push_certificate, timeout=self.options.timeout)
+    def setup(self):
+        LOG.info('WebCert started...')
+        fqdn, _, ip_list = socket.gethostbyname_ex(self.address)
+        aliases = set([x for x in self.options.alias + ip_list + [fqdn]])
+        pkey, cert = self.gen_certificate(self.address, alt_names=aliases)
+        
+        # Sometimes it fails due to voodoo race conditions. That's why we wait()!
+        wait(lambda: self.push_certificate(pkey, cert), 
+             timeout=self.options.timeout)
         LOG.info('Done.')
 
 
 def main():
     import optparse
-    import sys
 
     usage = """%prog [options] <address>"""
 
@@ -264,16 +281,18 @@ def main():
     p = optparse.OptionParser(usage=usage, formatter=formatter,
                             version="Web certificate updater v%s" % __version__
         )
-    p.add_option("-s", "--store", metavar="DIRECTORY",
-                 default=ROOTCA_STORE, type="string",
-                 help="The CA certificates store. (default: %s)" 
-                 % ROOTCA_STORE)
+    p.add_option("", "--ca-key", metavar="FILE",
+                 type="string", help="The CA private key file in PEM format. "
+                 "(default: embedded)")
+    p.add_option("", "--ca-crt", metavar="FILE",
+                 type="string", help="The CA certificate file in PEM format. "
+                 "(default: embedded)")
     p.add_option("-a", "--alias", metavar="ALIAS", type="string",
                  action="append", default=[],
-                 help="Aliases to put in the certificate. Can be an IP, a host "
-                 "or a FQDN.")
-    p.add_option("", "--verbose", action="store_true",
-                 help="Debug messages")
+                 help="Additional hostnames or IP addresses to put in the "
+                 "subjectAltName certificate extension.")
+    p.add_option("-v", "--verbose", action="store_true",
+                 help="Debug messages.")
     
     p.add_option("", "--ssl-port", metavar="INTEGER", type="int", default=443,
                  help="SSL Port. (default: 443)")
@@ -281,25 +300,20 @@ def main():
                  help="SSH Port. (default: 22)")
     p.add_option("", "--admin-username", metavar="USERNAME",
                  default=ADMIN_USERNAME, type="string",
-                 help="An user with administrator rights (default: %s)"
+                 help="(default: %s)"
                  % ADMIN_USERNAME)
     p.add_option("", "--admin-password", metavar="PASSWORD",
                  default=ADMIN_PASSWORD, type="string",
-                 help="An user with administrator rights (default: %s)"
+                 help="(default: %s)"
                  % ADMIN_PASSWORD)
     p.add_option("", "--root-username", metavar="USERNAME",
                  default=ROOT_USERNAME, type="string",
-                 help="An user with root rights (default: %s)"
+                 help="(default: %s)"
                  % ROOT_USERNAME)
     p.add_option("", "--root-password", metavar="PASSWORD",
                  default=ROOT_PASSWORD, type="string",
-                 help="An user with administrator rights (default: %s)"
+                 help="(default: %s)"
                  % ROOT_PASSWORD)
-    p.add_option("", "--fqdn-cn", action="store_true",
-                 help="Set the Subject CN to the FQDN string returned by the "
-                 "DNS. Otherwise the CN defaults to the IP address.")
-    p.add_option("", "--force", action="store_true",
-                 help="Generate a fresh key/certificate pair.")
     p.add_option("", "--timeout",
                  default=DEFAULT_TIMEOUT, type="int",
                  help="The SSH timeout. (default: %d)" % DEFAULT_TIMEOUT)

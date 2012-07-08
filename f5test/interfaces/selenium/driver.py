@@ -3,8 +3,11 @@ from selenium.webdriver.remote.webdriver import WebDriver as RemoteWebDriver
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.remote.command import Command
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys #@UnusedImport
 from selenium.common.exceptions import (NoSuchElementException, 
-    StaleElementReferenceException, WebDriverException, NoSuchWindowException)
+    StaleElementReferenceException, NoSuchWindowException)
+from ...utils.wait import Wait
+from ...base import Options
 import copy
 import time
 import logging
@@ -18,15 +21,83 @@ class ConditionError(Exception):
 
 class Is(object):
     DISPLAYED = "is_displayed"
-    VISIBLE = "is_displayed" # alias
+    VISIBLE = "is_displayed" # alias of DISPLAYED
     SELECTED = "is_selected"
     ENABLED = "is_enabled"
     PRESENT = 0
-    TEST = 1
 
 
 class NONEGIVEN:
     pass
+
+
+class ElementWait(Wait):
+
+    def __init__(self, element, *args, **kwargs):
+        self._frame = None
+        self._it = None
+        self._element = element
+        return super(ElementWait, self).__init__(*args, **kwargs)
+
+    def function(self, value=None, by=By.ID, frame=None,
+                 it=Is.DISPLAYED):
+        if not self._frame:
+            self._frame = frame
+        self._it = it
+        # Start from an element (if specified) or the entire DOM.
+        parent = self._element
+        
+        f = Options()
+        f.by = by
+        f.value = value
+        f.stabilize = self.stabilize
+        f.negated = 'yes' if self.negated else 'no'
+        f.frame = '.' if frame is None else frame
+        
+        if it == Is.VISIBLE or it == Is.DISPLAYED:
+            f.state = 'visible'
+        elif it == Is.SELECTED:
+            f.state = 'selected'
+        elif it == Is.ENABLED:
+            f.state = 'enabled'
+        else:
+            f.state = 'present'
+
+        self._criteria = "by={0.by} value={0.value} frame={0.frame} " \
+                         "state={0.state} negated={0.negated} " \
+                         "stabilize={0.stabilize}".format(f)
+        self.timeout_message = "Criteria: {0} not met after {{0}} seconds.".format(self._criteria)
+        LOG.debug("Waiting for: {0}".format(self._criteria))
+        
+        b = parent.parent if isinstance(parent, WebElement) else parent
+        assert isinstance(b, RemoteWebDriver)
+        
+        if self._frame:
+            b.switch_to_frame(frame)
+            # Absolutize the frame (in case the one provided was relative)
+            self._frame = b.get_current_frame()
+
+        if not value:
+            return self._element
+        return parent.find_element(by=by, value=value)
+
+    def test_result(self, result):
+        ret = None
+        if self._it == Is.PRESENT:
+            ret = True
+        else:
+            ret = getattr(result, self._it)()
+        
+        return bool(ret) ^ self.negated
+
+    def test_error(self, exc_type, exc_value, exc_traceback):
+        if exc_type is NoSuchElementException:
+            if (self._it in (Is.PRESENT, Is.DISPLAYED) and self.negated):
+                return True
+        elif exc_type in (IndexError, StaleElementReferenceException):
+            LOG.debug(exc_value)
+        
+        return False
 
 
 class WebElementWrapper(WebElement):
@@ -192,8 +263,7 @@ class RemoteWrapper(RemoteWebDriver):
             LOG.warning("maximize_window not supported in %s." % self.name)
 
     def wait(self, value=None, by=By.ID, frame=None, it=Is.DISPLAYED, 
-             negated=False, timeout=10, interval=0.1, stabilize=0, element=None, 
-             test=None, multiple=False):
+             negated=False, timeout=10, interval=0.1, stabilize=0, element=None):
         """Waits for an element to satisfy a certain condition.
         
         @param value: the locator 
@@ -203,8 +273,7 @@ class RemoteWrapper(RemoteWebDriver):
         @type by: enum
         @param frame: the frame path (e.g. /topframe/subframe, default: current frame)
         @type frame: str
-        @param it: condition, one of: DISPLAYED, SELECTED, ENABLED, PRESENT or 
-                   TEST
+        @param it: condition, one of: DISPLAYED, SELECTED, ENABLED, PRESENT
         @type it: enum
         @param negated: negate the condition if true
         @type negated: bool
@@ -217,102 +286,7 @@ class RemoteWrapper(RemoteWebDriver):
         @type stabilize: int
         @param element: parent element
         @type element: WebElement instance
-        @param test: complex condition callback, called with (element, exception)
-        @type test: callable
         """
-
-        f = {}
-        f['by'] = by
-        f['value'] = value
-        f['negated'] = negated and 'not' or 'to be'
         
-        if frame is None:
-            f['frame'] = '*current*'
-        else:
-            f['frame'] = frame
-        
-        if it == Is.VISIBLE or it == Is.DISPLAYED:
-            f['state'] = 'visible'
-        elif it == Is.SELECTED:
-            f['state'] = 'selected'
-        elif it == Is.ENABLED:
-            f['state'] = 'enabled'
-        else:
-            f['state'] = 'present'
-
-        c_text = 'element with %(by)s "%(value)s" in frame %(frame)s %(negated)s %(state)s' % f
-        
-        if element is None:
-            element = self
-        
-        if multiple and not test:
-            raise TypeError('When testing for multiple elements a test callback needs to be specified.')
-
-        if test:
-            assert callable(test), '"test" must be a callback function with 2 params: element and exception.'
-
-        now = start = time.time()
-        e = None
-        stable_time = 0
-        
-        while now - start < timeout:
-            good = False
-            try:
-                # Caveat: If this is the first iteration *and* we're using a 
-                # relative frame *and* switch_to_frame fails halfway, then the 
-                # subsequent iterations will all fail! 
-                if frame:
-                    self.switch_to_frame(frame)
-                    # Absolutize the frame (in case the one provided was relative)
-                    frame = self.get_current_frame()
-
-                e = element.find_elements(by=by, value=value) if multiple \
-                    else element.find_element(by=by, value=value)
-
-                #LOG.debug(e)
-                if multiple or it == Is.TEST:
-                    if test(e, None):
-                        LOG.debug("Custom condition met.")
-                        good = True
-                elif it == Is.PRESENT:
-                    if not negated:
-                        LOG.debug("Condition '%s' met.", c_text)
-                        good = True
-                    else:
-                        LOG.debug("Waiting for '%s'.", c_text)
-                elif (not getattr(e, it)() ^ (not negated)):
-                #elif not (sum(map(lambda x:getattr(x, it)(), e)) == len(e) if multiple else getattr(e, it)() ^ (not negated)):
-                    LOG.debug("Condition '%s' met.", c_text)
-                    good = True
-                else:
-                    LOG.debug("Waiting for '%s'.", c_text)
-
-            # BUG: Remove IndexError when issue 2116 is fixed.
-            except (IndexError, NoSuchElementException, StaleElementReferenceException), exc:
-                if it == Is.TEST:
-                    if test(None, exc):
-                        LOG.debug("Custom condition met.")
-                        good = True
-                elif (it in (Is.PRESENT, Is.DISPLAYED) and negated):
-                    LOG.debug("Condition '%s' met.", c_text)
-                    good = True
-                LOG.debug("Waiting for '%s'.", c_text)
-            except WebDriverException, exc:
-                LOG.debug("Selenium is confused: '%s'.", exc)
-
-            if good:
-                if stable_time >= stabilize:
-                    break
-                else:
-                    stable_time += interval
-                    LOG.debug("(stabilizing)...")
-            else:
-                # Reset the stable time when condition is not met.
-                stable_time = 0
-
-            time.sleep(interval)
-            now = time.time()
-        else:
-            raise ConditionError, "Condition '%s' not met after %d seconds." % (c_text, now - start)
-        
-        return e
+        w = ElementWait(element or self, timeout, interval, stabilize, negated)
+        return w.run(value=value, by=by, frame=frame, it=it)

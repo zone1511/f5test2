@@ -22,6 +22,8 @@ class InterfaceHelper(object):
         config = ConfigInterface().open()
         config.setdefault('_attrs', Options())
         
+        if ifcs:
+            del ifcs[:]
         self.ifcs = ifcs
         self._apis = {}
         self._handles = {}

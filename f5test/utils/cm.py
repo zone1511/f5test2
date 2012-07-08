@@ -361,6 +361,8 @@ class IsoFinder(CMFileFinder):
                 yield os.path.join(basepath, subdir, 'release')
             else:
                 yield os.path.join(basepath, subdir, 'build%s' % self.build)
+        
+        yield self.root
 
     def matches(self, filename):
         if self._regex.search(filename):

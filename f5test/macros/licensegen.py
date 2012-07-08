@@ -12,10 +12,11 @@ import getpass
 import logging
 import pprint
 
-__version__ = '0.1'
+__version__ = '0.2'
 LOG = logging.getLogger(__name__)
 
-BANNED_FEATURES = set(('Appliance Mode', 'TrustedIP Subscription'))
+BANNED_FEATURES = set(('Appliance Mode', 'TrustedIP Subscription', 
+                       'IP Intelligence Subscription'))
 
 MAP = Options()
 MAP.eval = {}
@@ -153,7 +154,7 @@ class LicenseGenerator(Macro):
             text = e.text.strip()
             for label in BANNED_FEATURES:
                 banned = False
-                if text.startswith(label):
+                if text.find(label) >= 0:
                     banned = True
                     break
 

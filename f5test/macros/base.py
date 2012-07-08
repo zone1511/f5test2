@@ -5,6 +5,10 @@ A macro is a collection of commands.
 import threading
 import sys
 from ..base import Aliasificator
+from ..interfaces.config import ConfigInterface
+import logging
+
+LOG = logging.getLogger(__name__)
 
 
 class MacroError(Exception):
@@ -61,12 +65,16 @@ class Macro(object):
 
 class MacroThread(threading.Thread):
 
-    def __init__(self, macro, queue, *args, **kwargs):
+    def __init__(self, macro, queue, config, *args, **kwargs):
         self.macro = macro
         self.queue = queue
+        self.config = config
         super(MacroThread, self).__init__(*args, **kwargs)
     
     def run(self):
+        # Share the same config blob across all child threads.
+        LOG.debug('macrothread config=%d', id(self.config))
+        ConfigInterface(self.config).set_global_config()
         try:
             return self.macro.run()
         except:

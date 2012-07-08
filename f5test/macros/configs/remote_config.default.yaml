@@ -343,7 +343,7 @@ pool member protocols:
     - https
 
 pool member template: |
-    member %(node.ip)s:%(pool.proto)s %%(pool.monitor_enable)smonitor %(pool.proto)s
+    member %(node.ip)s%(node.ip.separator)s%(pool.proto)s %%(pool.monitor_enable)smonitor gateway_icmp
 
 pool template:
     - |
@@ -354,7 +354,7 @@ pool template:
 vip template:
     - |
         virtual LTM%(ltm.id)sVIP-%(vip.index)03d {
-           destination %(vip.ip)s:http
+           destination %(vip.ip)s%(vip.ip.separator)shttp
            snat automap
            ip protocol tcp
            profile http tcp
@@ -363,7 +363,7 @@ vip template:
     
     - |
         virtual LTM%(ltm.id)sVIP-%(vip.index)03d {
-           destination %(vip.ip)s:https
+           destination %(vip.ip)s%(vip.ip.separator)shttps
            snat automap
            ip protocol tcp
            profile clientssl http tcp
@@ -371,7 +371,7 @@ vip template:
         }
     - |
         virtual LTM%(ltm.id)sVIP-%(vip.index)03d {
-           destination %(vip.ip)s:https
+           destination %(vip.ip)s%(vip.ip.separator)shttps
            snat automap
            ip protocol tcp
            profile clientssl serverssl http tcp

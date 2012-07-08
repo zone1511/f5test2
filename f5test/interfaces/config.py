@@ -168,10 +168,10 @@ class Session(object):
 
 class ConfigInterface(Interface):
     
-    def __init__(self, _config=None):
-        from f5test.noseplugins.testconfig import config
+    def __init__(self, data=None):
+        from f5test.noseplugins.testconfig import CONFIG
         
-        self.config = _config or config
+        self.config = data if data else getattr(CONFIG, 'data', None)
         if not self.config:
             raise ConfigNotLoaded("Is nose-testconfig plugin loaded?")
         
@@ -179,9 +179,17 @@ class ConfigInterface(Interface):
         self.config.setdefault('_attrs', Options())
         super(ConfigInterface, self).__init__()
 
-    def open(self): #@ReservedAssignment
-        self.api = self.config
+    def get_config(self):
         return self.config
+    
+    def set_global_config(self):
+        from f5test.noseplugins.testconfig import CONFIG
+        
+        setattr(CONFIG, 'data', self.get_config())
+    
+    def open(self): #@ReservedAssignment
+        self.api = self.get_config()
+        return self.api
 
     def get_default_key(self, collection):
         return filter(lambda x:_bool(x[1] and x[1].get('default')), 

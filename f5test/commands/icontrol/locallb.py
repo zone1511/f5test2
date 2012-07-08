@@ -7,7 +7,7 @@ from .base import IcontrolCommand
 from ...interfaces.icontrol.driver import IControlFault 
 from ..base import CommandError
 from ...base import Options
-from IPy import IP
+from netaddr import IPAddress
 import copy
 
 import logging
@@ -360,8 +360,8 @@ class CreateLtmApp(IcontrolCommand):
             http_profile.profile_context = 'PROFILE_CONTEXT_TYPE_ALL'
             http_profile.profile_name = profile_name
 
-        ip_vs = IP(self.definition.address.split('%',1)[0]) # Take care of Route Domains
-        if ip_vs.version() == 6:
+        ip_vs = IPAddress(self.definition.address.split('%',1)[0]) # Take care of Route Domains
+        if ip_vs.version == 6:
             wildmask = 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff'
         else:
             wildmask = '255.255.255.255'

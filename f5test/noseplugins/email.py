@@ -72,18 +72,22 @@ class Email(Plugin):
         if not devices:
             return
         
-        info = []
+        ret = []
         for device in devices:
+            info = AttrDict()
+            info.device = device
             try:
-                platform = ICMD.system.get_platform(device=device)
-                version = ICMD.system.get_version(device=device, build=True)
+                info.platform = ICMD.system.get_platform(device=device)
+                info.version = ICMD.system.get_version(device=device, build=True)
+                v = ICMD.system.parse_version_file(device=device)
+                info.project = v.get('project', '')
+                info.edition = v.get('edition', '')
             except Exception, e:
                 LOG.error("%s: %s", type(e), e)
-                version = Version()
-                platform = ''
-            info.append(AttrDict(device=device, platform=platform, 
-                                 version=version))
-        return info
+                info.version = Version()
+                info.platform = ''
+            ret.append(info)
+        return ret
 
     def _get_dut_info(self):
         device = self.config_ifc.get_device()
@@ -94,6 +98,9 @@ class Email(Plugin):
         try:
             info.platform = ICMD.system.get_platform(device=device)
             info.version = ICMD.system.get_version(device=device, build=True)
+            v = ICMD.system.parse_version_file(device=device)
+            info.project = v.get('project', '')
+            info.edition = v.get('edition', '')
         except Exception, e:
             LOG.error("%s: %s", type(e), e)
             info.version = Version()

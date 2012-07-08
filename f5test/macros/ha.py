@@ -11,9 +11,8 @@ import f5test.commands.icontrol as ICMD
 from f5test.interfaces.config import DeviceAccess, DeviceCredential
 from f5test.defaults import DEFAULT_PORTS, ADMIN_USERNAME
 from f5test.utils.wait import wait
-from IPy import IP
+from netaddr import IPAddress, IPNetwork
 import logging
-#import time
 import uuid
 
 
@@ -176,7 +175,7 @@ class FailoverMacro(Macro):
         vlans = ic.Networking.SelfIPV2.get_vlan(self_ips=selfips)
         selfips = [(x[3], x[1]) for x in zip(selfips, addresses, states, 
                                              vlans)
-                   if IP(x[1]).version() == (6 if ipv6 else 4) and 
+                   if IPAddress(x[1]).version == (6 if ipv6 else 4) and 
                       x[2] == 'STATE_DISABLED']
         
         vlan_ip_map = dict(selfips)
@@ -415,15 +414,14 @@ class FailoverMacro(Macro):
             
             if self.options.floatingip:
                 LOG.info('Adding floating ip to %s...', DEFAULT_TG)
-                ip = IP(self.options.floatingip)
-                if ip.prefixlen() == 32:
+                ip = IPNetwork(self.options.floatingip)
+                if ip.prefixlen == 32:
                     raise ValueError("Did you forget the /16 prefix?")
-                ip_str = str(ip).split('/', 1)[0]
                 
 #                from SOAPpy import SOAPBuilder
                 ca_api.Networking.SelfIPV2.create(self_ips=['int_floating'],
                                                   vlan_names=['internal'],
-                                                  addresses=[ip_str],
+                                                  addresses=[str(ip.ip)],
                                                   netmasks=[str(ip.netmask())],
                                                   traffic_groups=[DEFAULT_TG],
                                                   floating_states=['STATE_ENABLED']

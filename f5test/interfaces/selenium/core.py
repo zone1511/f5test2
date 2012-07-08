@@ -1,7 +1,7 @@
 """Selenium interface"""
 
 from ..config import ConfigInterface, DeviceAccess, ConfigNotLoaded
-from .driver import RemoteWrapper
+from .driver import RemoteWrapper, Keys
 from ...base import Interface
 import logging
 from ...base import AttrDict
@@ -134,6 +134,12 @@ class SeleniumInterface(Interface):
         ua = self.api.execute_script("return navigator.userAgent")
         return (ua, AttrDict(httpagentparser.detect(ua)))
 
+    def _disable_firefox_addon_bar(self):
+        # XXX: Workaround for FF Add-on Bar masking page elements making them
+        # unclickable. This keyboard shortcut should have no effect on other
+        # browsers.
+        self.api.switch_to_active_element().send_keys(Keys.CONTROL, '/')
+
     def open(self): #@ReservedAssignment
         """Returns the handle to a Selenium 2 remote client.
 
@@ -154,6 +160,7 @@ class SeleniumInterface(Interface):
                                  ))
 
         self.window = self.api.current_window_handle
+        self._disable_firefox_addon_bar()
         return self.api
     
     def close(self, *args, **kwargs):

@@ -373,6 +373,12 @@ class Testopia(Plugin):
         """Close TestRun and flip all untouched TCs to blocked.
         """
         c = self.config_ifc.open().get(self.options.section)
+        
+        # Most probably begin() failed to set the private values in the config section. 
+        if not (c._build and c._environment and c._testrun):
+            LOG.warning("Build ID not found.")
+            return
+
         t = self.testopia_ifc.open()
 
         case_ids = dict(((x['case_id'], x['script']) for x in self.tcs.values()))

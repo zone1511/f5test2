@@ -404,9 +404,9 @@ pool member protocols:
     - https
 
 pool member template: |
-    /%%(partition.name)s/%(node.ip)s:%(pool.proto)s {
+    /%%(partition.name)s/%(node.ip)s%(node.ip.separator)s%(pool.proto)s {
         address %(node.ip)s
-        %%(pool.monitor_enable)smonitor %(pool.proto)s
+        %%(pool.monitor_enable)smonitor /Common/gateway_icmp
         #session user-enabled
     }
 
@@ -416,13 +416,13 @@ pool template:
             members {
                 %(pool.members)s
             }
-            %(pool.monitor_enable)smonitor /Common/http
+            %(pool.monitor_enable)smonitor /Common/gateway_icmp
         }
         
 vip template:
     - |
         ltm virtual /%(partition.name)s/LTM%(ltm.id)sVIP-%(vip.index)03d {
-            destination /%(partition.name)s/%(vip.ip)s:http
+            destination /%(partition.name)s/%(vip.ip)s%(vip.ip.separator)shttp
             snat automap
             ip-protocol tcp
             profiles {
@@ -439,7 +439,7 @@ vip template:
 
     - |
         ltm virtual /%(partition.name)s/LTM%(ltm.id)sVIP-%(vip.index)03d {
-            destination /%(partition.name)s/%(vip.ip)s:https
+            destination /%(partition.name)s/%(vip.ip)s%(vip.ip.separator)shttps
             snat automap
             ip-protocol tcp
             profiles {
@@ -459,7 +459,7 @@ vip template:
 
     - |
         ltm virtual /%(partition.name)s/LTM%(ltm.id)sVIP-%(vip.index)03d {
-            destination /%(partition.name)s/%(vip.ip)s:https
+            destination /%(partition.name)s/%(vip.ip)s%(vip.ip.separator)shttps
             snat automap
             ip-protocol tcp
             profiles {

@@ -37,8 +37,7 @@ class LoggingProxy(object):
             self.write(arg)
         data = ''.join(self.buffer)
         self.logger.log(self.loglevel, data)
-        self.buffer = []
-        #self.write('\n') # text-mode streams translate to \r\n if needed
+        self.buffer[:] = []
 
     def writelines(self, sequence):
         """`writelines(sequence_of_strings) -> None`.
@@ -130,6 +129,7 @@ class LogCollect(LogCapture):
 
         logger = logging.getLogger('_console_')
         logger.propagate = False
+        logger.disabled = False
 
         log_dir = self._get_session_dir()
         console_filename = os.path.join(log_dir, 'console.log')
@@ -138,6 +138,8 @@ class LogCollect(LogCapture):
         fmt = logging.Formatter(logformat, self.logdatefmt)
         handler = logging.FileHandler(console_filename)
         handler.setFormatter(fmt)
+        
+        map(lambda x:logger.removeHandler(x), logger.handlers)
         logger.addHandler(handler)
 
         proxy = LoggingProxy(logger)
@@ -327,6 +329,11 @@ class LogCollect(LogCapture):
         pass
 
     def finalize(self, result):
+        #logger = logging.getLogger()
+        #map(lambda x:x.flush(), logger.handlers)
+        #logger = logging.getLogger('_console_')
+        #map(lambda x:x.flush(), logger.handlers)
+        
         # Loose threads check
         import paramiko
         found = False

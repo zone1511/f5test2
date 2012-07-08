@@ -1,0 +1,10 @@
+#!/bin/bash
+cd $( dirname ${BASH_SOURCE[0]} )/..
+
+CONF=$1
+shift
+
+rm -rf tests/*
+bin/buildout -No && bin/nosetests -sv --with-testopia --with-bvtinfo --with-irack \
+ --console-redirect --tc stages._enabled:1 -a status=CONFIRMED,priority=1 \
+ --tc-file=$CONF $*

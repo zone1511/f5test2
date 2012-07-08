@@ -12,7 +12,6 @@ EM_MYSQL_USERNAME = 'root'
 EM_MYSQL_PASSWORD = '4Dm1n'
 F5EM_DB = 'f5em'
 F5EM_EXTERN_DB = 'f5em_extern'
-ROOTCA_STORE = '/vol/3/share/em-selenium/root_ca'
 
 DEFAULT_PORTS = {
     'ssh': 22,

@@ -1,7 +1,7 @@
 from .base import SeleniumCommand
 from ...interfaces.config import ConfigInterface, DeviceAccess
-from ...interfaces.selenium import By, Is # ActionChains
-from ...interfaces.selenium.driver import NoSuchElementException
+from ...interfaces.selenium import By, Is
+from ...interfaces.selenium.driver import NoSuchElementException, ElementWait
 from ...base import AttrDict
 from ..base import WaitableCommand, CommandError
 import os
@@ -13,6 +13,25 @@ LOG = logging.getLogger(__name__)
 class BannerError(Exception):
     pass
 
+
+class LoadingBannerWait(ElementWait):
+    
+    def __init__(self, *args, **kwargs):
+        self._css = kwargs.pop('css')
+        return super(LoadingBannerWait, self).__init__(*args, **kwargs)
+
+    def test_result(self, result):
+        is_visible = result.is_displayed()
+        css = result.get_attribute('class')
+        if not self._css is None:
+            if css and 'loading' not in css:
+                return True
+        else:
+            if not is_visible or (css and 'loading' not in css):
+                return True
+        return False
+
+
 wait_for_loading = None
 class WaitForLoading(SeleniumCommand):
     """Waits for the Loading XUI banner to change.
@@ -21,41 +40,24 @@ class WaitForLoading(SeleniumCommand):
     @type timeout:  int
     @param interval: Polling interval (default: 1)
     @type interval:  int
+    @param css: Fail if  after loading banner's css class is not this.
+    @type css: str
     """
     def __init__(self, timeout=60, interval=1, css=None, *args, **kwargs):
-        super(WaitForLoading, self).__init__(*args, **kwargs)
         self.timeout = timeout
         self.interval = interval
         self.css = css
+        super(WaitForLoading, self).__init__(*args, **kwargs)
 
     def setup(self):
-        params = AttrDict()
         b = self.api
 
-        def is_loading(e, exc):
-            if e is None:
-                # The banner should always be there, if we can't find it it's
-                # probably because the page is loading. In this case we can't
-                # decide whether it is done loading.
-                return False
-            is_visible = e.is_displayed()
-            css = e.get_attribute('class')
-            if not self.css is None:
-                if css and 'loading' not in css:
-                    return True
-            else:
-                if not is_visible or (css and 'loading' not in css):
-                    return True
-            return False
-
-        params.value = '//div[@id="banner"]/div[@id="message"]/div[@id="messagetype"]'
-        params.it = Is.TEST
-        params.by = By.XPATH
-        params.frame = '/'
-        params.test = is_loading
-
         prev_frame = b.get_current_frame()
-        b.wait(timeout=self.timeout, interval=self.interval, stabilize=1, **params)
+        w = LoadingBannerWait(b, timeout=self.timeout,
+                              interval=self.interval, stabilize=1, css=self.css)
+        
+        w.run(value='//div[@id="banner"]/div[@id="message"]/div[@id="messagetype"]',
+              by=By.XPATH, frame='/')
         css = get_banner_css(ifc=self.ifc)
         b.switch_to_frame(prev_frame)
         if self.css and self.css not in css:
@@ -173,17 +175,15 @@ class Login(SeleniumCommand):
         
         e = b.find_element_by_id("passwd")
         e.send_keys(self.password)
-        #e.submit().wait('mainmenu-overview')
-        #e.submit().wait('mainmenu-overview-welcome')
-        #e.submit().wait('status')
         e.submit().wait('#navbar > #trail span', by=By.CSS_SELECTOR, timeout=30)
         b.maximize_window()
-
-        # XXX: DISABLE XUI menus hover behavior. This should stay here until
-        #      Selenium2 implements the advanced user interactions for all 
-        #      browsers
-        #b.execute_script("$('#mainpanel li').unbind('mouseenter mouseleave');")
-
+        
+        # XXX: Workaround for Xui fly-out menus that don't disappear, thus
+        # interfering with several browsers running with Native Events,
+        # simulating real mouse events.
+        script = "$('#body li.hasmenu').hide()"
+        self.api.execute_script(script)
+        
 
 screen_shot = None
 class ScreenShot(SeleniumCommand):
@@ -228,6 +228,7 @@ class Logout(SeleniumCommand):
     """Log out by clicking on the Logout button."""
     def setup(self):
         b = self.api
+        b.switch_to_default_content()
         logout = b.wait('#logout a', by=By.CSS_SELECTOR)
         logout.click().wait('username')
         self.ifc.del_credentials()
@@ -293,13 +294,8 @@ class BrowseToTab(SeleniumCommand):
                 #e.click()
             
             # XXX: Uses direct JQuery calls.
-            menu_id = e.get_attribute('id')
-            b.execute_script("$('#%s a').click();" % menu_id)
+            b.execute_script("$(arguments[0]).children('a').click();", e)
 
-            #xpath += '/a'
-            #e = b.find_element_by_xpath(xpath)
-            #e.click()
-            
 
 browse_to = None
 class BrowseTo(SeleniumCommand):
@@ -324,10 +320,10 @@ class BrowseTo(SeleniumCommand):
         b.switch_to_default_content()
         bits = self.locator.split(':', 1)
         locator = bits[0]
-        index = 1
+        index = 0
         if locator.endswith('[+]'):
             locator = locator.replace('[+]', '', 1).rstrip()
-            index = 2
+            index = 1
 
         panel, locator = locator.split('|', 1)
         panel = panel.strip()
@@ -348,13 +344,8 @@ class BrowseTo(SeleniumCommand):
             e = b.find_element_by_xpath(xpath)
         
         # XXX: Uses direct JQuery calls.
-        menu_id = e.get_attribute('id')
-        b.execute_script("$('#%s a:nth(%d)').click();" % (menu_id, index-1))
-
-#        # Broken:
-#        xpath += '/a[%d]' % index
-#        e = b.find_element_by_xpath(xpath)
-#        e.click()
+        b.execute_script("$(arguments[0]).children('a:nth(%d)').click();" % 
+                         index, e)
 
         if len(bits) == 2:
             locator = bits[1]
@@ -452,11 +443,29 @@ class DeleteItems(SeleniumCommand):
     def setup(self):
         b = self.api
         LOG.debug('Deleting selected items...')
+
+        # The "new style" refers to the Luna UI-kind of tables that pop up a
+        # Delete confirmation modal dialog, instead of the BS3 delete + delete
+        # confirm workflow.
+        new_style = False
         try:
-            delete_button = b.find_element_by_xpath("//input[@value='Delete...']")
+            delete_button = b.find_element_by_id("confirmDelete:dialogForm:confirm")
+            new_style = True
         except NoSuchElementException:
-            delete_button = b.find_element_by_xpath("//input[@value='Delete']")
-        delete_button = delete_button.click().wait("delete_confirm", By.NAME)
+            pass
+        
+        if new_style:
+            delete_button = b.wait("//form[@id='tableForm']//input[contains(@id, 'deleteButton')]",
+                                   By.XPATH, it=Is.ENABLED)
+            delete_button = delete_button.click().wait("confirmDelete:dialogForm:confirm")
+        else:
+            try:
+                delete_button = b.find_element_by_xpath("//input[@value='Delete...']")
+            except NoSuchElementException:
+                delete_button = b.find_element_by_xpath("//input[@value='Delete']")
+            delete_button = delete_button.click().wait("delete_confirm", By.NAME)
+
+        # Click the confirm Delete
         delete_button.click()
         wait_for_loading(ifc=self.ifc)
         LOG.debug('Deleted successfully.')
