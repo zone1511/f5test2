@@ -1,8 +1,9 @@
 from ..base import SeleniumCommand
 from ..common import browse_to, wait_for_loading
+from ... import icontrol as ICMD
 import logging
 
-LOG = logging.getLogger(__name__) 
+LOG = logging.getLogger(__name__)
 
 
 enable_stats = None
@@ -14,39 +15,44 @@ class EnableStats(SeleniumCommand):
 
     def setup(self):
         b = self.api
-        
+
         v = self.ifc.version
+        icifc = self.ifc.get_icontrol_interface()
+        vdict = ICMD.system.parse_version_file(ifc=icifc)
+
         if v.product.is_em and v < 'em 2.3':
             locator = 'Enterprise Management | Statistics | Options | Data Collection'
         elif v.product.is_em and v < 'em 3.0':
-            locator = 'Enterprise Management | Options | Statistics | Data Collection' 
+            locator = 'Enterprise Management | Options | Statistics | Data Collection'
         else:
-            locator = 'Statistics | Managed Devices | Options | Data Collection' 
+            locator = 'Statistics | Managed Devices | Options | Data Collection'
         browse_to(locator, ifc=self.ifc)
         b.switch_to_frame('/contentframe')
-        
+
         if v.product.is_em and v < 'em 2.2':
             e = b.wait('enable_data_collection')
         else:
             e = b.wait('enableDataCollection', timeout=30)
-        
+
         # @value of <select> is actually the value of the selected option.
         value = e.get_attribute('value')
         old_enable = True if value == 'true' else False
-        
+
         enable = self.enable
         if enable == True:
             o = e.find_element_by_xpath('option[text()="Enabled"]')
         else:
             o = e.find_element_by_xpath('option[text()="Disabled"]')
-        
+
         o.click()
-        
+
         if v.product.is_em and v < 'em 2.2':
             e = b.find_element_by_name('save_collection_changes')
             e.click()
             wait_for_loading(css='success', ifc=self.ifc)
-        elif v.product.is_em and v >= 'em 3.1':
+        # XXX: solar-topaz-em and allagasg are EM 3.1 but are missing certain UI changes.
+        # This project check must be removed when these branches will be invalidated.
+        elif v.product.is_em and v >= 'em 3.1' and vdict.get('project') not in ('solar-topaz-em', 'allagash', 'solar', 'em-core2'):
             e = b.find_element_by_id('saveBtn')
             e.click()
             wait_for_loading(css='success', ifc=self.ifc)
@@ -72,16 +78,16 @@ class GetStatsState(SeleniumCommand):
     """Get enabled stats collection state."""
     def setup(self):
         b = self.api
-        
+
         v = self.ifc.version
         if v.product.is_em and v < 'em 3.0':
-            locator = 'Enterprise Management | Options | Statistics | Data Collection' 
+            locator = 'Enterprise Management | Options | Statistics | Data Collection'
         else:
-            locator = 'Statistics | Managed Devices | Options | Data Collection' 
+            locator = 'Statistics | Managed Devices | Options | Data Collection'
         browse_to(locator, ifc=self.ifc)
         b.switch_to_frame('/contentframe')
         e = b.wait('enableDataCollection')
-        
+
         # @value of <select> is actually the value of the selected option.
         value = e.get_attribute('value')
         return True if value == 'true' else False

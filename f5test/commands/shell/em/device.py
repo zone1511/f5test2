@@ -4,97 +4,77 @@ Created on Apr 25, 2011
 @author: jono
 '''
 from ..sql import Query
-#from ...base import WaitableCommand
+from ..ssh import parse_version_file
 from ....utils.version import Version
 
 
 class DeviceNotFound(Exception):
     pass
 
+
 class TaskNotFound(Exception):
     pass
 
 
-get_device_info = None
-class GetDeviceInfo(Query):
-
-    def __init__(self, mgmtip=None, mgmtip_for_local_em=False, 
-                 textual_localhost=True, *args, **kwargs):
-        super(GetDeviceInfo, self).__init__(query=None, *args, **kwargs)
-        self.mgmtip = mgmtip
-
-        if self.ifc.version < 'em 2.3.0' or not textual_localhost:
-            aa = 'access_address'
-        elif mgmtip_for_local_em:
-            aa = "IF(is_local_em, mgmt_address, access_address) AS access_address"
-        else:
-            aa = "IF(is_local_em, 'localhost', access_address) AS access_address"
-        
-        fields = ['uid', aa, 'is_local_em',
-                  'mgmt_address', 'host_name', 'platform',
-                  'active_slot', 'chassis_serial', 'perfmon_state',
-                  'monitoring_bytes_per_second', 'is_clustered',
-                  'monitoring_counters_per_second', 'discovery_status',
-                  'product_name', 'version', 'build_number',
-                  'supports_asm', 'disk_partition_scheme']
-        if mgmtip:
-            query = "SELECT %s FROM device WHERE access_address = '%s'" % \
-                        (','.join(fields), mgmtip)
-        else:
-            query = "SELECT %s FROM device" % ','.join(fields)
-        self.query = query
-
-    def setup(self):
-        if self.mgmtip:
-            try:
-                return super(GetDeviceInfo, self).setup()[0]
-            except IndexError:
-                raise DeviceNotFound("%s" % self.mgmtip)
-        else:
-            return super(GetDeviceInfo, self).setup()
-
-
 filter_device_info = None
-class FilterDeviceInfo(Query):
+class FilterDeviceInfo(Query): #@IgnorePep8
 
-    def __init__(self, filter=None, onlyavailable=False, #@ReservedAssignment
-                 mgmtip_for_local_em=False, textual_localhost=True, 
-                 *args, **kwargs):
+    def __init__(self, filter=None, mgmtip_for_local_em=False,  # @ReservedAssignment
+                 textual_localhost=True, *args, **kwargs):
         assert filter is None or callable(filter), "Filter must be callable or None"
         super(FilterDeviceInfo, self).__init__(query=None, *args, **kwargs)
         self.filter = filter
-        
-        if self.ifc.version < 'em 2.3.0' or not textual_localhost:
-            aa = 'access_address'
-        elif mgmtip_for_local_em:
-            aa = "IF(is_local_em, mgmt_address, access_address) AS access_address"
-        else:
-            aa = "IF(is_local_em, 'localhost', access_address) AS access_address"
-        
-        fields = ['uid', aa, 'is_local_em',
+
+        fields = ['uid', 'is_local_em',
                   'mgmt_address', 'host_name', 'platform',
                   'active_slot', 'chassis_serial', 'perfmon_state',
                   'monitoring_bytes_per_second', 'is_clustered',
                   'monitoring_counters_per_second', 'discovery_status',
                   'product_name', 'version', 'build_number',
-                  'supports_asm', 'disk_partition_scheme', 'current_job_uid']
-        
-        if onlyavailable:
-#            query = """SELECT %s FROM device d 
-#                                 LEFT JOIN device_2_job dj ON (d.uid = dj.device_uid) 
-#                       WHERE dj.job_uid IS NULL""" % ','.join(fields)
-            query = """SELECT %s FROM device  
-                       WHERE current_job_uid IS NULL""" % ','.join(fields)
+                  'disk_partition_scheme', 'current_job_uid']
+        fields = ['d.%s' % x for x in fields]
+
+        if self.ifc.version < 'em 2.3.0' or not textual_localhost:
+            fields.append('d.access_address')
+        elif mgmtip_for_local_em:
+            fields.append("IF(is_local_em, mgmt_address, access_address) AS access_address")
         else:
-            query = "SELECT %s FROM device" % ','.join(fields)
+            fields.append("IF(is_local_em, 'localhost', access_address) AS access_address")
+
+        # Starting with solar-em-em the 'supports_asm' column has been removed.
+        # Faking it using a JOIN with device_component.
+        if parse_version_file(ifc=self.ifc).get('project') == 'solar-em-em':
+            fields.append('COUNT(dc1.uid) AS supports_asm')
+            query = "SELECT %s FROM device d " \
+                    "LEFT JOIN device_component dc1 " \
+                    "ON d.uid = dc1.device_uid AND dc1.component_type = 'ASM' " \
+                    "GROUP BY d.uid" % ','.join(fields)
+        else:
+            fields.append('d.supports_asm')
+            query = "SELECT %s FROM device d" % ','.join(fields)
         self.query = query
 
     def setup(self):
         return filter(self.filter, super(FilterDeviceInfo, self).setup())
 
 
+get_device_info = None
+class GetDeviceInfo(FilterDeviceInfo): #@IgnorePep8
+
+    def __init__(self, mgmtip, *args, **kwargs):
+        self.mgmtip = mgmtip
+        super(GetDeviceInfo, self).__init__(filter=lambda x: x.mgmt_address == mgmtip,
+                                            *args, **kwargs)
+
+    def setup(self):
+        try:
+            return super(GetDeviceInfo, self).setup()[0]
+        except IndexError:
+            raise DeviceNotFound("%s" % self.mgmtip)
+
+
 get_device_version = None
-class GetDeviceVersion(GetDeviceInfo):
+class GetDeviceVersion(GetDeviceInfo): #@IgnorePep8
 
     def setup(self):
         try:
@@ -105,13 +85,13 @@ class GetDeviceVersion(GetDeviceInfo):
 
 
 get_device_state = None
-class GetDeviceState(Query):
+class GetDeviceState(Query): #@IgnorePep8
 
     def __init__(self, mgmtip=None, uids=None, *args, **kwargs):
         self.mgmtip = mgmtip
-        fields = ['d.uid', 'access_address', 'mgmt_address', 'refresh_failed_at', 
+        fields = ['d.uid', 'access_address', 'mgmt_address', 'refresh_failed_at',
                   'refresh_state', 'status', 'substatus_message', 'host_name']
-        
+
         if isinstance(mgmtip, basestring):
             where = "WHERE access_address = '%s'" % mgmtip
         elif isinstance(mgmtip, (tuple, list)):
@@ -120,7 +100,7 @@ class GetDeviceState(Query):
             where = "WHERE uid IN (%s)" % ','.join(("%s" % str(x) for x in uids))
         else:
             where = ''
-        
+
         query = """SELECT %s FROM device d
                        LEFT JOIN device_2_substatus d2s ON (d.uid = d2s.device_uid)
                        LEFT JOIN device_substatus ds ON (d2s.substatus_uid = ds.uid)
@@ -137,10 +117,10 @@ class GetDeviceState(Query):
 
 
 get_reachable_devices = None
-class GetReachableDevices(Query):
+class GetReachableDevices(Query): #@IgnorePep8
 
     def __init__(self, *args, **kwargs):
-        fields = ['d.uid', 'access_address', 'mgmt_address', 'refresh_failed_at', 
+        fields = ['d.uid', 'access_address', 'mgmt_address', 'refresh_failed_at',
                   'refresh_state', 'status', 'substatus_message', 'is_local_em']
         query = """SELECT %s FROM device d
                        LEFT JOIN device_2_substatus d2s ON (d.uid = d2s.device_uid)
@@ -155,12 +135,12 @@ class GetReachableDevices(Query):
 
 
 get_device_slots = None
-class GetDeviceSlots(Query):
+class GetDeviceSlots(Query): #@IgnorePep8
 
     def __init__(self, mgmtip, *args, **kwargs):
         fields = ['product', 'slot_key', 'slot_num', 'visible_name',
                   'ds.version', 'ds.build', 'ds.is_cf', 'ds.reg_key', 'ds.uid']
-        query = """SELECT %s FROM device_slot ds 
+        query = """SELECT %s FROM device_slot ds
                              JOIN device d ON (ds.device_id = d.uid)
                              WHERE d.access_address = '%s'""" % \
                     (','.join(fields), mgmtip)
@@ -169,14 +149,14 @@ class GetDeviceSlots(Query):
 
 
 get_device_active_slot = None
-class GetDeviceActiveSlot(Query):
+class GetDeviceActiveSlot(Query): #@IgnorePep8
 
     def __init__(self, mgmtip, *args, **kwargs):
         self.mgmtip = mgmtip
         fields = ['product', 'slot_key', 'slot_num', 'visible_name',
                   'ds.version', 'ds.build', 'ds.is_cf', 'ds.reg_key', 'ds.uid']
-        query = """SELECT %s FROM device_slot ds 
-                             JOIN device d ON (ds.device_id = d.uid AND 
+        query = """SELECT %s FROM device_slot ds
+                             JOIN device d ON (ds.device_id = d.uid AND
                                                ds.slot_num = d.active_slot)
                              WHERE d.access_address = '%s'""" % \
                     (','.join(fields), mgmtip)
@@ -191,7 +171,7 @@ class GetDeviceActiveSlot(Query):
 
 
 get_task = None
-class GetTask(Query):
+class GetTask(Query): #@IgnorePep8
 
     def __init__(self, task_id, *args, **kwargs):
         self.task_id = int(task_id)
@@ -208,7 +188,7 @@ class GetTask(Query):
 
 
 get_discovery_task = None
-class GetDiscoveryTask(GetTask):
+class GetDiscoveryTask(GetTask): #@IgnorePep8
 
     def setup(self):
         fields = ['jh.uid', 'task_name', 'create_time', 'start_time', 'finish_time',
@@ -225,9 +205,9 @@ class GetDiscoveryTask(GetTask):
             raise TaskNotFound("%s" % self.task_id)
 
         # 'device-busy'
-        self.query = """SELECT COUNT(*) AS count FROM discovery_results 
-                        WHERE uid = %s AND discovery_status IN 
-                            ('auth-failed', 'comm-failed', 'unsupported', 
+        self.query = """SELECT COUNT(*) AS count FROM discovery_results
+                        WHERE uid = %s AND discovery_status IN
+                            ('auth-failed', 'comm-failed', 'unsupported',
                              'unsupported-product-version','db-save-failed',
                              'exceeds-license', 'device-busy')""" % \
                     task['uid']
@@ -235,7 +215,7 @@ class GetDiscoveryTask(GetTask):
         error_count = super(GetDiscoveryTask, self).setup()[0]['count']
         task['error_count'] = int(error_count)
 
-        fields = ['uid', 'access_address', 'system_id', 'product_name', 
+        fields = ['uid', 'access_address', 'system_id', 'product_name',
                   'version', 'build_number', 'discovery_status',
                   'discovery_status_message']
         self.query = """SELECT %s FROM discovery_results
@@ -249,7 +229,7 @@ class GetDiscoveryTask(GetTask):
 
 
 get_big3d_task = None
-class GetBig3dTask(GetTask):
+class GetBig3dTask(GetTask): #@IgnorePep8
 
     def setup(self):
         fields = ['jh.uid', 'dj.task_name', 'create_time', 'start_time', 'finish_time',
@@ -266,7 +246,7 @@ class GetBig3dTask(GetTask):
             raise TaskNotFound("%s" % self.task_id)
 
         # 'device-busy'
-        self.query = """SELECT COUNT(*) AS count FROM big3d_install_device_job 
+        self.query = """SELECT COUNT(*) AS count FROM big3d_install_device_job
                         WHERE big3d_install_job_uid = %s AND error_code != 0""" % \
                     task['uid']
 
@@ -282,15 +262,14 @@ class GetBig3dTask(GetTask):
 
         details = super(GetBig3dTask, self).setup()
         task.details = details
-        task.progress_percent = sum([100 if int(x['progress_percent']) < -1 else int(x['progress_percent']) 
+        task.progress_percent = sum([100 if int(x['progress_percent']) < -1 else int(x['progress_percent'])
                                     for x in details]) / len(details)
-        
+
         return task
 
 
-
 get_changeset_task = None
-class GetChangesetTask(GetTask):
+class GetChangesetTask(GetTask): #@IgnorePep8
 
     def setup(self):
         fields = ['jh.uid', 'dscj.task_name', 'create_time', 'start_time', 'finish_time',
@@ -307,7 +286,7 @@ class GetChangesetTask(GetTask):
             raise TaskNotFound("%s" % self.task_id)
 
         # 'device-busy'
-        self.query = """SELECT COUNT(*) AS count FROM deploy_staged_changeset_changeset_job 
+        self.query = """SELECT COUNT(*) AS count FROM deploy_staged_changeset_changeset_job
                         WHERE job_header_uid = %s AND error_code != 0""" % \
                     task['uid']
 
@@ -317,20 +296,20 @@ class GetChangesetTask(GetTask):
         fields = ['uid', 'progress_percent', 'status', 'target_device', 'target_partition',
                   'display_source_name', 'display_source_description',
                   'error_code', 'error_message', 'source_uid']
-        self.query = """SELECT %s FROM deploy_staged_changeset_changeset_job 
+        self.query = """SELECT %s FROM deploy_staged_changeset_changeset_job
                                   WHERE job_header_uid = %d""" % \
                     (','.join(fields), self.task_id)
 
         details = super(GetChangesetTask, self).setup()
         task.details = details
-        task.progress_percent = sum([100 if int(x['progress_percent']) < -1 else int(x['progress_percent']) 
+        task.progress_percent = sum([100 if int(x['progress_percent']) < -1 else int(x['progress_percent'])
                                     for x in details]) / len(details)
-        
+
         return task
 
 
 count_device__tasks = None
-class CountDeviceTasks(Query):
+class CountDeviceTasks(Query): #@IgnorePep8
 
     def __init__(self, mgmtips=None, *args, **kwargs):
         query = """SELECT COUNT(*) AS count FROM device d
@@ -347,14 +326,14 @@ class CountDeviceTasks(Query):
 
 
 count_active_tasks = None
-class CountActiveTasks(Query):
+class CountActiveTasks(Query): #@IgnorePep8
 
-    def __init__(self, type=None, *args, **kwargs): #@ReservedAssignment
-        query = """SELECT COUNT(*) AS count FROM f5em.job_header jh 
+    def __init__(self, type=None, *args, **kwargs):  # @ReservedAssignment
+        query = """SELECT COUNT(*) AS count FROM f5em.job_header jh
         WHERE status IN ('pending', 'started', 'running', 'canceling')"""
 
         if type:
-            query += " AND jh.detail_table IN (%s)" % ','.join(("'%s'" % 
+            query += " AND jh.detail_table IN (%s)" % ','.join(("'%s'" %
                                                           str(x) for x in type))
 
         super(CountActiveTasks, self).__init__(query=query, *args, **kwargs)
@@ -364,20 +343,20 @@ class CountActiveTasks(Query):
 
 
 get_device_archives = None
-class GetDeviceArchives(Query):
+class GetDeviceArchives(Query): #@IgnorePep8
 
     def __init__(self, device_uid, pinned=True, *args, **kwargs):
         query = """SELECT * FROM config_archive d WHERE device_uid = %s AND pinned = %d""" % (device_uid, int(pinned))
-        
+
         super(GetDeviceArchives, self).__init__(query=query, *args, **kwargs)
 
 
 get_diff_filenames = None
-class GetDiffFilenames(Query):
+class GetDiffFilenames(Query): #@IgnorePep8
 
     def __init__(self, *args, **kwargs):
         query = """SELECT * FROM diff_file_names"""
-        
+
         super(GetDiffFilenames, self).__init__(query=query, *args, **kwargs)
 
     def setup(self):

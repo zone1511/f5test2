@@ -7,7 +7,7 @@ from ..base import WaitableCommand, CommandError
 import os
 import logging
 
-LOG = logging.getLogger(__name__) 
+LOG = logging.getLogger(__name__)
 
 
 class BannerError(Exception):
@@ -15,7 +15,7 @@ class BannerError(Exception):
 
 
 class LoadingBannerWait(ElementWait):
-    
+
     def __init__(self, *args, **kwargs):
         self._css = kwargs.pop('css')
         return super(LoadingBannerWait, self).__init__(*args, **kwargs)
@@ -33,7 +33,7 @@ class LoadingBannerWait(ElementWait):
 
 
 wait_for_loading = None
-class WaitForLoading(SeleniumCommand):
+class WaitForLoading(SeleniumCommand): #@IgnorePep8
     """Waits for the Loading XUI banner to change.
 
     @param timeout: Wait this many seconds for the task to finish (default: 60).
@@ -55,7 +55,7 @@ class WaitForLoading(SeleniumCommand):
         prev_frame = b.get_current_frame()
         w = LoadingBannerWait(b, timeout=self.timeout,
                               interval=self.interval, stabilize=1, css=self.css)
-        
+
         w.run(value='//div[@id="banner"]/div[@id="message"]/div[@id="messagetype"]',
               by=By.XPATH, frame='/')
         css = get_banner_css(ifc=self.ifc)
@@ -65,9 +65,9 @@ class WaitForLoading(SeleniumCommand):
 
 
 get_banner_css = None
-class GetBannerCss(SeleniumCommand):
+class GetBannerCss(SeleniumCommand): #@IgnorePep8
     """Returns the banner type: success, warning, confirm, loading, etc..
-    
+
     @return: A set of css class strings.
     @rtype: set
     """
@@ -84,21 +84,21 @@ class GetBannerCss(SeleniumCommand):
 
         if frame != None:
             b.switch_to_frame(frame)
-        
+
         return set(css_class)
 
 
 get_cell_xpath = None
-class GetCellXpath(WaitableCommand, SeleniumCommand):
+class GetCellXpath(WaitableCommand, SeleniumCommand): #@IgnorePep8
     """Xpath builder for common tables with thead and tbody elements.
-    
+
     @param table_id: The ID of the table HTML element.
     @type table_id: str
     @param column: The column name as listed in the table header row.
     @type table_id: str
     @param value: The cell value to look for.
     @type value: str
-    
+
     @return: The xpath
     @rtype: str
     """
@@ -112,12 +112,12 @@ class GetCellXpath(WaitableCommand, SeleniumCommand):
         b = self.api
         params = AttrDict()
         params.table_id = self.table_id
-        
+
         # WARNING: The following Xpath may cause your eyes to bleed.
         params.column = self.column
         params.value = self.value
         params.column_index = "count(//table[@id='%(table_id)s']/thead/tr/*[descendant-or-self::*[contains(text(), '%(column)s')]]/preceding-sibling::*) + 1" % params
-        xpath = "//table[@id='%(table_id)s']/tbody/tr[td[%(column_index)s]//self::*[contains(text(), '%(value)s')]]" % params
+        xpath = "//table[@id='%(table_id)s']/tbody/tr[td[%(column_index)s]//self::*[normalize-space(text())='%(value)s']]" % params
         # Validate the existence of the table with the required ID.
         try:
             b.find_element_by_xpath(xpath)
@@ -127,9 +127,9 @@ class GetCellXpath(WaitableCommand, SeleniumCommand):
 
 
 login = None
-class Login(SeleniumCommand):
+class Login(SeleniumCommand): #@IgnorePep8
     """Log in command.
-    
+
     @param device: The device.
     @type device: str or DeviceAccess instance
     @param address: The IP or hostname.
@@ -139,7 +139,7 @@ class Login(SeleniumCommand):
     @param password: The password.
     @type password: str
     """
-    def __init__(self, device=None, address=None, username=None, password=None, 
+    def __init__(self, device=None, address=None, username=None, password=None,
                  port=None, proto='https', timeout=120, *args, **kwargs):
         super(Login, self).__init__(*args, **kwargs)
         self.timeout = timeout
@@ -166,35 +166,35 @@ class Login(SeleniumCommand):
                                  username=self.username, password=self.password,
                                  port=self.port, proto=self.proto)
 
-        b.get("{0[proto]}://{0[address]}:{0[port]}{0[path]}".format(self.__dict__)).wait('username', 
+        b.get("{0[proto]}://{0[address]}:{0[port]}{0[path]}".format(self.__dict__)).wait('username',
                                                                                          timeout=self.timeout)
-        
+
         e = b.find_element_by_name("username")
         e.click()
         e.send_keys(self.username)
-        
+
         e = b.find_element_by_id("passwd")
         e.send_keys(self.password)
         e.submit().wait('#navbar > #trail span', by=By.CSS_SELECTOR, timeout=30)
         b.maximize_window()
-        
+
         # XXX: Workaround for Xui fly-out menus that don't disappear, thus
         # interfering with several browsers running with Native Events,
         # simulating real mouse events.
         script = "$('#body li.hasmenu').hide()"
         self.api.execute_script(script)
-        
+
 
 screen_shot = None
-class ScreenShot(SeleniumCommand):
+class ScreenShot(SeleniumCommand): #@IgnorePep8
     """Take a screenshot and save the page source.
-    
+
     @param dir: Output directory (must have write permissions).
     @type dir: str
     @param screenshot: the name of the screenshot file (default: screenshot).
     @type screenshot: str
     """
-    def __init__(self, dir, name=None, window=None, *args, **kwargs): #@ReservedAssignment
+    def __init__(self, dir, name=None, window=None, *args, **kwargs):  # @ReservedAssignment
         super(ScreenShot, self).__init__(*args, **kwargs)
         self.dir = dir
         if name is None:
@@ -202,7 +202,7 @@ class ScreenShot(SeleniumCommand):
         else:
             self.name = name
         self.window = window
-    
+
     def setup(self):
         b = self.api
         if self.window is not None:
@@ -224,7 +224,7 @@ class ScreenShot(SeleniumCommand):
 
 
 logout = None
-class Logout(SeleniumCommand):
+class Logout(SeleniumCommand): #@IgnorePep8
     """Log out by clicking on the Logout button."""
     def setup(self):
         b = self.api
@@ -235,7 +235,7 @@ class Logout(SeleniumCommand):
 
 
 close_all_windows = None
-class CloseAllWindows(SeleniumCommand):
+class CloseAllWindows(SeleniumCommand): #@IgnorePep8
     """Close all windows but the main."""
     def setup(self):
         b = self.api
@@ -251,7 +251,7 @@ class CloseAllWindows(SeleniumCommand):
 
 
 browse_to_tab = None
-class BrowseToTab(SeleniumCommand):
+class BrowseToTab(SeleniumCommand): #@IgnorePep8
     """XUI tab navigator. JQuery based.
 
     @param locator: Tab locator (e.g. Device | NTP)
@@ -292,15 +292,15 @@ class BrowseToTab(SeleniumCommand):
                     b.wait(xpath, by=By.XPATH)
                 e = b.find_element_by_xpath(xpath)
                 #e.click()
-            
+
             # XXX: Uses direct JQuery calls.
             b.execute_script("$(arguments[0]).children('a').click();", e)
 
 
 browse_to = None
-class BrowseTo(SeleniumCommand):
+class BrowseTo(SeleniumCommand): #@IgnorePep8
     """XUI menu navigator. JQuery based.
-    
+
     @param locator: Menu locator (e.g. System | Logs : Options)
     @type locator: str
     """
@@ -334,7 +334,7 @@ class BrowseTo(SeleniumCommand):
         if 'open' not in css:
             e = b.find_element_by_xpath("%s/a" % xpath)
             e.click()
-    
+
         for t in locator.split('|'):
             t = t.strip()
             if t.startswith('[') and t.endswith(']'):
@@ -342,9 +342,9 @@ class BrowseTo(SeleniumCommand):
             else:
                 xpath += "/ul/li[a='%s']" % t
             e = b.find_element_by_xpath(xpath)
-        
+
         # XXX: Uses direct JQuery calls.
-        b.execute_script("$(arguments[0]).children('a:nth(%d)').click();" % 
+        b.execute_script("$(arguments[0]).children('a:nth(%d)').click();" %
                          index, e)
 
         if len(bits) == 2:
@@ -357,9 +357,9 @@ class BrowseTo(SeleniumCommand):
 
 
 set_preferences = None
-class SetPreferences(SeleniumCommand):
+class SetPreferences(SeleniumCommand): #@IgnorePep8
     """Sets the "Idle time before automatic logout" in System->Preferences.
-    
+
     @param timeout: The idle timeout value.
     @type timeout: int
     """
@@ -374,7 +374,7 @@ class SetPreferences(SeleniumCommand):
 
         # Dirty flag
         anything = False
-        
+
         if self.prefs.get('timeout'):
             e = b.find_element_by_name('gui_session_inactivity_timeout')
             value = e.get_attribute('value')
@@ -402,9 +402,9 @@ class SetPreferences(SeleniumCommand):
 
 
 set_platform_configuration = None
-class SetPlatformConfiguration(SeleniumCommand):
+class SetPlatformConfiguration(SeleniumCommand): #@IgnorePep8
     """Sets the values in System->Platform page.
-    
+
     @param values: Values to be updates.
     @type values: dict
     """
@@ -431,13 +431,13 @@ class SetPlatformConfiguration(SeleniumCommand):
                     LOG.info("Disabling SSH Access.")
                 access.click()
                 anything = True
-            
+
         if anything:
             update.click()
             wait_for_loading(ifc=self.ifc)
 
 delete_items = None
-class DeleteItems(SeleniumCommand):
+class DeleteItems(SeleniumCommand): #@IgnorePep8
     """Deletes selected items in a table. Expects success banner.
     """
     def setup(self):
@@ -453,7 +453,7 @@ class DeleteItems(SeleniumCommand):
             new_style = True
         except NoSuchElementException:
             pass
-        
+
         if new_style:
             delete_button = b.wait("//form[@id='tableForm']//input[contains(@id, 'deleteButton')]",
                                    By.XPATH, it=Is.ENABLED)
@@ -472,7 +472,7 @@ class DeleteItems(SeleniumCommand):
 
 
 audit_search = None
-class AuditSearch(SeleniumCommand):
+class AuditSearch(SeleniumCommand): #@IgnorePep8
     """Searches for a specific string in the audit log.
     Returns the first row found.
     """
@@ -483,19 +483,19 @@ class AuditSearch(SeleniumCommand):
     def setup(self):
         b = self.api
         LOG.info('Looking for "%s" in the audit...', self.value)
-        
+
         browse_to('System | Logs | Audit | Search', ifc=self.ifc)
         b.wait('div_search_params_table', frame='/contentframe')
 
         event_text = b.find_element_by_name('search_event')
         event_text.clear()
         event_text.send_keys(self.value)
-        
+
         search = b.find_element_by_name('search')
         search.click()
         wait_for_loading(ifc=self.ifc)
         show_all(ifc=self.ifc)
-        
+
         try:
             row = b.find_element_by_id('0')
         except:
@@ -508,7 +508,7 @@ class AuditSearch(SeleniumCommand):
 
 
 handle_errorframe = None
-class HandleErrorframe(SeleniumCommand):
+class HandleErrorframe(SeleniumCommand): #@IgnorePep8
     """Handles the "Unable to contact [product name] device" overlay.
     Note: Login path is not implemented yet.
     """
@@ -533,12 +533,11 @@ class HandleErrorframe(SeleniumCommand):
 
 
 show_all = None
-class ShowAll(SeleniumCommand):
+class ShowAll(SeleniumCommand): #@IgnorePep8
     """
-    
+    Set the paginator to "Show All".
     """
     def setup(self):
-        # Set the paginator to "Show All".
         b = self.api
         try:
             select = b.find_element_by_name("ptable")
@@ -553,10 +552,10 @@ class ShowAll(SeleniumCommand):
 
 
 get_bs3textarea_text = None
-class GetBs3textareaText(SeleniumCommand):
-    """A cross-browser command that returns the text of a textarea element 
+class GetBs3textareaText(SeleniumCommand): #@IgnorePep8
+    """A cross-browser command that returns the text of a textarea element
     updated through a BS3 call.
-    
+
     @param element: The textarea element
     @type element: WebDriverElement instance
     @return: The text

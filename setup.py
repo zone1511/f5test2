@@ -37,6 +37,7 @@ try:
                 'f5.ha = f5test.macros.ha:main',
                 'f5.cloner = f5test.macros.cloner:main',
                 'f5.ictester = f5test.macros.ictester:main',
+                'f5.empytester = f5test.macros.empytester:main',
 #                'f5.trafficgen = f5test.macros.trafficgen:main',
                 'f5.trafficgen = f5test.macros.trafficgen2:main',
                 'f5.webcert = f5test.macros.webcert:main',

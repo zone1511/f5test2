@@ -5,15 +5,16 @@ from f5test.interfaces.rest.irack import IrackInterface
 from f5test.commands.shell import bigpipe as BIGPIPE
 from f5test.commands.shell import ssh as SSH
 import f5test.commands.shell as SCMD
+from f5test.commands.shell.base import SSHCommandError
 from f5test.utils.version import Version, Product
 from f5test.utils.net import ip4to6
 from f5test.utils.parsers.tmsh import tmsh_to_dict
 from f5test.macros.base import Macro
 from f5test.macros.webcert import WebCert
 from f5test.base import Options
-from f5test.defaults import ADMIN_USERNAME, ROOT_USERNAME, ROOT_PASSWORD
-from pygraph.algorithms.accessibility import accessibility #@UnresolvedImport
-from pygraph.classes.graph import graph #@UnresolvedImport
+from f5test.defaults import ROOT_USERNAME, ROOT_PASSWORD
+from pygraph.algorithms.accessibility import accessibility  # @UnresolvedImport
+from pygraph.classes.graph import graph  # @UnresolvedImport
 from netaddr import IPAddress, IPNetwork
 import logging
 import os
@@ -45,16 +46,17 @@ DEFAULT_SELF_PREFIX = 16
 DEFAULT_BIGPIPE_CONFIG = 'remote_config.default.yaml'
 DEFAULT_TMSH_CONFIG = 'remote_config.tmsh.yaml'
 
-# All known 172.27.0.0/24 subnets tangent to the VLAN1011.
+# All known 172.27.XXX.0/24 subnets tangent to the VLAN1011.
 # This is used for VS address allocation.
-SUBNET_MAP = dict([(y,x) for x, y in enumerate((27, 58, 62, 63, 65, 90, 91, 92, 
-                                                93))])
+SUBNET_MAP = dict([(y, x) for x, y in enumerate((27, 58, 62, 63, 65, 90, 91, 92,
+                                                 93, 94, 95, 96, 97))])
 
 __version__ = 1.2
 
 
 class ConfigGeneratorError(Exception):
     pass
+
 
 class Nodes(object):
     def __init__(self, level, prefix):
@@ -78,7 +80,7 @@ class Nodes(object):
 
 class Node(object):
     """Abstract node used to construct the config graph.
-    
+
     @param i: a node numeric identifier
     @type i: int
     @param level: the level of this node
@@ -101,7 +103,7 @@ class Node(object):
             self_sig = '%d.%s.%d' % (self._level, self._prefix, self.i)
             other_sig = '%d.%s.%d' % (other._level, other._prefix, other.i)
             return cmp(self_sig, other_sig)
-        return - 1
+        return -1
 
     def __repr__(self):
         #if self.data is not None:
@@ -110,13 +112,14 @@ class Node(object):
 
 
 def merge(user, default):
-    if isinstance(user, dict) and isinstance(default,dict):
-        for k,v in default.iteritems():
+    if isinstance(user, dict) and isinstance(default, dict):
+        for k, v in default.iteritems():
             if k not in user:
                 user[k] = v
             else:
-                user[k] = merge(user[k],v)
+                user[k] = merge(user[k], v)
     return user
+
 
 def extend(cwd, config):
     if isinstance(config.get('$extends'), list):
@@ -134,13 +137,13 @@ def extend(cwd, config):
 class ConfigGenerator(Macro):
     """A macro that's able to configure any TMOS based device. The actual
     configuration is composed off snippets from the config file.
-    
+
     @param options: an Options instance
     @type options: Options
     """
     def __init__(self, options, address=None, *args, **kwargs):
         self.options = Options(options.__dict__)
-        
+
         self.options.setifnone('node_count', DEFAULT_NODES)
         self.options.setifnone('pool_count', DEFAULT_POOLS)
         self.options.setifnone('pool_members', DEFAULT_MEMBERS)
@@ -148,7 +151,7 @@ class ConfigGenerator(Macro):
         self.options.setifnone('partitions', DEFAULT_PARTITIONS)
         self.options.setifnone('password', DEFAULT_ROOT_PASSWORD)
         self.options.setifnone('timeout', DEFAULT_TIMEOUT)
-        
+
         if self.options.device:
             device = ConfigInterface().get_device(options.device)
             self.address = device.hostname
@@ -206,7 +209,7 @@ class ConfigGenerator(Macro):
         self.formatter['VERSION'] = __version__
         super(ConfigGenerator, self).__init__(*args, **kwargs)
 
-    def _find_subgraphs(self, filter_out = [], filter_in = []):
+    def _find_subgraphs(self, filter_out=[], filter_in=[]):
         g = self.g
         acc = accessibility(g)
         subgraphs = []
@@ -257,15 +260,15 @@ class ConfigGenerator(Macro):
             j += 1
 
     def _set_modules(self):
-        
+
         try:
             tokens = SSH.parse_license(ifc=self.ssh, tokens_only=True)
-            modules = dict([(k[4:], v) for (k, v) in tokens.items() 
+            modules = dict([(k[4:], v) for (k, v) in tokens.items()
                                     if k.startswith('mod_')])
             LOG.info('Licensed modules: %s', modules.keys())
             self._modules = modules
 
-            features = dict([(k, v) for (k, v) in tokens.items() 
+            features = dict([(k, v) for (k, v) in tokens.items()
                                      if not k.startswith('mod_')])
             self._features = features
         except SSH.LicenseParsingError, e:
@@ -283,7 +286,7 @@ class ConfigGenerator(Macro):
 
         self._version = version_data
         self._product = version_data.product
-        self._project = SCMD.ssh.parse_keyvalue_file('/VERSION', 
+        self._project = SCMD.ssh.parse_keyvalue_file('/VERSION',
                                                      ifc=self.ssh).get('project')
 
     def _set_status(self):
@@ -306,12 +309,12 @@ class ConfigGenerator(Macro):
 
         if self.config['options']['put users on Common partition']:
             # Find all subgraphs excluding partition nodes
-            subgraphs = self._find_subgraphs([PREFIX_PARTITION, PREFIX_USER, 
+            subgraphs = self._find_subgraphs([PREFIX_PARTITION, PREFIX_USER,
                                               PREFIX_PROFILE])
             # Balance by "weight" all subgraphs
             self._link_roots(self._partitions, subgraphs)
 
-            subgraphs = self._find_subgraphs(filter_in=[PREFIX_USER, 
+            subgraphs = self._find_subgraphs(filter_in=[PREFIX_USER,
                                                         PREFIX_PROFILE])
             self._link_roots([self._partitions[0]], subgraphs)
 
@@ -369,12 +372,12 @@ class ConfigGenerator(Macro):
             params = dict(address_set__address__in=mgmtip)
             # Locate the static bag for the F5Asset with mgmtip
             ret = irack.api.staticbag.filter(asset__type=1, **params)
-            
+
             if ret.data.meta.total_count == 0:
                 raise ConfigGeneratorError("No devices with mgmtip=%s found in iRack." % mgmtip)
             if ret.data.meta.total_count > 1:
                 raise ConfigGeneratorError("More than one device with mgmtip=%s found in iRack." % mgmtip)
-            
+
             bag = ret.data.objects[0]
             bagid = bag['id']
 
@@ -399,7 +402,7 @@ class ConfigGenerator(Macro):
                 # TODO: IPv6 support...someday?
                 if IPAddress(o['address']).version == 4 \
                    and not int(o['floating']):
-                    data['selfip'][vlan] = dict(address=o['address'], 
+                    data['selfip'][vlan] = dict(address=o['address'],
                                                 netmask=o['netmask'])
 
             # Get all mgmt ips
@@ -408,7 +411,7 @@ class ConfigGenerator(Macro):
             data['mgmtip'] = {}
             for o in ret.data.objects:
                 if IPAddress(o['address']).version == 4:
-                    data['mgmtip'] = dict(address=o['address'], 
+                    data['mgmtip'] = dict(address=o['address'],
                                           netmask=o['netmask'])
 
             # GW
@@ -416,7 +419,7 @@ class ConfigGenerator(Macro):
             assert ret.data.meta.total_count >= 1, "No StaticAddress entries for bagid=%s" % bagid
             for o in ret.data.objects:
                 if IPAddress(o['address']).version == 4:
-                    data['mgmtip']['gateway']=o['address']
+                    data['mgmtip']['gateway'] = o['address']
 
         LOG.debug(data)
         return {mgmtip: data}
@@ -424,10 +427,10 @@ class ConfigGenerator(Macro):
     def try_irack(self, mgmtip):
         # Lookup static values in iRack.
         if self.options.get('irack_address'):
-            if not (self.options.get('irack_username') and 
-                    self.options.get('irack_apikey')): 
+            if not (self.options.get('irack_username') and
+                    self.options.get('irack_apikey')):
                 raise ValueError("--irack-username and --irack-password are required.")
-            
+
             LOG.info("Looking up device with mgmtip '%s' in iRack...", mgmtip)
             static = self.config.setdefault('static', {})
             static.update(
@@ -447,7 +450,7 @@ class ConfigGenerator(Macro):
         ip = ip_list[0]
         ltm_label = "{2}-{3}".format(*ip.split('.'))
         self._ip = ip
-        
+
         # Lookup static values in iRack (if enabled).
         self.try_irack(ip)
         if self.address != ip:
@@ -465,10 +468,10 @@ class ConfigGenerator(Macro):
                 self._hostname = self.config['static'][ip]['hostname']
             else:
                 self._hostname = 'device{2}-{3}.test.net'
-        
+
         self._hostname = self._hostname.format(*ip.split('.'))
         LOG.info('Using hostname: %s', self._hostname)
-        
+
         self.prov = []
         if self.options.get('provision'):
             for prov in self.options['provision'].split(','):
@@ -487,12 +490,12 @@ class ConfigGenerator(Macro):
             peer_ip = ip_list[0]
             peer_ltm_label = "{2}-{3}".format(*peer_ip.split('.'))
             peer_passwd = self.options['peerpassword']
-    
+
             # Lookup static values for peer in iRack (if enabled).
             self.try_irack(peer_ip)
-            
+
             p = self._peer
-            peer_ssh = SSHInterface(address=peer_ip, password=peer_passwd, 
+            peer_ssh = SSHInterface(address=peer_ip, password=peer_passwd,
                                     timeout=self.options.timeout,
                                     port=self.options.ssh_port)
 
@@ -513,7 +516,7 @@ class ConfigGenerator(Macro):
                     raise ValueError("Couldn't find a static entry for '%s'! "
                         "--selfip-internal and --selfip-external must be specified "
                         "or device must be discovered by iRack." % peer_ip)
-    
+
             if self.options.get('unitid'):
                 p['unit'] = self.options['unitid']
             else:
@@ -529,27 +532,27 @@ class ConfigGenerator(Macro):
                 self.formatter['failover.active'] = 'force standby enable'
         else:
             self.formatter['ltm.id'] = ltm_label
-        
+
         if self.options.get('mgmtip'):
             self.formatter['ltm.ip'] = self.options['mgmtip']
         else:
             self.formatter['ltm.ip'] = ip
 
-        if (self.options.get('selfip_internal') and 
+        if (self.options.get('selfip_internal') and
             self.options.get('selfip_external')):
 
             # Internal selfIP
             self.selfip_internal = IPNetwork(self.options.selfip_internal)
             if self.selfip_internal.prefixlen == 32:
                 self.selfip_internal.prefixlen = 16
-                LOG.warning('Did you mean internal self IP = %s?', 
+                LOG.warning('Did you mean internal self IP = %s?',
                             self.selfip_internal)
-            
+
             # External selfIP
             self.selfip_external = IPNetwork(self.options.selfip_external)
             if self.selfip_external.prefixlen == 32:
                 self.selfip_external.prefixlen = 16
-                LOG.warning('Did you mean internal self IP = %s?', 
+                LOG.warning('Did you mean internal self IP = %s?',
                             self.selfip_external)
 
         else:
@@ -565,11 +568,11 @@ class ConfigGenerator(Macro):
         LOG.info('Internal selfIP: %s', self.selfip_internal)
         LOG.info('External selfIP: %s', self.selfip_external)
 
-        self.ssh = SSHInterface(address=self.address, password=passwd, 
+        self.ssh = SSHInterface(address=self.address, password=passwd,
                                timeout=self.options.timeout,
                                port=self.options.ssh_port)
         self.ssh.open()
-        
+
         self._set_platform()
         self._set_version()
         self._set_modules()
@@ -613,7 +616,7 @@ class ConfigGenerator(Macro):
             self.can_tmsh = True
             self.can_folders = True
             #raise NotImplementedError('eh...')
-        
+
         # XXX: Temporary workaround before the solstice merges into EM3.0
         #if (self._product.is_em and self._version < 'em 3.0.1'):
         #    self.can_folders = False
@@ -623,7 +626,7 @@ class ConfigGenerator(Macro):
             self.can_cluster = True
 
     def pick_configuration(self):
-        
+
         if self.options.get('config'):
             config_filename = self.options['config']
             cwd = os.path.dirname(os.path.realpath(config_filename))
@@ -638,7 +641,7 @@ class ConfigGenerator(Macro):
                 config_filename = os.path.join(base_dir, DEFAULT_TMSH_CONFIG)
             else:
                 config_filename = os.path.join(base_dir, DEFAULT_BIGPIPE_CONFIG)
-        
+
         config = yaml.load(file(config_filename, 'rb').read())
         extend(cwd, config)
         self.config.update(config)
@@ -668,8 +671,8 @@ class ConfigGenerator(Macro):
         formatter = self.formatter
 
         licensed_modules = self._modules
-        is_dedicated = bool(filter(lambda x:x[1]=='dedicated', self.prov))
-        
+        is_dedicated = bool(filter(lambda x: x[1] == 'dedicated', self.prov))
+
         if not is_dedicated:
             for key, value in base.get(product, {}).items():
                 if not licensed_modules.get(m2l[key]):
@@ -695,11 +698,11 @@ class ConfigGenerator(Macro):
                 formatter['provision.level'] = level
                 self.f_base.write(tmpl % formatter)
                 break
-        
+
     def print_mgmt(self):
         tmpl = self.config['mgmt']
         formatter = self.formatter
-        
+
         if self.options.mgmtip:
             ip = IPNetwork(self.options.mgmtip)
             if ip.prefixlen == 32:
@@ -727,15 +730,15 @@ class ConfigGenerator(Macro):
         # inet 172.27.27.62/24 brd 172.27.27.255 scope global eth0
         bits = ret.stdout.split()
         ip = IPNetwork(bits[1])
-        
+
         if not ret or ret.stdout.strip() == 'No Management IP Addresses were found.':
             LOG.warning(ret)
             return
-        
+
         ret = self.call(r"ip r s|grep 'default\b'")
         bits = ret.stdout.split()
         gw = IPAddress(bits[2])
-        
+
         if not ret or ret.stdout.strip() == 'No Management Routes were found.':
             gw = ''
 
@@ -748,7 +751,7 @@ class ConfigGenerator(Macro):
     def print_vlan(self):
         root = self.config['vlan']
         formatter = self.formatter
-        
+
         if self._platform in ['Z101']:
             ret = self.call(r"tmsh list net vlan")
             tmpl = ret.stdout
@@ -776,7 +779,7 @@ class ConfigGenerator(Macro):
         formatter['self.ext_ip.prefix'] = self.selfip_external.prefixlen
         formatter['self.int_ip.netmask'] = str(self.selfip_internal.netmask)
         formatter['self.ext_ip.netmask'] = str(self.selfip_external.netmask)
-        
+
         int_ip6 = ip4to6(self.selfip_internal)
         ext_ip6 = ip4to6(self.selfip_external)
         formatter['self.int_ip6.addr'] = str(int_ip6.ip)
@@ -788,7 +791,7 @@ class ConfigGenerator(Macro):
 
         self.f_base.write(tmpl % formatter)
 
-    def print_simple(self, section, dest = 'base', can_print = True):
+    def print_simple(self, section, dest='base', can_print=True):
         if not can_print:
             LOG.info('Section %s not supported on this target' % section)
             return
@@ -879,7 +882,7 @@ class ConfigGenerator(Macro):
         formatter['peer.ext_ip.netmask'] = str(p.selfip_external.netmask)
         formatter['self.unit'] = p['unit']
         formatter['peer.ip'] = p['ip']
-        formatter['peer.ip.addr'] = str(p['ip'])
+        formatter['peer.ip.addr'] = str(p['ip'].ip)
         formatter['peer.ip.netmask'] = str(p['ip'].netmask)
         LOG.debug('self.unit = %d', p['unit'])
 
@@ -887,7 +890,7 @@ class ConfigGenerator(Macro):
             self.f_base.write(tmpl % formatter)
             if self.can_net_failover:
                 self.f_base.write(tmpl_nf % formatter)
-            
+
             if self.options.get('selfip_floating'):
                 ip = IPNetwork(self.options['selfip_floating'])
                 if ip.prefixlen == 32:
@@ -908,7 +911,7 @@ class ConfigGenerator(Macro):
         value = section.get('max versions', ['bigip 99.0.0'])
         value = value if isinstance(value, list) else value.split(',')
         max_vers = [Version(x) for x in value]
-        
+
         req_mods = section.get('require modules', None)
         req_feats = section.get('require features', None)
         licensed_modules = self._modules
@@ -931,7 +934,7 @@ class ConfigGenerator(Macro):
         if req_feats:
             for req_feat in req_feats:
                 good &= req_feat in licensed_features
-        
+
         if good:
             return True
 
@@ -944,7 +947,7 @@ class ConfigGenerator(Macro):
         formatter = self.formatter
         formatter['gui.setup'] = root['gui setup']
         formatter['system.hostname'] = self._hostname
-        
+
         if root.get('mail') and self.do_check_availability(root['mail']):
             tmpl += root['mail']['data']
 
@@ -1056,7 +1059,7 @@ class ConfigGenerator(Macro):
                 pm_context = {}
                 pm_context['node.ip'] = str(node_start + j % nodes)
                 pm_context['node.ip.separator'] = separator
-                pm_context['pool.proto'] = pm_prots[ j % pm_prots_count ]
+                pm_context['pool.proto'] = pm_prots[j % pm_prots_count]
                 pm_context['pool.monitor'] = pm_context['pool.proto']
                 context['pool.members'] += pm_tmpl % pm_context
                 j += 1
@@ -1078,15 +1081,19 @@ class ConfigGenerator(Macro):
         if not vip_start:
             subnet_id = int(self._ip.split('.')[2])
             host_id = int(self._ip.split('.')[3])
-            subnet_index = SUBNET_MAP.get(subnet_id, 0)
-            
+            subnet_index = SUBNET_MAP.get(subnet_id)
+
+            if subnet_index is None:
+                raise ValueError('The %d subnet was not found. Please add it to SUBNET_MAP list!',
+                                 subnet_id)
+
             # Start from 10.11.50.0 - 10.11.147.240 (planned for 10 subnets, 8 VIPs each)
-            offset = 1 + 50*256 + DEFAULT_VIPS * (256 * subnet_index + host_id)
+            offset = 1 + 50 * 256 + DEFAULT_VIPS * (256 * subnet_index + host_id)
 
             vip_start = self.selfip_external.network + offset
         else:
             vip_start = IPAddress(vip_start)
-        
+
         LOG.info('VIPs: %s (+%d)', vip_start, vips)
 
         self._vips = Nodes(5, PREFIX_VIP)
@@ -1098,7 +1105,7 @@ class ConfigGenerator(Macro):
             context['vip.index'] = i + 1
             context['vip.ip'] = str(vip_start + i)
             context['vip.ip.separator'] = separator
-            n.data = tmpls[ i % tmpl_count ]
+            n.data = tmpls[i % tmpl_count]
             n.context = context
             self.g.add_node(n)
 
@@ -1129,24 +1136,24 @@ class ConfigGenerator(Macro):
         if profiles is None:
             LOG.info('Profiles disabled')
             return
-        
+
         if not self.can_virtual:
             LOG.info('Profiles not supported on this product')
             return
-        
+
         self._profiles = Nodes(2, PREFIX_PROFILE)
         i = 0
         licensed_modules = self._modules
         licensed_features = self._features
-        
+
         for types in profiles:
-            min_ver = Version(profiles[types].get('min version', MIN_VER), 
+            min_ver = Version(profiles[types].get('min version', MIN_VER),
                               Product.BIGIP)
-            max_ver = Version(profiles[types].get('max version', MAX_VER), 
+            max_ver = Version(profiles[types].get('max version', MAX_VER),
                               Product.BIGIP)
             req_mod = profiles[types].get('require module', None)
             req_feat = profiles[types].get('require feature', None)
-            
+
             # XXX
             #if types == 'iiop':
             #    print licensed_modules, licensed_features
@@ -1157,7 +1164,7 @@ class ConfigGenerator(Macro):
                 (req_mod is None or licensed_modules.get(req_mod)) and
                 (req_feat is None or licensed_features.get(req_feat))
                 ):
-                
+
                 tmpl = profiles[types]['text']
                 n = self._profiles[i]
                 n.data = tmpl
@@ -1168,7 +1175,22 @@ class ConfigGenerator(Macro):
         if not self.can_user:
             LOG.debug('User not supported on this target. '
                         'Trying with f5passwd')
-            root = self.config['legacy users']
+            # This special admin user is used below for pushing the SSL
+            # certificate through iControl.
+            SPECIAL_ADMIN_USERNAME = 'a'
+            SPECIAL_ADMIN_PASSWORD = 'a'
+
+            try:
+                self.call('f5passwd %s %s' % (SPECIAL_ADMIN_USERNAME,
+                                              SPECIAL_ADMIN_PASSWORD))
+            except SSHCommandError:
+                self.call('f5adduser -r admin -n %s' % SPECIAL_ADMIN_USERNAME)
+                self.call('f5passwd %s %s' % (SPECIAL_ADMIN_USERNAME,
+                                              SPECIAL_ADMIN_PASSWORD))
+
+            root = self.config.get('legacy users')
+            if not root:
+                return
             if root.get('admin'):
                 self.call('f5passwd admin %s' % root['admin'])
 
@@ -1176,20 +1198,22 @@ class ConfigGenerator(Macro):
                 self.call('f5passwd root %s' % root['root'])
 
         else:
-            root = self.config['default users']
+            root = self.config.get('default users')
             self.prepare_user()
 
+            if not root:
+                return
             if self.can_tmsh:
                 if root.get('admin'):
                     self.call('tmsh modify auth user admin { encrypted-password %s }' % root['admin'])
-    
+
                 #if root.get('root'):
                 #    self.call('tmsh modify auth user root { encrypted-password %s }' % root['root'])
-                
+
             else:
                 if root.get('admin'):
                     self.call('b user admin password crypt %s' % root['admin'])
-    
+
                 if root.get('root'):
                     self.call('b user root password crypt %s' % root['root'])
 
@@ -1204,7 +1228,7 @@ class ConfigGenerator(Macro):
                             self.config['static'][ip]['licenses']['reg_key'][0]
         except:
             lic = None
-        
+
         if self._status in ['NO LICENSE'] and not lic:
             raise Exception('The box needs to be relicensed first.'
                             'Provide --license <regkey>')
@@ -1213,7 +1237,7 @@ class ConfigGenerator(Macro):
         self._status in ['LICENSE INOPERATIVE', 'NO LICENSE']:
             LOG.info('Licensing...')
             self.call('SOAPLicenseClient --verbose --basekey %s' % lic)
-            # We need to re-set the modules based on the new license 
+            # We need to re-set the modules based on the new license
             self._set_modules()
             # Tomcat doesn't like the initial licensing through CLI
             if self._product.is_em:
@@ -1234,41 +1258,37 @@ class ConfigGenerator(Macro):
         if self._platform in ['Z100', 'Z99']:
             if self._product.is_bigip and self._version <= 'bigip 11.0.0':
                 self.call('b db Vlan.MacAssignment vmw-compat')
-    
+
     def handle_keycert(self):
-        
+
         options = Options()
-        options.admin_username = ADMIN_USERNAME
+        options.admin_username = 'a'
         options.root_username = ROOT_USERNAME
         options.ssh_port = self.options.ssh_port
         options.ssl_port = self.options.ssl_port
         options.verbose = self.options.verbose
         options.timeout = self.options.timeout
-        
+
         if self.options.get('dry_run'):
             LOG.info('Would push key/cert pair')
             return
-        
+
         LOG.info('Pushing the key/certificate pair')
-        
-        root = self.config['legacy users']
-        if root.get('admin') and root.get('root'):
-            options.admin_password = root['admin']
-            options.root_password = root['root']
-        else:
-            LOG.error("admin & root passwords are not present. Skipping "
-                      "key/cert update")
+
+        # The special a:a admin user is used here. It should be included in the
+        # remote_config yaml config in the users.administrator section.
+        options.admin_password = 'a'
+        options.root_password = self.options.password
 
         options.alias = [self._hostname]
         cs = WebCert(options, address=self.address)
         cs.run()
 
-
     @property
     def _is_lvm(self):
         ret = self.call('/usr/lib/install/lvmtest')
         return not ret.status
-        
+
     @property
     def _is_asm(self):
         modules = SCMD.tmsh.get_provision(ifc=self.ssh)
@@ -1280,38 +1300,38 @@ class ConfigGenerator(Macro):
 
         LOG.info('Waiting for reconfiguration...')
         timeout = self.options['timeout']
-        SCMD.ssh.FileExists('/var/run/mprov.pid', ifc=self.ssh).run_wait(lambda x:x is False,
-                                             progress_cb=lambda x:'mprov still running...',
+        SCMD.ssh.FileExists('/var/run/mprov.pid', ifc=self.ssh).run_wait(lambda x: x is False,
+                                             progress_cb=lambda x: 'mprov still running...',
                                              timeout=timeout)
         if self.can_provision and self._is_asm and self._is_lvm:
-            SCMD.ssh.FileExists('/var/lib/mysql/.moved.to.asmdbvol', 
-                                ifc=self.ssh).run_wait(lambda x:x,
-                                                 progress_cb=lambda x:'ASWADB still not there...',
+            SCMD.ssh.FileExists('/var/lib/mysql/.moved.to.asmdbvol',
+                                ifc=self.ssh).run_wait(lambda x: x,
+                                                 progress_cb=lambda x: 'ASWADB still not there...',
                                                  timeout=timeout)
         # Wait for ASM config server to come up.
         if self.can_provision and self._is_asm:
             LOG.info('Waiting for ASM config server to come up...')
-            SCMD.ssh.Generic(r'netstat -anp|grep "9781.*0\.0\.0\.0:\*.*/perl"|wc -l', 
-                            ifc=self.ssh).run_wait(lambda x:int(x.stdout),
-                                                   progress_cb=lambda x:'ASM cfg server not up...',
+            SCMD.ssh.Generic(r'netstat -anp|grep "9781.*0\.0\.0\.0:\*.*/perl"|wc -l',
+                            ifc=self.ssh).run_wait(lambda x: int(x.stdout),
+                                                   progress_cb=lambda x: 'ASM cfg server not up...',
                                                    timeout=timeout)
-        
+
         LOG.info('Waiting for Active prompt...')
-        s = SCMD.ssh.GetPrompt(ifc=self.ssh).run_wait(lambda x:x in ('Active', 
-                                                                     'Standby', 
-                                                                     'ForcedOffline', 
+        s = SCMD.ssh.GetPrompt(ifc=self.ssh).run_wait(lambda x: x in ('Active',
+                                                                     'Standby',
+                                                                     'ForcedOffline',
                                                                      'RESTART DAEMONS',
                                                                      'REBOOT REQUIRED'),
-                                                  progress_cb=lambda x:'Still not active...',
+                                                  progress_cb=lambda x: 'Still not active...',
                                                   timeout=timeout)
-        
+
         if s == 'RESTART DAEMONS':
             LOG.info('Restarting daemons...')
             self.call('bigstart restart')
-            SCMD.ssh.GetPrompt(ifc=self.ssh).run_wait(lambda x:x in ('Active', 
-                                                                     'Standby', 
+            SCMD.ssh.GetPrompt(ifc=self.ssh).run_wait(lambda x: x in ('Active',
+                                                                     'Standby',
                                                                      'ForcedOffline'),
-                                                      progress_cb=lambda x:'Still not active...',
+                                                      progress_cb=lambda x: 'Still not active...',
                                                       timeout=timeout)
         elif s == 'REBOOT REQUIRED':
             LOG.warn('A manual reboot is required.')
@@ -1350,18 +1370,18 @@ class ConfigGenerator(Macro):
     def open_config(self):
         LOG.debug('Open temporary config files')
         if self.can_scf:
-            fd, self.f_base_name = tempfile.mkstemp(prefix = 'confgen-',
-                                                        text = True)
+            fd, self.f_base_name = tempfile.mkstemp(prefix='confgen-',
+                                                        text=True)
             self.f_common = self.f_base = os.fdopen(fd, "w")
             LOG.debug('temp filename: %s', self.f_base_name)
         else:
-            fd, self.f_base_name = tempfile.mkstemp(prefix = 'confgenb-',
-                                                        text = True)
+            fd, self.f_base_name = tempfile.mkstemp(prefix='confgenb-',
+                                                        text=True)
             self.f_base = os.fdopen(fd, "w")
             LOG.debug('base temp filename: %s', self.f_base_name)
 
-            fd, self.f_common_name = tempfile.mkstemp(prefix = 'confgenc-',
-                                                        text = True)
+            fd, self.f_common_name = tempfile.mkstemp(prefix='confgenc-',
+                                                        text=True)
             self.f_common = os.fdopen(fd, "w")
             LOG.debug('common temp filename: %s', self.f_common_name)
 
@@ -1402,18 +1422,18 @@ class ConfigGenerator(Macro):
 
             LOG.info('Importing new config...')
             self.call('tmsh load sys config file /tmp/config.scf')
-            
+
             LOG.info('Resetting Trust...')
             # XXX: workaround for 357822
-            # XXX: disable altogether as w/o for 360368 
+            # XXX: disable altogether as w/o for 360368
             # XXX: disable it again as w/o for 362126
             # XXX: disable it again: for 362853
             if self.can_folders and not self.options.get('dry_run'):
                 #self.call('bigstart restart devmgmtd')
                 #self.call('tmsh delete cm trust-domain all')
                 SCMD.ssh.Generic('tmsh delete cm trust-domain all', ifc=self.ssh).\
-                    run_wait(lambda x:x.status == 0,
-                             progress_cb=lambda x:'delete trust-domain retry...',
+                    run_wait(lambda x: x.status == 0,
+                             progress_cb=lambda x: 'delete trust-domain retry...',
                              timeout=self.options.timeout)
 
         elif self.can_scf:
@@ -1457,7 +1477,7 @@ class ConfigGenerator(Macro):
         except:
             LOG.warning("Clean config failed, it may be harmless if there's no "
                         "valid configuration to save")
-        
+
         self.open_config()
         self.print_header()
         self.print_provision()
@@ -1491,10 +1511,11 @@ class ConfigGenerator(Macro):
         self.handle_keycert()
         self.ready_wait()
 
+
 def main(*args, **kwargs):
     import optparse
     import sys
-    
+
     LOG = logging.getLogger('remote_config')
 
     class OptionWithDefault(optparse.Option):
@@ -1523,11 +1544,11 @@ def main(*args, **kwargs):
     def _parser():
         usage = """%prog [options] <address>"""
 
-        formatter = optparse.TitledHelpFormatter(max_help_position = 30)
+        formatter = optparse.TitledHelpFormatter(max_help_position=30)
         p = OptionParser(
-                usage = usage,
-                formatter = formatter,
-                version = "LTM Config Generator %s" % __version__,
+                usage=usage,
+                formatter=formatter,
+                version="LTM Config Generator %s" % __version__,
         )
 
         p.add_option("-c", "--config", metavar="FILE", type="string",
@@ -1632,8 +1653,8 @@ def main(*args, **kwargs):
         logging.getLogger('f5test.macros').setLevel(logging.INFO)
 
     LOG.setLevel(level)
-    logging.basicConfig(level = level)
-    
+    logging.basicConfig(level=level)
+
     if not args:
         p.print_version()
         p.print_help()

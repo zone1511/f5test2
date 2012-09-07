@@ -12,25 +12,26 @@ import time
 import os
 import re
 
-LOG = logging.getLogger(__name__) 
+LOG = logging.getLogger(__name__)
 KV_COLONS = 0
 KV_EQUALS = 1
 
+
 class LicenseParsingError(SSHCommandError):
-    """Usually thrown when the bigip.license file can't be read.""" 
+    """Usually thrown when the bigip.license file can't be read."""
     pass
 
 
 generic = None
-class Generic(WaitableCommand, SSHCommand):
+class Generic(WaitableCommand, SSHCommand): #@IgnorePep8
     """Run a generic shell command.
-    
+
     >>> ssh.generic('id')
     uid=0(root) gid=0(root) groups=0(root)
 
     @param command: the shell command
     @type command: str
-    
+
     @rtype: SSHResult
     """
     def __init__(self, command, *args, **kwargs):
@@ -39,7 +40,7 @@ class Generic(WaitableCommand, SSHCommand):
 
     def setup(self):
         ret = self.api.run(self.command)
-        
+
         if not ret.status:
             return ret
         else:
@@ -47,7 +48,7 @@ class Generic(WaitableCommand, SSHCommand):
 
 
 scp_put = None
-class ScpPut(SSHCommand):
+class ScpPut(SSHCommand): #@IgnorePep8
     """Copy a file through SSH using the SCP utility. To avoid the "Password:"
     prompt for new boxes, it exchanges ssh keys first.
 
@@ -59,10 +60,11 @@ class ScpPut(SSHCommand):
     @type nokex: bool
     """
     upload = True
+
     def __init__(self, source, destination="/shared/images/", nokex=False,
                  timeout=300, *args, **kwargs):
         super(ScpPut, self).__init__(*args, **kwargs)
-        
+
         self.source = source
         self.destination = destination
         self.nokex = nokex
@@ -72,24 +74,24 @@ class ScpPut(SSHCommand):
         """SCP a file from local system to one device."""
         if not self.nokex:
             self.api.exchange_key()
-        
+
         shell = ShellInterface(timeout=self.timeout, shell=True).open()
-        
+
         LOG.info('Copying file %s to %s...', self.source, self.ifc)
-        scpargs = ['-p', # Preserves modification times, access times, and modes from the original file.
-                   '-o StrictHostKeyChecking=no', # Don't look in  ~/.ssh/known_hosts.
-                   '-o UserKnownHostsFile=/dev/null', # Throw away the new identity
-                   '-c arcfour256', # High performance cipher.
-                   '-P %d' % self.ifc.port] 
+        scpargs = ['-p',  # Preserves modification times, access times, and modes from the original file.
+                   '-o StrictHostKeyChecking=no',  # Don't look in  ~/.ssh/known_hosts.
+                   '-o UserKnownHostsFile=/dev/null',  # Throw away the new identity
+                   '-c arcfour256',  # High performance cipher.
+                   '-P %d' % self.ifc.port]
         destdir = os.path.dirname(self.destination)
         self.api.run('mkdir -p %s' % destdir)
         if self.upload:
-            shell.run('scp %s %s %s@%s:%s' % 
-                                    (' '.join(scpargs), 
-                                     self.source, self.ifc.username, 
+            shell.run('scp %s %s %s@%s:%s' %
+                                    (' '.join(scpargs),
+                                     self.source, self.ifc.username,
                                      self.ifc.address, self.destination))
         else:
-            shell.run('scp %s %s@%s:%s %s' % 
+            shell.run('scp %s %s@%s:%s %s' %
                                     (' '.join(scpargs),
                                      self.ifc.username, self.ifc.address,
                                      self.source, self.destination))
@@ -98,21 +100,21 @@ class ScpPut(SSHCommand):
 
 
 scp_get = None
-class ScpGet(ScpPut):
+class ScpGet(ScpPut): #@IgnorePep8
     upload = False
 
 
 parse_keyvalue_file = None
-class ParseKeyvalueFile(SSHCommand):
+class ParseKeyvalueFile(SSHCommand): #@IgnorePep8
     """Parses a file and return a dictionary. The file structure sould look like:
     Key1: Value1
     Key2: Value2
 
     @rtype: dict
     """
-    def __init__(self, file, mode=KV_COLONS, *args, **kwargs): #@ReservedAssignment
+    def __init__(self, file, mode=KV_COLONS, *args, **kwargs):  # @ReservedAssignment
         super(ParseKeyvalueFile, self).__init__(*args, **kwargs)
-        
+
         self.file = file
         self.mode = mode
 
@@ -125,7 +127,7 @@ class ParseKeyvalueFile(SSHCommand):
 
     def setup(self):
         ret = self.api.run('cat %s' % self.file)
-        
+
         if ret.status == 0:
             if self.mode == KV_EQUALS:
                 return equals_pairs_dict(ret.stdout)
@@ -139,10 +141,10 @@ class ParseKeyvalueFile(SSHCommand):
 
 
 get_version = None
-class GetVersion(SSHCommand):
+class GetVersion(SSHCommand): #@IgnorePep8
     """Parses the /VERSION file and returns a version object.
     For: bigip 9.3.1+, em 1.6.0+
-    
+
     @rtype: Version
     """
 
@@ -153,18 +155,18 @@ class GetVersion(SSHCommand):
 
 
 get_platform = None
-class GetPlatform(CachedCommand, SSHCommand):
+class GetPlatform(CachedCommand, SSHCommand): #@IgnorePep8
     """Parses the /PLATFORM file and return a dictionary.
     For: bigip 9.3.1+, em 1.6.0+
-    
+
     @rtype: dict
     """
     def setup(self):
         return parse_keyvalue_file('/PLATFORM', mode=KV_EQUALS, ifc=self.ifc)
 
 
-license = None #@ReservedAssignment
-class License(SSHCommand):
+license = None  # @ReservedAssignment
+class License(SSHCommand): #@IgnorePep8
     """Calls SOAPLicenseClient to license a box with a given basekey.
     For: bigip 9.4.0+, em 1.6.0+
 
@@ -177,7 +179,7 @@ class License(SSHCommand):
     """
     def __init__(self, basekey, addkey=None, *args, **kwargs):
         super(License, self).__init__(*args, **kwargs)
-        
+
         self.basekey = basekey
         self.addkey = addkey
 
@@ -185,11 +187,11 @@ class License(SSHCommand):
         if get_version(ifc=self.ifc) < 'bigip 9.4.0' or \
            get_version(ifc=self.ifc) < 'em 1.6.0':
             raise CommandNotSupported('only in BIGIP>=9.4.0 and EM>=1.6')
-        
+
         LOG.info('Licensing: %s', self.ifc)
         if self.addkey:
             addkey_str = "--addkey %s"
-            
+
             if isinstance(self.addkey, basestring):
                 addkey_str %= self.addkey
             else:
@@ -197,7 +199,7 @@ class License(SSHCommand):
 
         ret = self.api.run('SOAPLicenseClient --verbose --basekey %s %s' % \
                            (self.basekey, addkey_str))
-        
+
         if not ret.status:
             LOG.info('Licensing: Done.')
             return True
@@ -207,17 +209,17 @@ class License(SSHCommand):
 
 
 relicense = None
-class Relicense(SSHCommand):
+class Relicense(SSHCommand): #@IgnorePep8
     """Calls SOAPLicenseClient against the key grepped off bigip.license.
     For: bigip 9.4.0+, em 1.6.0+
-    
+
     @rtype: bool
     """
     def setup(self):
         if get_version(ifc=self.ifc) < 'bigip 9.4.0' or \
            get_version(ifc=self.ifc) < 'em 1.6.0':
             raise CommandNotSupported('only in BIGIP>=9.4.0 and EM>=1.6')
-        
+
         LOG.info('relicensing: %s', self.ifc)
         ret = self.api.run('SOAPLicenseClient --basekey `grep '
                            '"Registration Key" /config/bigip.license|'
@@ -231,16 +233,16 @@ class Relicense(SSHCommand):
 
 
 parse_license = None
-class ParseLicense(CachedCommand, SSHCommand):
+class ParseLicense(CachedCommand, SSHCommand): #@IgnorePep8
     """Parse the bigip.license file into a dictionary.
-    
+
     @param tokens_only: filter out all non license flags
     @type tokens_only: bool
     """
-    
+
     def __init__(self, tokens_only=False, *args, **kwargs):
         super(ParseLicense, self).__init__(*args, **kwargs)
-        
+
         self.tokens_only = tokens_only
 
     def __repr__(self):
@@ -251,7 +253,7 @@ class ParseLicense(CachedCommand, SSHCommand):
 
     def setup(self):
         ret = self.api.run("grep -v '^\s*#' /config/bigip.license")
-        
+
         if ret.status:
             LOG.error(ret)
             raise LicenseParsingError(ret)
@@ -270,28 +272,29 @@ class ParseLicense(CachedCommand, SSHCommand):
                          'Evaluation start', 'Licensed version', 'Appliance SN',
                          'License end', 'License start', 'Licensed date')
             unwanted = set(license_dict) & set(meta_keys)
-            for unwanted_key in unwanted: del license_dict[unwanted_key]
+            for unwanted_key in unwanted:
+                del license_dict[unwanted_key]
 
         return license_dict
 
 
 get_prompt = None
-class GetPrompt(WaitableCommand, SSHCommand):
+class GetPrompt(WaitableCommand, SSHCommand): #@IgnorePep8
     """Returns the bash prompt string.
-    
+
     Examples:
     [root@bp6800-123:Active] config #
     returns: 'Active'
     [root@viprioncmi:/S2-green-P:Active] config #
     returns: 'Active'
-    
+
     @rtype: str
     """
     def setup(self):
         ret = self.api.run('source /etc/bashrc; if [ -x /bin/ps1 ]; '
                            'then /bin/ps1; elif [ -f /var/prompt/ps1 ]; '
                            'then getPromptStatus; else echo "!"; fi')
-        
+
         if ret.status:
             LOG.error(ret)
             raise SSHCommandError(ret)
@@ -302,9 +305,9 @@ class GetPrompt(WaitableCommand, SSHCommand):
 
 
 reboot = None
-class Reboot(SSHCommand):
+class Reboot(SSHCommand): #@IgnorePep8
     """Runs the `reboot` command.
-    
+
     @param post_sleep: number of seconds to sleep after reboot
     @type interface: int
     """
@@ -322,20 +325,20 @@ class Reboot(SSHCommand):
             pass
 
         ret = self.api.run('reboot')
-        
+
         if ret.status:
             LOG.error(ret)
             raise SSHCommandError(ret)
-        
+
         LOG.debug('Reboot post sleep')
         time.sleep(self.post_sleep)
         return uptime_before
 
 
 switchboot = None
-class Switchboot(SSHCommand):
+class Switchboot(SSHCommand): #@IgnorePep8
     """Runs the `switchboot -b <slot>` command.
-    
+
     @param post_sleep: the short-form description of a boot image location
     @type interface: str
     """
@@ -345,17 +348,17 @@ class Switchboot(SSHCommand):
 
     def setup(self):
         ret = self.api.run('switchboot -b %s' % self.volume)
-        
+
         if ret.status:
             LOG.error(ret)
             raise SSHCommandError(ret)
-        
+
 
 install_software = None
-class InstallSoftware(SSHCommand):
+class InstallSoftware(SSHCommand): #@IgnorePep8
     """Runs the `image2disk` command.
-    
-    @param repository: a product distribution file (an iso image), an HTTP URL, 
+
+    @param repository: a product distribution file (an iso image), an HTTP URL,
                      or the absolute path to a local directory
     @type repository: str
     @param volume: the target volume
@@ -368,11 +371,11 @@ class InstallSoftware(SSHCommand):
     @param repo_version: the version of the repository
     @type repo_version: Version
     """
-    def __init__(self, repository, volume=None, essential=False, format=None, #@ReservedAssignment
-                 repo_version=None, progress_cb=None, is_hf=False, reboot=True, 
+    def __init__(self, repository, volume=None, essential=False, format=None,  # @ReservedAssignment
+                 repo_version=None, progress_cb=None, is_hf=False, reboot=True,
                  *args, **kwargs):
         super(InstallSoftware, self).__init__(*args, **kwargs)
-        
+
         assert callable(progress_cb), "The progress_cb must be callable!"
         self.repository = repository
         self.volume = volume
@@ -385,14 +388,14 @@ class InstallSoftware(SSHCommand):
 
     def setup(self):
         opts = []
-        
+
         if (self.version.product.is_bigip and self.version < 'bigip 10.0' or
            self.version.product.is_em and self.version < 'em 2.0'):
             self.api.run('im %s' % self.repository)
 
         if self.essential:
             opts.append('--nosaveconfig')
-        
+
         if self.format == 'lvm':
             opts.append('--format=volumes')
         elif self.format == 'partitions':
@@ -403,7 +406,7 @@ class InstallSoftware(SSHCommand):
                 opts.append('--force')
             #else:
                 #raise NotImplementedError('upgrade path not supported')
-        
+
         v = max(self.repo_version, self.version)
         if not (self.format and
             (v.product.is_bigip and v >= 'bigip 10.2.1') or
@@ -411,30 +414,30 @@ class InstallSoftware(SSHCommand):
             opts.append('--instslot %s' % self.volume)
 
         opts.append('--setdefault')
-        
+
         if self.is_hf:
             opts.append('--hotfix')
-        
+
         if self.reboot:
             opts.append('--reboot')
         opts.append(self.repository)
         #if self.format:
         #    opts.append(self.repository)
-        
-        ret = self.api.run_wait('image2disk %s' % ' '.join(opts), 
+
+        ret = self.api.run_wait('image2disk %s' % ' '.join(opts),
                                 progress=self.progress_cb)
-        
+
         # status == -1 when the connection is lost.
         if ret.status > 0:
             LOG.error(ret)
             raise SSHCommandError(ret)
-        
+
 
 audit_software = None
-class AuditSoftware(SSHCommand):
+class AuditSoftware(SSHCommand): #@IgnorePep8
     """Parses the output of the software audit script.
     Version dependent.
-    
+
     @rtype: dict
     """
     def setup(self):
@@ -443,7 +446,7 @@ class AuditSoftware(SSHCommand):
             audit_script = '/usr/sbin/audit'
         else:
             audit_script = '/usr/libexec/iControl/software_audit'
-        
+
         ret = self.api.run('%s /tmp/f5test2_audit' % audit_script)
         assert not ret.status, "audit script failed"
         ret = self.api.run('cat /tmp/f5test2_audit')
@@ -455,22 +458,22 @@ class AuditSoftware(SSHCommand):
 
 
 collect_logs = None
-class CollectLogs(SSHCommand):
+class CollectLogs(SSHCommand): #@IgnorePep8
     """Collects tails from different log files.
-    
+
     @param last: how many lines to tail
     @type last: int
     """
-    def __init__(self, dir, last=100, *args, **kwargs): #@ReservedAssignment
+    def __init__(self, dir, last=100, *args, **kwargs):  # @ReservedAssignment
         super(CollectLogs, self).__init__(*args, **kwargs)
         self.dir = dir
         self.last = last
 
     def setup(self):
-        files =['/var/log/ltm', '/var/log/messages', 
+        files = ['/var/log/ltm', '/var/log/messages',
                 '/var/log/httpd/httpd_errors']
         v = self.version
-        
+
         if v.product.is_em:
             files.append('/var/log/em')
             files.append('/var/log/emrptschedd.log')
@@ -502,9 +505,9 @@ class CollectLogs(SSHCommand):
 
 
 file_exists = None
-class FileExists(WaitableCommand, SSHCommand):
+class FileExists(WaitableCommand, SSHCommand): #@IgnorePep8
     """Checks whether a file exists or not on the remote system.
-    
+
     @rtype: bool
     """
     def __init__(self, filename, *args, **kwargs):
@@ -522,9 +525,9 @@ class FileExists(WaitableCommand, SSHCommand):
 
 
 cores_exist = None
-class CoresExist(SSHCommand):
+class CoresExist(SSHCommand): #@IgnorePep8
     """Checks for core files.
-    
+
     @rtype: bool
     """
     def setup(self):
@@ -538,11 +541,11 @@ class CoresExist(SSHCommand):
 
 
 remove_em = None
-class RemoveEm(SSHCommand):
+class RemoveEm(SSHCommand): #@IgnorePep8
     """Remove all EM certificates.
     """
     def setup(self):
-        # Avoi deleting self certificate in EM 2.3+ which discovers itself. 
+        # Avoid deleting self certificate in EM 2.3+ which discovers itself.
         # Alternative: shopt -s extglob && rm !(file1|file2|file3)
         self.api.run('ls /shared/em/ssl.crt/*|grep -v 127.0.0.1|xargs rm -f')
         self.api.run('rm -f /shared/em/ssl.key/*')
@@ -551,9 +554,9 @@ class RemoveEm(SSHCommand):
 
 
 get_big3d_version = None
-class GetBig3dVersion(SSHCommand):
+class GetBig3dVersion(SSHCommand): #@IgnorePep8
     """Get the currently running big3d version.
-    
+
     @rtype: Version
     """
     def setup(self):
@@ -568,10 +571,10 @@ class GetBig3dVersion(SSHCommand):
 
 
 enable_debug_log = None
-class EnableDebugLog(SSHCommand):
+class EnableDebugLog(SSHCommand): #@IgnorePep8
     """
     Enable iControl debug logs. Check /var/log/ltm for more info.
-    
+
     @param enable: Enable/disable
     @type enable: bool
     """
@@ -580,7 +583,7 @@ class EnableDebugLog(SSHCommand):
         #self.daemon = daemon
         self.enable = enable
         daemon_map = Options()
-        
+
         # iControl
         daemon_map.icontrol = {}
         daemon_map.icontrol.name = 'iControl'
@@ -592,12 +595,12 @@ class EnableDebugLog(SSHCommand):
         daemon_map.emdeviced = {}
         daemon_map.emdeviced.name = 'EM deviced'
         daemon_map.emdeviced.dbvar = 'log.em.device.level'
-        
+
         # EM swimd
         daemon_map.emswimd = {}
         daemon_map.emswimd.name = 'EM swimd'
         daemon_map.emswimd.dbvar = 'log.em.swim.level'
-        
+
         self.daemon = daemon_map.get(daemon)
         assert self.daemon, "Daemon '%s' not defined." % daemon
 
@@ -607,7 +610,7 @@ class EnableDebugLog(SSHCommand):
             setdb = 'b db'
         else:
             setdb = 'setdb'
-        
+
         d = self.daemon
         d.setdb = setdb
         d.setdefault('enable', 'debug')
@@ -624,5 +627,13 @@ class EnableDebugLog(SSHCommand):
             command = d.pre + ';' + command
         if d.post:
             command = command + ';' + d.post
-        
+
         self.api.run(command)
+
+
+parse_version_file = None
+class ParseVersionFile(SSHCommand): #@IgnorePep8
+    """Parse the /VERSION file and return a dictionary."""
+
+    def setup(self):
+        return parse_keyvalue_file('/VERSION', mode=KV_COLONS, ifc=self.ifc)

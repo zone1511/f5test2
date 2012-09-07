@@ -8,7 +8,7 @@ from f5test.macros.confgen import ConfigGenerator
 from f5test.macros.keyswap import KeySwap
 from f5test.macros.ha import FailoverMacro
 from f5test.interfaces.testopia import TestopiaInterface
-from f5test.interfaces.config import (expand_devices, ConfigInterface, 
+from f5test.interfaces.config import (expand_devices, ConfigInterface,
                                       KEYSET_COMMON, KEYSET_LOCK)
 from f5test.interfaces.ssh import SSHInterface
 from f5test.interfaces.icontrol import IcontrolInterface
@@ -36,6 +36,7 @@ DEFAULT_TIMEOUT = 600
 DEFAULT_DISCOVERY_DELAY = 30
 ENABLE_KEY = '_enabled'
 
+
 def carry_flag(d, flag=None):
     """
     Given the dict:
@@ -45,7 +46,7 @@ def carry_flag(d, flag=None):
             key: val
         subkey2:
             key: val
-    
+
     The resulting dict after running carry_flag() on it will be:
     key1:
         _enabled: 1
@@ -60,16 +61,17 @@ def carry_flag(d, flag=None):
         d[ENABLE_KEY] = flag
     else:
         flag = d.get(ENABLE_KEY)
-    
+
     for v in d.itervalues():
         if isinstance(v, dict):
             carry_flag(v, flag)
+
 
 def process_stages(stages, section, ifcs):
     if not stages:
         LOG.debug('No stages found.')
         return
-    
+
     # Replicate the "_enabled" flag.
     carry_flag(stages)
 
@@ -82,13 +84,13 @@ def process_stages(stages, section, ifcs):
     # Focus only on our stages section
     for key in section.split('.'):
         stages = stages.get(key, Options())
-    
+
     # Sort stages by priority attribute and stage name.
-    stages = sorted(stages.iteritems(), key=lambda x:(isinstance(x[1], dict) and 
-                                                      x[1].get('priority', 
-                                                               DEFAULT_PRIORITY), 
+    stages = sorted(stages.iteritems(), key=lambda x: (isinstance(x[1], dict) and
+                                                      x[1].get('priority',
+                                                               DEFAULT_PRIORITY),
                                                       x[0]))
-    
+
     config = ConfigInterface().config
     # Group stages of the same type. The we spin up one thread per stage in a
     # group and wait for threads within a group to finish.
@@ -97,10 +99,10 @@ def process_stages(stages, section, ifcs):
     for name, specs in stages:
         if not specs or name.startswith('_'):
             continue
-        
+
         specs = Options(specs)
         key = specs.get('group', "{0}-{1}".format(name, specs.type))
-        
+
         group = sg_dict.get(key)
         if not group:
             sg_dict[key] = []
@@ -115,18 +117,18 @@ def process_stages(stages, section, ifcs):
             description, specs = stage
             if not specs or not _bool(specs.get(ENABLE_KEY)):
                 continue
-            
+
             LOG.info("Processing stage: %s", description)
             # items() reverts <Options> to a simple <dict>
             specs = Options(specs)
             if not stages_map.get(specs.type):
                 LOG.warning("Stage '%s' (%s) not defined.", description, specs.type)
                 continue
-            
+
             stage_class = stages_map[specs.type]
             parameters = specs.get('parameters', Options())
             parameters._IFCS = ifcs
-    
+
             for device in expand_devices(specs):
                 stage = stage_class(device, parameters)
                 name = '%s :: %s' % (description, device.alias) if device else description
@@ -139,7 +141,7 @@ def process_stages(stages, section, ifcs):
         LOG.debug('Waiting for threads...')
         for t in pool:
             t.join()
-        
+
         if not q.empty():
             stages = []
             while not q.empty():
@@ -149,7 +151,7 @@ def process_stages(stages, section, ifcs):
                 LOG.error('Exception while "%s"', thread.getName())
                 for line in traceback.format_exception(*exc_info):
                     LOG.error(line.strip())
-                
+
             raise StageError('Check logs for exceptions in %s' % ' '.join(stages))
 
 
@@ -157,11 +159,11 @@ class TweaksStage(Stage, Macro):
     """
     Mainly this stage is open for any type of debugging flags/setups needed to
     be set after a clean software install. This includes:
-    
+
     - Enable iControl debug logging (icontrol);
     - Force logrotate (logrotate);
     - Enable iControl Proxy.
-    
+
     These settings will be on for all tests and will not be unset (unless a
     teardown stage is implemented).
     """
@@ -180,7 +182,7 @@ class TweaksStage(Stage, Macro):
         if self.specs.mcp and _bool(self.specs.mcp):
             with SSHInterface(device=self.device) as sshifc:
                 sshifc.api.run('setdb log.mcpd.level debug')
-            
+
         # icontrol: Enable icontrol debug logging
         if self.specs.icontrol and _bool(self.specs.icontrol):
             with SSHInterface(device=self.device) as sshifc:
@@ -194,7 +196,7 @@ class TweaksStage(Stage, Macro):
 
         # shell: Execute shell commands
         if self.specs.shell:
-            commands = [self.specs.shell] if isinstance(self.specs.shell, 
+            commands = [self.specs.shell] if isinstance(self.specs.shell,
                                                         basestring) \
                                           else self.specs.shell
             with SSHInterface(device=self.device) as sshifc:
@@ -204,16 +206,16 @@ class TweaksStage(Stage, Macro):
         # scp: Copy files to/from
         if self.specs.scp:
             params = self.specs.scp
-            
+
             source = params.source if isinstance(params.source, basestring) \
                                    else ' '.join(params.source)
-            
+
             with SSHInterface(device=self.device) as sshifc:
                 if params.method.lower() == 'get':
-                    SCMD.ssh.scp_get(ifc=sshifc, source=source, 
+                    SCMD.ssh.scp_get(ifc=sshifc, source=source,
                          destination=params.destination, nokex=True)
                 elif params.method.lower() == 'put':
-                    SCMD.ssh.scp_put(ifc=sshifc, source=source, 
+                    SCMD.ssh.scp_put(ifc=sshifc, source=source,
                          destination=params.destination, nokex=True)
                 else:
                     raise ValueError("Unknown scp method: %s" % params.method)
@@ -239,17 +241,17 @@ class CoresStage(Stage, Macro):
                 config = ifc.open()
                 config._reports.update(dict(cores={}))
                 session = ifc.get_session().path
-                cores_dir = os.path.join(session, 'cores', 
+                cores_dir = os.path.join(session, 'cores',
                                          self.device.get_address())
                 cores_dir = os.path.expanduser(cores_dir)
                 cores_dir = os.path.expandvars(cores_dir)
                 if not os.path.exists(cores_dir):
                     os.makedirs(cores_dir)
-    
-                SCMD.ssh.scp_get(ifc=sshifc, source='/var/core/*', 
+
+                SCMD.ssh.scp_get(ifc=sshifc, source='/var/core/*',
                                  destination=cores_dir, nokex=True)
                 sshifc.api.run('rm -f /var/core/*')
-                
+
                 # Add read permissions to group and others.
                 with ShellInterface(shell=True) as shell:
                     shell.api.run('chmod -R go+r %s' % cores_dir)
@@ -269,11 +271,11 @@ class SetPasswordStage(Stage, Macro):
     def run(self):
         LOG.debug('Unlocking device %s', self.device)
         ICMD.system.set_password(device=self.device, keyset=KEYSET_COMMON)
-        
+
         # Save the config after password change otherwise it will be reverted
         # upon reboot.
         with IcontrolInterface(device=self.device) as icifc:
-            icifc.api.System.ConfigSync.save_configuration(filename='', 
+            icifc.api.System.ConfigSync.save_configuration(filename='',
                                                            save_flag="SAVE_HIGH_LEVEL_CONFIG")
 
 
@@ -285,7 +287,7 @@ class PrintDevicesInfo(Macro):
     def run(self, config):
         cfgifc = ConfigInterface()
         devices = cfgifc.get_all_devices()
-        
+
         LOG.info('=' * 80)
         LOG.info('EM test suite environment:')
         LOG.info('-' * 80)
@@ -294,7 +296,7 @@ class PrintDevicesInfo(Macro):
         for device in devices:
             platform = ICMD.system.get_platform(device=device)
             version = ICMD.system.get_version(device=device, build=True)
-            LOG.info("%s: %s - %s - %s" % (device.alias, device.address, 
+            LOG.info("%s: %s - %s - %s" % (device.alias, device.address,
                                            platform, version))
             tags.append("device.%d.build=%s" % (i, version.build))
             tags.append("device.%d.platform=%s" % (i, platform))
@@ -316,7 +318,7 @@ class PrintDevicesInfo(Macro):
 class SanityCheck(Macro):
     """
     Do some sanity checks before running any other stages:
-    
+
     - Check that 'root ca', 'build' and 'logs' paths are defined;
     - Chack that <build>/bigip directory exists;
     - Check that <root ca> directory is writable;
@@ -327,14 +329,14 @@ class SanityCheck(Macro):
     def run(self):
         configifc = ConfigInterface()
         config = configifc.open()
-        
+
         if not config.paths:
             LOG.info('Test runner sanity skipped.')
             return
-        
+
         assert config.paths.build, 'CM Build path is not set in the config'
         assert config.paths.logs, 'Logs path is not set in the config'
-        
+
         sample = os.path.join(config.paths.build, 'bigip')
         if not os.path.exists(sample):
             raise StageError("%s does not exist" % sample)
@@ -344,11 +346,11 @@ class SanityCheck(Macro):
         sample = os.path.expandvars(sample)
         if not os.access(sample, os.W_OK):
             raise StageError("Logs dir: %s is not writable" % sample)
-        
+
         stats = os.statvfs(sample)
-        if not (stats.f_bsize * stats.f_bavail)/1024**2 > 100:
+        if not (stats.f_bsize * stats.f_bavail) / 1024 ** 2 > 100:
             raise StageError("Logs dir: %s has not enough space left" % sample)
-        
+
         LOG.info('Test runner sanity check passed!')
 
 
@@ -366,14 +368,14 @@ class InstallSoftwareStage(Stage, InstallSoftware):
         self.specs = specs
         self.device = device
 
-        options = Options(device=device, product=specs.product, 
+        options = Options(device=device, product=specs.product,
                           pversion=specs.version, pbuild=specs.build,
                           phf=specs.hotfix, image=specs.get('custom iso'),
                           hfimage=specs.get('custom hf iso'),
                           format_volumes=specs.get('format volumes'),
                           format_partitions=specs.get('format partitions'),
                           essential_config=specs.get('essential config'),
-                          build_path=config.paths.build, 
+                          build_path=config.paths.build,
                           timeout=specs.get('timeout', DEFAULT_TIMEOUT))
         super(InstallSoftwareStage, self).__init__(options, *args, **kwargs)
 
@@ -399,9 +401,9 @@ class InstallSoftwareStage(Stage, InstallSoftware):
             if v.product.is_bigip and v >= 'bigip 11.0' or \
                v.product.is_em and v >= 'em 3.0':
                 LOG.info('Waiting on Trust.configupdatedone DB variable...')
-                ICMD.management.GetDbvar('Trust.configupdatedone', 
+                ICMD.management.GetDbvar('Trust.configupdatedone',
                                          device=self.options.device).\
-                                         run_wait(lambda x:x=='true', timeout=300)
+                                         run_wait(lambda x: x == 'true', timeout=300)
 
         return ret
 
@@ -419,7 +421,7 @@ class InstallSoftwareStage(Stage, InstallSoftware):
 class ConfigGeneratorStage(Stage, ConfigGenerator):
     """
     This stage makes sure the devices are configured with the 'stock' settings.
-    Its functionally is similar to the f5.configurator CLI utility. 
+    Its functionally is similar to the f5.configurator CLI utility.
     """
     name = 'config'
 
@@ -429,7 +431,7 @@ class ConfigGeneratorStage(Stage, ConfigGenerator):
         password = configifc.get_device(device).get_root_creds().password
         self.ifcs = specs.get('_IFCS')
 
-        options = Options(device=device, 
+        options = Options(device=device,
                           config=specs.get('config file'),
                           peer_device=specs.get('peer'),
                           unitid=specs.get('unitid'),
@@ -447,7 +449,7 @@ class ConfigGeneratorStage(Stage, ConfigGenerator):
                           node_start=specs.get('node start'),
                           vip_start=specs.get('vip start'),
                           password=password)
-        
+
         if config.irack:
             options.irack_address = config.irack.address
             options.irack_username = config.irack.username
@@ -504,14 +506,14 @@ class EMDiscocveryStage(Stage, Macro):
     def run(self):
         devices = self.to_discover
         assert devices, 'No devices to discover on DUT?'
-    
+
         # XXX: Not sure why self IPs take a little longer to come up.
-        if sum([x.specs._x_tmm_bug or 0 for x in devices 
+        if sum([x.specs._x_tmm_bug or 0 for x in devices
                                if x.get_discover_address() != x.get_address()]):
             delay = self.specs.get('delay', DEFAULT_DISCOVERY_DELAY)
             LOG.info('XXX: Waiting %d seconds for tmm to come up...' % delay)
             time.sleep(delay)
-        
+
         # Enable SSH access for this EM.
         with IcontrolInterface(device=self.device) as icifc:
             icifc.api.System.Services.set_ssh_access_v2(access={'state': 'STATE_ENABLED',
@@ -519,53 +521,56 @@ class EMDiscocveryStage(Stage, Macro):
 
         with SSHInterface(device=self.device) as ssh:
             self.ifcs.append(ssh)
-            reachable_devices = [int(x.is_local_em) and 
-                                    x.mgmt_address or 
+            reachable_devices = [int(x.is_local_em) and
+                                    x.mgmt_address or
                                     x.access_address
-                                 for x in 
+                                 for x in
                                     EMSQL.device.get_reachable_devices(ifc=ssh)]
-            
+
             to_discover = [Options(address=x.get_discover_address(),
                                    username=x.get_admin_creds().username,
                                    password=x.get_admin_creds().password)
-                           for x in devices 
+                           for x in devices
                            if x.get_discover_address() not in reachable_devices
-                              and not x.is_default()] # 2.3+ autodiscover self
-            
+                              and not x.is_default()]  # 2.3+ autodiscover self
+
             # Set the autoRefreshEnabled to false to avoid AutoRefresh tasks.
             try:
                 EMAPI.device.set_config(device=self.device)
             except Exception, e:
                 LOG.warning("set_config() failed: %s", e)
-            
+
             devices_ips = set([x.get_discover_address() for x in devices])
-            to_delete = [x.uid for x in EMSQL.device.get_device_info(ifc=ssh) 
-                               if x.access_address not in devices_ips 
+            to_delete = [x.uid for x in EMSQL.device.filter_device_info(ifc=ssh)
+                               if x.access_address not in devices_ips
                                and not int(x.is_local_em)]
             if to_delete:
                 LOG.info('Deleting device uids: %s', to_delete)
                 uid = EMAPI.device.delete(to_delete, device=self.device)
-            
+
             if to_discover:
                 LOG.info("Discovering %s", to_discover)
                 uid = EMAPI.device.discover(to_discover, device=self.device)
                 task = EMSQL.device.GetDiscoveryTask(uid, ifc=ssh) \
                             .run_wait(lambda x: x['status'] != 'started',
-                                      timeout=360, # Sometimes it takes more.
-                                      progress_cb=lambda x:'discovery: %d%%' % x.progress_percent)
+                                      timeout=360,  # Sometimes it takes more.
+                                      progress_cb=lambda x: 'discovery: %d%%' % x.progress_percent)
                 summary = ''
                 for detail in task.details:
                     if detail.discovery_status != 'ok':
                         summary += "%(access_address)s: " \
                                    "%(discovery_status)s - %(discovery_status_message)s\n" % detail
-                assert task['error_count'] == 0, 'Discovery failed: %s' % summary
-                
+
+                assert (task['status'] == 'complete' and
+                        task['error_count'] == 0), \
+                        'Discovery failed: [{0}] {1}'.format(task.status, summary)
+
                 # Look for impaired devices after discovery.
                 for device in to_discover:
                     ret = EMSQL.device.get_device_state(device.address, ifc=ssh)
                     for status in ret:
-                        if not status['status'] in ('big3d_below_minimum', 
-                                                    'big3d_update_required', 
+                        if not status['status'] in ('big3d_below_minimum',
+                                                    'big3d_update_required',
                                                     None):
                             LOG.warn(ret)
 
@@ -575,7 +580,7 @@ class EMInstallSoftwareStage(Stage, EMInstallSoftware):
     This stage is used to perform legacy installations through a 3rd party EM.
     Legacy (9.x) installations are not supported natively, that is through
     image2disk or iControl.
-    
+
     The convention is to use the 'x-em' alias for the 3rd party EM.
     """
     name = 'eminstall'
@@ -585,7 +590,7 @@ class EMInstallSoftwareStage(Stage, EMInstallSoftware):
         config = configifc.open()
         assert str(specs.version) in ('9.3.1', '9.4.3', '9.4.5', '9.4.6', '9.4.7',
                                       '9.4.8'), "Unsupported legacy version: %s" % specs.version
-        options = Options(device=device, product=specs.product, 
+        options = Options(device=device, product=specs.product,
                           pversion=specs.version, pbuild=specs.build,
                           phf=specs.hotfix, image=specs.get('custom iso'),
                           hfimage=specs.get('custom hf iso'),
@@ -599,7 +604,7 @@ class EMInstallSoftwareStage(Stage, EMInstallSoftware):
                              username=device_.get_admin_creds(keyset=KEYSET_LOCK).username,
                              password=device_.get_admin_creds(keyset=KEYSET_LOCK).password)
             devices.append(device)
-        super(EMInstallSoftwareStage, self).__init__(devices, options, 
+        super(EMInstallSoftwareStage, self).__init__(devices, options,
                                                      *args, **kwargs)
 
     def prep(self):
@@ -612,11 +617,11 @@ class EMInstallSoftwareStage(Stage, EMInstallSoftware):
 
     def setup(self):
         ret = super(EMInstallSoftwareStage, self).setup()
-        
+
         for device_attrs in self.devices:
             LOG.debug('Resetting password after: %s...', device_attrs.device)
             assert ICMD.system.set_password(device=device_attrs.device)
-        
+
         return ret
 
 
@@ -631,7 +636,7 @@ class HAStage(Stage, FailoverMacro):
         authorities = [device] + list(expand_devices(specs, 'authorities'))
         peers = list(expand_devices(specs, 'peers'))
         groups = specs.groups or []
-        
+
         configifc = ConfigInterface()
         options = Options(specs.options)
         if options.set_active:

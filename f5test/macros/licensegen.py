@@ -15,8 +15,9 @@ import pprint
 __version__ = '0.2'
 LOG = logging.getLogger(__name__)
 
-BANNED_FEATURES = set(('Appliance Mode', 'TrustedIP Subscription', 
-                       'IP Intelligence Subscription'))
+BANNED_FEATURES = set(('Appliance Mode', 'TrustedIP Subscription',
+                       'IP Intelligence Subscription', 'IPI Subscription',
+                       'App Mode'))
 
 MAP = Options()
 MAP.eval = {}
@@ -25,6 +26,7 @@ MAP.eval.bigip['VE'] = 'F5-BIG-LTM-VE-1G-LIC'
 MAP.eval.bigip['1600'] = 'F5-BIG-LTM-1600-4G-LIC'
 MAP.eval.bigip['3600'] = 'F5-BIG-LTM-3600-4G-LIC'
 MAP.eval.bigip['3900'] = 'F5-BIG-LTM-3900-8G-LIC'
+MAP.eval.bigip['4200V'] = 'F5-BIG-LTM-4200V-LIC'
 MAP.eval.bigip['6400'] = 'F5-BIG-LTM-6400-LIC'
 MAP.eval.bigip['6800'] = 'F5-BIG-LTM-6800-LIC'
 MAP.eval.bigip['6900'] = 'F5-BIG-LTM-6900-8G-LIC'
@@ -32,6 +34,7 @@ MAP.eval.bigip['8400'] = 'F5-BIG-LTM-8400-LIC'
 MAP.eval.bigip['8800'] = 'F5-BIG-LTM-8800-LIC'
 MAP.eval.bigip['8900'] = 'F5-BIG-LTM-8900-LIC'
 MAP.eval.bigip['8950'] = 'F5-BIG-LTM-8950-LIC'
+#MAP.eval.bigip['10200'] = 'F5-BIG-LTM-10200-V-LIC'
 MAP.eval.bigip['11000'] = 'F5-BIG-LTM-11000-48G-LIC'
 MAP.eval.bigip['11050'] = 'F5-BIG-LTM-11050-LIC'
 MAP.eval.bigip['C2400'] = 'F5-VPR-LTM-C2400-AC-LIC'
@@ -47,6 +50,7 @@ MAP.dev.bigip['VE'] = 'F5-BIG-LTM-VE-1G-LIC-DEV'
 MAP.dev.bigip['1600'] = 'F5-BIG-LTM-1600-4G-DEV'
 MAP.dev.bigip['3600'] = 'F5-BIG-LTM-3600-4G-DEV'
 MAP.dev.bigip['3900'] = 'F5-BIG-LTM-3900-4G-DEV'
+MAP.dev.bigip['4200V'] = 'F5-BIG-LTM-4200V-LIC-DEV'
 MAP.dev.bigip['6400'] = 'F5-BIG-LTM-6400-LIC-DEV'
 MAP.dev.bigip['6800'] = 'F5-BIG-LTM-6800-LIC-DEV'
 MAP.dev.bigip['6900'] = 'F5-BIG-LTM-6900-8G-LIC-DEV'
@@ -54,6 +58,7 @@ MAP.dev.bigip['8400'] = 'F5-BIG-LTM-8400-LIC-DEV'
 MAP.dev.bigip['8800'] = 'F5-BIG-LTM-8800-LIC-DEV'
 MAP.dev.bigip['8900'] = 'F5-BIG-LTM-8900-LIC-DEV'
 MAP.dev.bigip['8950'] = 'F5-BIG-LTM-8950-LIC-DEV'
+MAP.dev.bigip['10200'] = 'F5-BIG-LTM-10200-V-LIC-DEV'
 MAP.dev.bigip['11000'] = 'F5-BIG-LTM-11000-48G-LIC-DEV'
 MAP.dev.bigip['11050'] = 'F5-BIG-LTM-11050-LIC-DEV'
 MAP.dev.bigip['C2400'] = 'F5-VPR-LTM-C2400-AC-LIC-DEV'
@@ -80,7 +85,7 @@ class LicenseGenerator(Macro):
                                          browser='htmlunit', platform='ANY')
             self.ifc.open()
             self._ourifc = True
-        
+
     def cleanup(self):
         if self._ourifc:
             self.ifc.close()
@@ -104,12 +109,12 @@ class LicenseGenerator(Macro):
                 raise ValueError("Only EM %s are supported." % root.em.keys())
         else:
             raise ValueError("Only BIGIP or EM are supported.")
-        
+
         if self.options.eval:
             b.get('https://license.f5net.com/evalkeygenerator/')
         else:
             b.get('https://license.f5net.com/devkeygenerator/')
-        
+
         LOG.info('Logging in...')
         e = b.find_element_by_name('user')
         e.send_keys(options.username)
@@ -117,16 +122,16 @@ class LicenseGenerator(Macro):
         e.send_keys(options.password)
         e = b.find_element_by_name('submit_form')
         select = e.click().wait('productline')
-        
+
         LOG.info('SKU %s', product)
         LOG.info('Selecting product...')
         o = select.find_element_by_xpath("option[.='%s']" % productline)
         o.click()
-        
+
         select = b.find_element_by_id('product')
         o = select.find_element_by_xpath("option[.='%s']" % product)
         o.click()
-        
+
         if not self.options.eval:
             e = b.find_element_by_name('notes')
             e.send_keys('Generated using f5.licensegen v%s tool.' % __version__)
@@ -141,13 +146,13 @@ class LicenseGenerator(Macro):
         for e in table.find_elements_by_xpath("//tr/td[@class='productFont' "
                                               "and img[@src='images/assets/notSelectedBox.gif']]"):
             text = e.text.strip()
-            if text.startswith('Access Policy Manager'):
+            if text.startswith('APM') or text.startswith('Access Policy Manager'):
                 if not 'Max CCU' in text:
                     continue
             LOG.debug(text)
             img = e.find_element_by_tag_name('img')
             img.click()
-        
+
         LOG.info('Selecting features...')
         for e in table.find_elements_by_xpath("//tr/td[@class!='productFont' "
                                               "and img[@src='images/assets/notSelectedBox.gif']]"):
@@ -186,14 +191,14 @@ def main():
 
     usage = """%prog [options]"""
 
-    formatter = optparse.TitledHelpFormatter(indent_increment=2, 
+    formatter = optparse.TitledHelpFormatter(indent_increment=2,
                                              max_help_position=60)
     p = optparse.OptionParser(usage=usage, formatter=formatter,
                             version="F5 License Generator v%s" % __version__
         )
     p.add_option("-v", "--verbose", action="store_true",
                  help="Debug messages")
-    
+
     p.add_option("-c", "--count", metavar="INTEGER", default=1,
                  type="int", help="How many copies (default: 1)")
     p.add_option("-u", "--username", metavar="USERNAME",
@@ -206,7 +211,7 @@ def main():
                  type="string", help="The EM platform (e.g.: 4000, VE, etc)")
     p.add_option("", "--eval", action="store_true",
                  help="Generate Eval keys instead of Dev.")
-    
+
     options, _ = p.parse_args()
 
     if options.verbose:
@@ -219,7 +224,7 @@ def main():
 
     LOG.setLevel(level)
     logging.basicConfig(level=level)
-    
+
     if not(options.bigip or options.em):
         p.print_version()
         p.print_help()
@@ -229,7 +234,7 @@ def main():
         raise ValueError("Either --bigip or --em not both.")
 
     options.password = getpass.getpass()
-    
+
     cs = LicenseGenerator(options=options)
     cs.run()
 

@@ -238,14 +238,14 @@ system:
            hostname %(system.hostname)s
         }
 
-default users:
-    admin: \$1\$f5site02\$sGndAUM76pW9LJkJ1a8Kn/
-    root:  \$1\$f5site02\$sGndAUM76pW9LJkJ1a8Kn/
+#default users:
+#    admin: \$1\$f5site02\$sGndAUM76pW9LJkJ1a8Kn/
+#    root:  \$1\$f5site02\$sGndAUM76pW9LJkJ1a8Kn/
 
 # Supposed to be used only on 9.3.1's as param for f5passwd
-legacy users:
-    admin: f5site02
-    root: f5site02
+#legacy users:
+#    admin: f5site02
+#    root: f5site02
 
 users:
     administrator: |

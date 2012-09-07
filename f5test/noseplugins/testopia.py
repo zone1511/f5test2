@@ -1,6 +1,6 @@
 from nose.plugins.base import Plugin
 from nose.case import Test
-from nose.plugins.skip import SkipTest 
+from nose.plugins.skip import SkipTest
 from nose.util import isclass
 from nose.suite import ContextSuite
 from ..utils.net import get_local_ip
@@ -13,23 +13,26 @@ LOG = logging.getLogger(__name__)
 
 DIRTY_ATTR = '_dirty_'
 PLATFORM_TO_ENV = {'C106': 'EM4000',
-                   'D38':  'EM3000',
-                   'C36':  'EM500',
+                   'D38': 'EM3000',
+                   'C36': 'EM500',
                    'Z100': 'EMVirtualMachine'}
 
 STATUS_ID_TEXT = {1: 'PROPOSED',
                   2: 'CONFIRMED',
                   3: 'DISABLED'}
 
+
 def _getattr(test, name, default):
     method = getattr(test.test, test.test._testMethodName)
     class_attr = getattr(test.test, name, default)
     return getattr(method, name, class_attr)
-    
+
+
 def secs_to_str(seconds):
     mins, secs = divmod(seconds, 60)
     hours, mins = divmod(mins, 60)
     return "%s:%s:%s" % (hours, mins, secs)
+
 
 class Testopia(Plugin):
     """
@@ -47,7 +50,7 @@ class Testopia(Plugin):
         parser.add_option('--testopia-section', action='store', dest='section',
                           default='testopia', metavar="SECTION",
                           help="The name of the testopia section in the config.")
-        parser.add_option('--testopia-testrun-summary', action='store', 
+        parser.add_option('--testopia-testrun-summary', action='store',
                           dest='testrun_summary',
                           default='Automated run %(session)s', metavar="SECTION",
                           help="The name of the TestRun. (default: Automated run %(session)s)")
@@ -64,7 +67,7 @@ class Testopia(Plugin):
                           help="Enable testopia. (default: no)")
         parser.add_option('--testopia-strip', metavar="NUM", default=0,
                           type="int", dest='strip',
-                          help="Strip NUM leading components from testcase name.")
+                          help="Strip NUM leading components from testcase name. (default: 0)")
 
     def configure(self, options, noseconfig):
         """ Call the super and then validate and call the relevant parser for
@@ -101,7 +104,7 @@ class Testopia(Plugin):
             for m in names:
                 if hasattr(context, m):
                     setattr(context, m, None)
-        
+
     def _update_tc_if_needed(self, t, adr, test):
         status = _getattr(test, 'status', 'CONFIRMED')
         product = _getattr(test, 'product', self.product)
@@ -119,7 +122,7 @@ class Testopia(Plugin):
         estimated_time = secs_to_str(_getattr(test, 'duration', 0))
 
         tc = self.tcs[adr]
-        
+
         if (tc['script'] != adr or
             tc['priority_id'] != priority or
             is_dirty):
@@ -176,7 +179,7 @@ class Testopia(Plugin):
                 LOG.warn('Skip: %s testopia status is not CONFIRMED' % adr)
                 return lambda x:x
             return
-        
+
         if method is None:
             LOG.warn('cannot load %s', filename)
         else:
@@ -184,7 +187,7 @@ class Testopia(Plugin):
             t = self.testopia_ifc.open()
             bits = (test.test._testMethodDoc or adr).split('\n', 1)
             action = ''
-            
+
             if len(bits) > 1:
                 summary, action = bits
             elif len(bits) == 1:
@@ -197,12 +200,12 @@ class Testopia(Plugin):
             action = test.test._testMethodDoc or ''
             #===================================================================
             LOG.info('found: %s', adr)
-            
+
             if adr in self.tcs:
                 self._update_tc_if_needed(t, adr, test)
                 self.tcs.pop(adr)
                 return lambda x:x
-            
+
             # Defaults for new test cases.
             status = _getattr(test, 'status', 'CONFIRMED')
             product = _getattr(test, 'product', self.product)
@@ -232,13 +235,13 @@ class Testopia(Plugin):
                                          isautomated=True,
                                          plans=plan_id
                                          ))
-            
+
             if isinstance(ret, list) and ret[0].get('ERROR'):
-                LOG.error("Failed: %s:%s", ret[0]['ERROR']['_faultcode'], 
+                LOG.error("Failed: %s:%s", ret[0]['ERROR']['_faultcode'],
                                            ret[0]['ERROR']['_faultstring'])
             else:
                 LOG.info("TestCase created: %d", ret['case_id'])
-    
+
         return lambda x:x
 
     def _render_notes(self):
@@ -247,25 +250,25 @@ class Testopia(Plugin):
         my_ip = get_local_ip(dut.address)
         note += "Test runner: %s\n" \
                 "DUT (%s): %s\n\n" % (my_ip, dut.alias, dut.address)
-        
+
         for device in self.config_ifc.get_all_devices():
             note += "%s: %s\n" % (device.alias, device.address)
-        
+
         config = self.config_ifc.open()
         if config.paths:
             sessionurl = self.config_ifc.get_session().get_url(my_ip)
             note += "Debug logs: %s\n" % sessionurl
 
         return note
-        
+
     def _set_tcs(self):
         c = self.config_ifc.open().get(self.options.section)
         t = self.testopia_ifc.open()
-        
+
         LOG.debug('Receiving testcase list...')
         plan_id = c.get('testplan')
         ret = t.TestCase.list(dict(plan_id=plan_id, isautomated=True, viewall=1))
-        
+
         # Setup the address -> ID mapping
         for tc in ret:
             self.tcs[tc['script']] = tc
@@ -287,7 +290,7 @@ class Testopia(Plugin):
         except:
             LOG.error('Could not reset password on DUT. Giving up.')
             return
-        
+
         config = self.config_ifc.open()
         c = config.get(self.options.section)
         t = self.testopia_ifc.open()
@@ -302,11 +305,11 @@ class Testopia(Plugin):
         LOG.debug('Create a new testrun...')
         platform = self.ICMD.system.get_platform()
         environment = PLATFORM_TO_ENV[platform]
-        
+
         ret = t.Environment.check_environment(environment, c.product)
         c._environment = ret['environment_id']
         LOG.debug('Environment id: %d', c._environment)
-        
+
         ctx = AttrDict()
         ctx.session = self.config_ifc.get_session().name
         summary = self.options.testrun_summary % ctx or ''
@@ -327,8 +330,9 @@ class Testopia(Plugin):
 
     def _flip_testcase(self, test, status, notes=''):
         if isinstance(test, Test):
+            strip = self.options.strip
             _, module, method = test.address()
-            adr = "%s:%s" % (module, method)
+            adr = "%s:%s" % ('.'.join(module.split('.')[strip:]), method)
             tc = self.tcs.get(adr)
             LOG.debug(self.tcs.get(adr))
         elif isinstance(test, basestring):
@@ -340,7 +344,7 @@ class Testopia(Plugin):
         if not tc:
             LOG.error('%s is not in the testplan!', adr)
             return
-        
+
         case_id = tc['case_id']
         t = self.testopia_ifc.open()
         c = self.config_ifc.open().get(self.options.section)
@@ -373,7 +377,7 @@ class Testopia(Plugin):
         """Close TestRun and flip all untouched TCs to blocked.
         """
         c = self.config_ifc.open().get(self.options.section)
-        
+
         # Most probably begin() failed to set the private values in the config section. 
         if not (c._build and c._environment and c._testrun):
             LOG.warning("Build ID not found.")
@@ -403,7 +407,7 @@ class Testopia(Plugin):
             LOG.warn('%d tests not ran', len(cr_ids))
             #ret = t.TestCaseRun.delete(cr_ids)
             #LOG.info(ret)
-    
+
             #t.TestCaseRun.update(cr_ids, dict(status='PAUSED'))
         if c._testrun:
             LOG.debug('Closing testrun: %d', c._testrun)
@@ -412,4 +416,4 @@ class Testopia(Plugin):
 #        if result.testsRun != len(self.tcs):
 #            LOG.warn("TestPlan %d not in sync: ran=%d planned=%d", 
 #                      c.get('testplan'), result.testsRun, len(self.tcs))
-            
+

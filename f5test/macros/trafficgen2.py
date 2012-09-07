@@ -6,7 +6,7 @@ Created on Apr 3, 2012
 from f5test.macros.base import Macro
 from f5test.base import Options
 from f5test.utils.stb import RateLimit, TokenBucket
-import gevent #@UnusedImport
+import gevent  # @UnusedImport
 import gevent.pool
 from geventhttpclient import HTTPClient, URL
 from ssl import PROTOCOL_TLSv1, CERT_NONE
@@ -24,8 +24,8 @@ __version__ = '0.3'
 
 def partition(size, n):
     q, r = divmod(size, n)
-    indices = [q*i + min(i, r) for i in xrange(n+1)]
-    return [indices[i+1]-indices[i] for i in xrange(n)]
+    indices = [q * i + min(i, r) for i in xrange(n + 1)]
+    return [indices[i + 1] - indices[i] for i in xrange(n)]
 
 
 class TrafficGen(Macro):
@@ -48,7 +48,7 @@ class TrafficGen(Macro):
             answer = resolver.query(qname, rdtype=dns.rdatatype.A,
                                     rdclass=dns.rdataclass.IN, tcp=False,
                                     source=None, raise_on_no_answer=False)
-            
+
             if answer.response.answer:
                 ip = answer.response.answer[0].items[0].address
                 if u.port:
@@ -66,10 +66,11 @@ class TrafficGen(Macro):
                                                       cert_reqs=CERT_NONE)
                                      )
         return client
-    
+
     def setup(self):
         o = self.options
-        
+        assert o.concurrency > 0, "Number of concurrent threads must be positive."
+
         def run(client, url):
             qs = url.request_uri
             try:
@@ -80,15 +81,15 @@ class TrafficGen(Macro):
                 return
             #response.read()
             #assert response.status_code == 200
-            
-            block_size = 256 * 1024 # 256KB
+
+            block_size = 256 * 1024  # 256KB
             #block_size = 4096
             #block_size = 1024
             block_count = 0
             kbps = o.rate
             bucket = TokenBucket(1000 * kbps, kbps)
             rate_limiter = RateLimit(bucket)
-        
+
             rate_limiter(block_count, block_size)
             while True:
                 try:
@@ -109,7 +110,7 @@ class TrafficGen(Macro):
                 if i + 1 == o.requests:
                     break
             group.join()
-            
+
         LOG.info('Running...')
         # Create individual Pools for each URL
         groups = {}
@@ -121,15 +122,15 @@ class TrafficGen(Macro):
         now = time.time()
         for url in self.urls:
             supergroup.spawn(superrun, url, groups[url])
-        
+
         try:
             supergroup.join()
         except KeyboardInterrupt:
             pass
-        
+
         delta = time.time() - now
         #req_per_sec = o.requests / delta
-        
+
         LOG.info("delta: %f seconds" % delta)
 
 
@@ -139,12 +140,12 @@ def main():
 
     usage = """%prog [options] <url> [url]...""" \
     """
-  
+
   Examples:
   %prog https://10.11.41.73/1MB https://10.11.41.69/1MB -v
   """
 
-    formatter = optparse.TitledHelpFormatter(indent_increment=2, 
+    formatter = optparse.TitledHelpFormatter(indent_increment=2,
                                              max_help_position=60)
     p = optparse.OptionParser(usage=usage, formatter=formatter,
                             version="HTTP/S Traffic Generator %s" % __version__
@@ -155,7 +156,7 @@ def main():
 #                 help="Show statistics when done (default: no)")
     p.add_option("-k", "--keepalive", action="store_true", default=False,
                  help="Reuse HTTP/1.1 connections for subsequent requests")
-    
+
     p.add_option("-c", "--concurrency", metavar="INTEGER",
                  default=1, type="int",
                  help="Number of parallel threads (default: 10)")
@@ -185,12 +186,12 @@ def main():
 
     LOG.setLevel(level)
     logging.basicConfig(level=level)
-    
+
     if not args:
         p.print_version()
         p.print_help()
         sys.exit(2)
-    
+
     cs = TrafficGen(options=options, urls=args)
     cs.run()
 

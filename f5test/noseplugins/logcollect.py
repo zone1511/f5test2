@@ -69,7 +69,7 @@ class LoggingProxy(object):
         return None
 
 
-class LogCollect(LogCapture): 
+class LogCollect(LogCapture):
     """
     Log Collector plugin. Enabled by default. Disable with ``--no-logcollect``.
     Upon a test failure this plugin iterates through each open interface and
@@ -115,12 +115,12 @@ class LogCollect(LogCapture):
 
         cfgifc = ConfigInterface()
         path = cfgifc.get_session().path
-        
+
         if path and not os.path.exists(path):
             oldumask = os.umask(0)
             os.makedirs(path)
             os.umask(oldumask)
-        
+
         return path
 
     def setOutputStream(self, stream):
@@ -138,8 +138,8 @@ class LogCollect(LogCapture):
         fmt = logging.Formatter(logformat, self.logdatefmt)
         handler = logging.FileHandler(console_filename)
         handler.setFormatter(fmt)
-        
-        map(lambda x:logger.removeHandler(x), logger.handlers)
+
+        map(lambda x: logger.removeHandler(x), logger.handlers)
         logger.addHandler(handler)
 
         proxy = LoggingProxy(logger)
@@ -158,19 +158,19 @@ class LogCollect(LogCapture):
         handler = logging.FileHandler(run_filename)
         handler.setFormatter(fmt)
         root_logger.addHandler(handler)
-        
+
     def _get_or_create_dirs(self, name, root=None):
         if root is None:
             root = self._get_session_dir()
-        
+
         path = os.path.join(root, name)
         if not os.path.exists(path):
             oldumask = os.umask(0)
             os.makedirs(path)
             os.umask(oldumask)
-        
+
         return path
-    
+
     def _collect_forensics(self, test, err):
         """Collects screenshots and logs."""
         from f5test.interfaces.selenium import SeleniumInterface
@@ -183,7 +183,7 @@ class LogCollect(LogCapture):
 
         if isinstance(test, Test) and isinstance(test.test, TestCase):
             test_name = test.id()
-            
+
             # XXX: Dig into traceback to a *known* location to get the real
             # context. This is a limitation of nose in a way that it passes the
             # test file context instead of the failed ancestor context. This
@@ -214,9 +214,14 @@ class LogCollect(LogCapture):
                 if not hasattr(test.test, '_apis'):
                     return
                 interfaces = test.test._apis.keys()
+
+                # Look for any interfaces created by the class' interface helper.
+                if hasattr(test.test, 'ih') and hasattr(test.test.ih, '_apis'):
+                    interfaces += test.test.ih._apis.keys()
+
         else:
             return
-        
+
         config = ConfigInterface().open()
         if config is None:
             LOG.warn('config not available')
@@ -235,7 +240,7 @@ class LogCollect(LogCapture):
                 f.write('\n'.join(records))
 
         # Sort interfaces by priority.
-        interfaces.sort(key=lambda x:x._priority if hasattr(x, '_priority') 
+        interfaces.sort(key=lambda x: x._priority if hasattr(x, '_priority')
                                      else 0)
 
         visited = dict(ssh=set(), selenium=set())
@@ -248,28 +253,28 @@ class LogCollect(LogCapture):
                 continue
 
             sshifcs = []
-            
+
             if isinstance(interface, SeleniumInterface):
                 if not interface.is_opened():
                     LOG.warning('Unopened selennium interface: %s', interface)
                     continue
-                
+
                 try:
                     for window in interface.api.window_handles:
                         credentials = interface.get_credentials(window)
-                        
+
                         if credentials.device:
                             address = credentials.device.get_address()
                         else:
                             address = credentials.address or window
-    
+
                         if address not in visited['selenium']:
                             log_root = self._get_or_create_dirs(address, test_root)
-        
-                            LOG.warning('Dumping screenshot for: %s (%s)', address, 
+
+                            LOG.warning('Dumping screenshot for: %s (%s)', address,
                                         window)
                             try:
-                                self.UI.common.screen_shot(log_root, window=window, 
+                                self.UI.common.screen_shot(log_root, window=window,
                                                            ifc=interface)
                             except Exception, e:
                                 LOG.error('Screenshot faied: %s', e)
@@ -282,15 +287,15 @@ class LogCollect(LogCapture):
                     LOG.debug('Error taking screenshot. (%s)', tb)
                 finally:
                     interface.api.switch_to_window('')
-            
+
             elif isinstance(interface, SSHInterface):
                 sshifcs.append(SSHInterface(device=interface.device))
 
-            elif isinstance(interface, (IcontrolInterface, EMInterface, 
+            elif isinstance(interface, (IcontrolInterface, EMInterface,
                                         RestInterface)):
                 if interface.device:
                     sshifcs.append(SSHInterface(device=interface.device))
-            
+
             else:
                 LOG.debug('Skip collection from interface: %s', interface)
 
@@ -303,7 +308,7 @@ class LogCollect(LogCapture):
                             LOG.debug('Collecting logs from %s', address)
                             try:
                                 version = self.SSH.get_version(ifc=sshifc)
-                                self.SSH.collect_logs(log_root, ifc=sshifc, 
+                                self.SSH.collect_logs(log_root, ifc=sshifc,
                                                       version=version)
                             except Exception, e:
                                 LOG.error('Collecting logs failed: %s', e)
@@ -312,7 +317,7 @@ class LogCollect(LogCapture):
                     err = sys.exc_info()
                     tb = ''.join(traceback.format_exception(*err))
                     LOG.debug('Error collecting logs. (%s)', tb)
-        
+
         del interfaces[:]
 
     def handleFailure(self, test, err):
@@ -333,7 +338,7 @@ class LogCollect(LogCapture):
         #map(lambda x:x.flush(), logger.handlers)
         #logger = logging.getLogger('_console_')
         #map(lambda x:x.flush(), logger.handlers)
-        
+
         # Loose threads check
         import paramiko
         found = False

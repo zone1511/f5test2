@@ -23,6 +23,7 @@ import logging
 LOG = logging.getLogger(__name__)
 UIDOFFSET = 1
 IPOFFSET = 3000
+START_IP = '10.10.0.0'
 MAXSQL = 50
 __version__ = '0.1'
 
@@ -48,12 +49,11 @@ class DeviceCloner(Macro):
                          address=bigipaddress, timeout=self.options.timeout,
                          username=self.options.bigip_admin_username,
                          password=self.options.bigip_admin_password)
-        
+
         super(DeviceCloner, self).__init__()
 
     def do_prep_insert(self, row):
         names = ['NULL' if x is None else unicode(x) for x in row.keys()]
-        #values = ['NULL' if x is None else unicode(x) for x in row.values()]
         values = []
         for x in row.values():
             if x is None:
@@ -68,7 +68,7 @@ class DeviceCloner(Macro):
         if not rows:
             raise ClonerFailed('Device with mgmtip %s not found.' % mgmtip)
         return rows[0]
-    
+
     def do_inject(self):
         LOG.info('* Cloning mode *')
         bulk_sql = []
@@ -83,14 +83,14 @@ class DeviceCloner(Macro):
             rows = SQL.query('SELECT MAX(device.uid) AS device, MAX(device_slot.uid) AS slot FROM device, device_slot;', ifc=emsshifc)
             max_device_uid = int(rows[0].device)
             max_slot_uid = int(rows[0].slot)
-            
+
             bpmgmt = self.bigipparams.address
             template = self.do_get_template(bpmgmt, emsshifc)
             assert template.access_address != template.mgmt_address, \
                     "Template device must be discovered by its self IP."
             device_uid = int(template.uid)
             LOG.info('Template: %s', template.host_name)
-            start_ip = IPAddress(template.access_address)
+            start_ip = IPAddress(START_IP)
             LOG.info('Inserting device rows...')
             for i in range(1, self.options.clones + 1, 1):
                 template.uid = max_device_uid + UIDOFFSET + i
@@ -101,7 +101,7 @@ class DeviceCloner(Macro):
                 bulk_sql.append(query)
                 if has_groups:
                     bulk_sql.append("INSERT INTO device_2_device_group VALUES (NULL,%d,1)" % template.uid)
-            
+
             while bulk_sql:
                 SQL.query(";".join(bulk_sql[:MAXSQL]), ifc=emsshifc)
                 bulk_sql[:MAXSQL] = []
@@ -125,7 +125,7 @@ class DeviceCloner(Macro):
                 bulk_sql[:MAXSQL] = []
 
         LOG.info('Creating SelfIPs on %s...', bpmgmt)
-        self_ips = [str(start_ip + ip_offset + x) 
+        self_ips = [str(start_ip + ip_offset + x)
                     for x in range(1, self.options.clones + 1, 1)]
         vlan_names = ['internal'] * self.options.clones
         netmasks = ['255.255.0.0'] * self.options.clones
@@ -136,7 +136,7 @@ class DeviceCloner(Macro):
             ic.Networking.SelfIP.create(self_ips=self_ips, vlan_names=vlan_names,
                                         netmasks=netmasks, unit_ids=unit_ids,
                                         floating_states=floating_states)
-            access_lists = [dict(self_ip=x, mode='ALLOW_MODE_ALL', protocol_ports=[]) 
+            access_lists = [dict(self_ip=x, mode='ALLOW_MODE_ALL', protocol_ports=[])
                             for x in self_ips]
             ic.Networking.SelfIPPortLockdown.add_allow_access_list(access_lists=access_lists)
 
@@ -144,7 +144,7 @@ class DeviceCloner(Macro):
         LOG.info('* Delete mode *')
         with SSHInterface(**self.emparams) as emsshifc:
             bpmgmt = self.bigipparams.address
-            devices = SQL.query("SELECT uid,access_address FROM device WHERE mgmt_address='%s';" % bpmgmt, 
+            devices = SQL.query("SELECT uid,access_address FROM device WHERE mgmt_address='%s';" % bpmgmt,
                                 ifc=emsshifc)
             clones = devices[1:]
             uids = [x.uid for x in clones]
@@ -154,33 +154,44 @@ class DeviceCloner(Macro):
             LOG.info('Deleting devices...')
             try:
                 emapi.device.delete_device(deviceIds=uids)
-                LOG.info('Enabling auto-refresh on EM...')
-                EMAPI.device.set_config(auto_refresh=True, ifc=emicifc)
+                #LOG.info('Enabling auto-refresh on EM...')
+                #EMAPI.device.set_config(auto_refresh=True, ifc=emicifc)
             except ParsingError, e:
                 LOG.warning(e)
 
-        LOG.info('Deleting SelfIPs on %s...', bpmgmt)
-        self_ips = [x.access_address for x in clones]
-        with IcontrolInterface(**self.bigipparams) as bigipicifc:
-            ic = bigipicifc.api
-            try:
-                ic.Networking.SelfIP.delete_self_ip(self_ips=self_ips)
-            except IControlFault, e:
-                LOG.warning(e)
-        
-        LOG.info('Reauthenticating device...')
-        with EMInterface(**self.emicparams) as emicifc:
-            emapi = emicifc.api
-            emapi.discovery.reauthenticate(self.bigipparams.username,
-                                           self.bigipparams.password,
-                                           devices[0].uid)
-    
+        if clones:
+            LOG.info('Deleting SelfIPs on %s...', bpmgmt)
+            self_ips = [x.access_address for x in clones]
+            with IcontrolInterface(**self.bigipparams) as bigipicifc:
+                ic = bigipicifc.api
+                try:
+                    ic.Networking.SelfIP.delete_self_ip(self_ips=self_ips)
+                except IControlFault, e:
+                    LOG.warning(e)
+
+        if devices:
+            LOG.info('Reauthenticating device...')
+            uid = devices[0].uid
+            with EMInterface(**self.emicparams) as emicifc:
+                emapi = emicifc.api
+                emapi.discovery.reauthenticate(self.bigipparams.username,
+                                               self.bigipparams.password, uid)
+
     def do_refresh(self):
         LOG.info('* Refresh mode *')
+        mode = self.options.refresh
         with SSHInterface(**self.emparams) as emsshifc:
             bpmgmt = self.bigipparams.address
-            rows = SQL.query("SELECT * FROM device WHERE mgmt_address='%s' AND last_refresh IS NULL;" % bpmgmt, ifc=emsshifc)
-        
+            if mode == 1:
+                rows = SQL.query("SELECT * FROM device WHERE mgmt_address='%s' AND last_refresh IS NULL;" % bpmgmt,
+                                 ifc=emsshifc)
+            elif mode == 2:
+                rows = SQL.query("SELECT * FROM device WHERE mgmt_address='%s' AND (last_refresh IS NULL OR refresh_failed_at IS NOT NULL);" % bpmgmt,
+                                 ifc=emsshifc)
+            else:
+                rows = SQL.query("SELECT * FROM device WHERE mgmt_address='%s'" % bpmgmt,
+                                 ifc=emsshifc)
+
         LOG.info("Found %d devices.", len(rows))
         with EMInterface(**self.emicparams) as emicifc:
             emapi = emicifc.api
@@ -199,20 +210,21 @@ class DeviceCloner(Macro):
             return self.do_delete()
         self.do_inject()
 
+
 def main():
     import optparse
     import sys
 
     usage = """%prog [options] <emaddress> <bigipaddress>"""
 
-    formatter = optparse.TitledHelpFormatter(indent_increment=2, 
+    formatter = optparse.TitledHelpFormatter(indent_increment=2,
                                              max_help_position=60)
     p = optparse.OptionParser(usage=usage, formatter=formatter,
                             version="Device Cloner v%s" % __version__
         )
     p.add_option("-v", "--verbose", action="store_true",
                  help="Debug messages")
-    
+
     p.add_option("-u", "--em-root-username", metavar="USERNAME",
                  default=ROOT_USERNAME, type="string",
                  help="An user with root rights (default: %s)"
@@ -237,9 +249,10 @@ def main():
                  default=ADMIN_PASSWORD, type="string",
                  help="An user with admin rights (default: %s)"
                  % ADMIN_PASSWORD)
-    
-    p.add_option("-r", "--refresh", action="store_true",
-                 help="Refresh mode, Refresh each device, one at a time.")
+
+    p.add_option("-r", "--refresh", metavar="MODE", type="int",
+                 help="Refresh mode, Refresh each device, one at a time."
+                 " (1: unitialized only, 2: failed or unitialized, 3: all)")
     p.add_option("-d", "--delete", action="store_true",
                  help="Delete mode. Remove devices and self IPs.")
     p.add_option("-c", "--clones", metavar="INT",
@@ -247,7 +260,7 @@ def main():
                  help="Number of clones to generate (default: 10)")
     p.add_option("-i", "--ip-offset", metavar="INT",
                  default=IPOFFSET, type="int",
-                 help="The IP offset where to start adding selfIPs (default: %d)" % 
+                 help="The IP offset where to start adding selfIPs (default: %d)" %
                  IPOFFSET)
     p.add_option("-t", "--timeout", metavar="TIMEOUT", type="int", default=120,
                  help="Timeout. (default: 60)")
@@ -264,12 +277,12 @@ def main():
 
     LOG.setLevel(level)
     logging.basicConfig(level=level)
-    
+
     if len(args) < 2:
         p.print_version()
         p.print_help()
         sys.exit(2)
-    
+
     cs = DeviceCloner(options=options, emaddress=args[0], bigipaddress=args[1])
     cs.run()
 

@@ -1,6 +1,7 @@
 """Selenium interface"""
 
 from ..config import ConfigInterface, DeviceAccess, ConfigNotLoaded
+from ..icontrol import IcontrolInterface
 from .driver import RemoteWrapper, Keys
 from ...base import Interface
 import logging
@@ -9,12 +10,14 @@ import httpagentparser
 
 LOG = logging.getLogger(__name__)
 
+
 class SeleniumHandleError(Exception):
     pass
 
+
 class SeleniumInterface(Interface):
-    """Normally all UI tests share the same selenium handle, which is 
-    initialized and torn down by the setUpModule and tearDownModule methods 
+    """Normally all UI tests share the same selenium handle, which is
+    initialized and torn down by the setUpModule and tearDownModule methods
     of the 'ui' tests collection.
 
     @param head: the name of the selenium head as defined in the config.
@@ -26,7 +29,7 @@ class SeleniumInterface(Interface):
     @param platform: ANY or LINUX or WINDOWS
     @type platform: str
     """
-    def __init__(self, head=None, executor=None, browser=None, platform=None, 
+    def __init__(self, head=None, executor=None, browser=None, platform=None,
                  options=None, *args, **kwargs):
         super(SeleniumInterface, self).__init__()
 
@@ -60,7 +63,7 @@ class SeleniumInterface(Interface):
         assert self.is_opened()
         return self.api.current_window_handle
 
-    def set_credentials(self, window=None, device=None, address=None, 
+    def set_credentials(self, window=None, device=None, address=None,
                         username=None, password=None, port=None, proto='https'):
         """Set the credentials for the current window"""
         data = AttrDict()
@@ -89,11 +92,11 @@ class SeleniumInterface(Interface):
             window = self._current_window
 
         data = self.credentials.get(window)
-        
+
         if not data:
             LOG.warning('No credentials have been set for this window.')
             data = AttrDict()
-        
+
         return data
 
     def del_credentials(self, window=None):
@@ -102,32 +105,16 @@ class SeleniumInterface(Interface):
 
         return self.credentials.pop(window, None)
 
-#    @property
-#    def address(self):
-#        window = self._current_window
-#        return self._get_credentials(window).address
-#        
-#    @property
-#    def device(self):
-#        window = self._current_window
-#        return self._get_credentials(window).device
-#
-#    @property
-#    def username(self):
-#        window = self._current_window
-#        return self._get_credentials(window).username
-#        
-#    @property
-#    def password(self):
-#        window = self._current_window
-#        return self._get_credentials(window).password
+    def get_icontrol_interface(self, timeout=90, debug=False):
+        return IcontrolInterface(device=self.device, address=self.address,
+                                 username=self.username, password=self.password,
+                                 port=self.port, timeout=timeout, debug=debug)
 
     @property
     def version(self):
-        from ...commands.icontrol.system import get_version
-        return get_version(device=self.device, address=self.address, 
-                           username=self.username, password=self.password,
-                           port=self.port)
+        from ...commands import icontrol as ICMD
+        icifc = self.get_icontrol_interface()
+        return ICMD.system.get_version(ifc=icifc)
 
     @property
     def useragent(self):
@@ -140,7 +127,7 @@ class SeleniumInterface(Interface):
         # browsers.
         self.api.switch_to_active_element().send_keys(Keys.CONTROL, '/')
 
-    def open(self): #@ReservedAssignment
+    def open(self):  # @ReservedAssignment
         """Returns the handle to a Selenium 2 remote client.
 
         @return: the selenium remote client object.
@@ -152,18 +139,17 @@ class SeleniumInterface(Interface):
         executor = self.executor
         browser = self.browser
         platform = self.platform
-        self.api = RemoteWrapper(command_executor=executor, 
+        self.api = RemoteWrapper(command_executor=executor,
                                  desired_capabilities=dict(
                                                            #javascriptEnabled=True,
-                                                           browserName=browser, 
+                                                           browserName=browser,
                                                            platform=platform
                                  ))
 
         self.window = self.api.current_window_handle
         self._disable_firefox_addon_bar()
         return self.api
-    
+
     def close(self, *args, **kwargs):
         self.api.quit()
         super(SeleniumInterface, self).close()
-

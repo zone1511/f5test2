@@ -41,14 +41,14 @@ class FailoverMacro(Macro):
         default_password = self.options.password
         self.cas = []
         self.peers = []
-        
+
         def parse_spec(specs, alias=None):
             bits = specs.split('@', 1)
             groups = None
             if len(bits) > 1:
                 groups = set(bits[1].split(','))
             bits = bits[0].split(',')
-            
+
             if len(bits[0].split(':')) > 1:
                 address, port = bits[0].split(':')
             else:
@@ -65,12 +65,12 @@ class FailoverMacro(Macro):
                 device = DeviceAccess(address, {ADMIN_USERNAME: cred})
             else:
                 raise ValueError('Invalid specs: %s', specs)
-            
+
             device.ports['https'] = port
             device.set_groups(groups)
             return device
 
-        for (src, dst) in ((self.authorities_spec, self.cas), 
+        for (src, dst) in ((self.authorities_spec, self.cas),
                            (self.peers_spec, self.peers)):
             count = 0
             for specs in src:
@@ -79,16 +79,16 @@ class FailoverMacro(Macro):
                     device = parse_spec(specs)
                 else:
                     device = specs
-                
+
                 if device.ports['https'] != DEFAULT_PORTS['https']:
-                    device.alias = "device-{0}-{1}".format(device.address, 
+                    device.alias = "device-{0}-{1}".format(device.address,
                                                            device.ports['https'])
                 else:
                     device.alias = "device-%s" % device.address
-                
+
                 if not device.groups:
                     device.set_groups(DEFAULT_DG)
-    
+
                 dst.append(device)
 
     def set_groups(self):
@@ -99,7 +99,7 @@ class FailoverMacro(Macro):
                 if len(bits) > 1:
                     if bits[1] in ('s', 'so', 'config-sync'):
                         groups[bits[0]] = 'DGT_SYNC_ONLY'
-                    else:    
+                    else:
                         groups[bits[0]] = 'DGT_FAILOVER'
                 else:
                     groups[bits[0]] = 'DGT_FAILOVER'
@@ -107,7 +107,7 @@ class FailoverMacro(Macro):
                 # Assume it is a dict
                 groups[spec] = self.groups_specs[spec]
         self.groups = groups
-            
+
     def do_reset_all(self):
         devices = self.cas + self.peers
         groups = self.groups.keys()
@@ -115,13 +115,13 @@ class FailoverMacro(Macro):
         for device in devices:
             cred = device.get_admin_creds()
             with IcontrolInterface(address=device.address, username=cred.username,
-                                   password=cred.password, 
+                                   password=cred.password,
                                    port=device.ports['https']) as icifc:
                 ic = icifc.api
                 v = ICMD.system.get_version(ifc=icifc)
                 if v.product.is_bigip and v < 'bigip 11.0':
                     raise NotImplemented('Not working for < 11.0')
-                
+
                 # In 11.2.0 the device cannot be renamed while it's in the Trust
                 v = icifc.version
                 if v.product.is_bigip and v >= 'bigip 11.2.0' or \
@@ -153,7 +153,7 @@ class FailoverMacro(Macro):
             with IcontrolInterface(address=device.address, username=cred.username,
                                    password=cred.password,
                                    port=device.ports['https']) as icifc:
-                
+
                 v = icifc.version
                 if v.product.is_bigip and v >= 'bigip 11.2.0' or \
                    v.product.is_em and v >= 'em 3.0.0':
@@ -164,8 +164,8 @@ class FailoverMacro(Macro):
                 LOG.info('Working around BZ364939 on %s...', device.alias)
                 ic.System.Services.set_service(services=['SERVICE_TMM'],
                                                service_action='SERVICE_ACTION_RESTART')
-                wait(ic.System.Failover.get_failover_state, 
-                     lambda x:x != 'FAILOVER_STATE_OFFLINE')
+                wait(ic.System.Failover.get_failover_state,
+                     lambda x: x != 'FAILOVER_STATE_OFFLINE')
 
     def do_prep_cmi(self, icifc, device, ipv6=False):
         ic = icifc.api
@@ -173,11 +173,11 @@ class FailoverMacro(Macro):
         addresses = ic.Networking.SelfIPV2.get_address(self_ips=selfips)
         states = ic.Networking.SelfIPV2.get_floating_state(self_ips=selfips)
         vlans = ic.Networking.SelfIPV2.get_vlan(self_ips=selfips)
-        selfips = [(x[3], x[1]) for x in zip(selfips, addresses, states, 
+        selfips = [(x[3], x[1]) for x in zip(selfips, addresses, states,
                                              vlans)
-                   if IPAddress(x[1]).version == (6 if ipv6 else 4) and 
+                   if IPAddress(x[1]).version == (6 if ipv6 else 4) and
                       x[2] == 'STATE_DISABLED']
-        
+
         vlan_ip_map = dict(selfips)
         LOG.debug("VLAN map: %s", vlan_ip_map)
         internal_selfip = vlan_ip_map['/Common/internal']
@@ -187,16 +187,16 @@ class FailoverMacro(Macro):
                                       keep_current_authority='false',
                                       authority_cert='',
                                       authority_key='')
-        
+
         # XXX: Why does it remember the old device name?!
-        # Because a check for duplicate device name is not done here. 
+        # Because a check for duplicate device name is not done here.
 #        LOG.info('Resetting trust (again) on %s...', device)
 #        ic.Management.Trust.reset_all(device_object_name=device.alias,
 #                                      keep_current_authority='false',
 #                                      authority_cert='',
 #                                      authority_key='')
-        
-        LOG.info('Setting config sync address on %s to %s...', device.alias, 
+
+        LOG.info('Setting config sync address on %s to %s...', device.alias,
                  internal_selfip)
         ic.Management.Device.set_configsync_address(devices=[device.alias],
                                                     addresses=[internal_selfip])
@@ -215,18 +215,18 @@ class FailoverMacro(Macro):
                                                    addresses=[[dict(effective=address,
                                                                source=address)]])
 
-        LOG.info('Setting primary mirror address on %s to %s...', device.alias, 
+        LOG.info('Setting primary mirror address on %s to %s...', device.alias,
                  internal_selfip)
         ic.Management.Device.set_primary_mirror_address(devices=[device.alias],
                                                         addresses=[internal_selfip])
-        
+
         if vlan_ip_map.get('/Common/external'):
             external_selfip = vlan_ip_map['/Common/external']
-            LOG.info('Setting secondary mirror address on %s to %s...', 
+            LOG.info('Setting secondary mirror address on %s to %s...',
                      device.alias, external_selfip)
             ic.Management.Device.set_secondary_mirror_address(devices=[device.alias],
                                                               addresses=[external_selfip])
-    
+
     # TODO: optimize to work with multiple groups at once.
     def do_prep_dgs(self, icifc, device, groups):
         ic = icifc.api
@@ -235,7 +235,7 @@ class FailoverMacro(Macro):
         for reserved_group in RESERVED_GROUPS:
             if '/Common/%s' % reserved_group in dgs:
                 dgs.remove('/Common/%s' % reserved_group)
-        
+
         if dgs:
             LOG.info('Removing groups %s on %s...', dgs, device.alias)
             ic.Management.DeviceGroup.remove_all_devices(device_groups=dgs)
@@ -256,10 +256,10 @@ class FailoverMacro(Macro):
 
     def do_get_active(self):
         device_accesses = self.cas + self.peers
-        devices_map = dict(map(lambda x:(x.address, x), device_accesses))
-        
+        devices_map = dict(map(lambda x: (x.address, x), device_accesses))
+
         cred = device_accesses[0].get_admin_creds()
-        with IcontrolInterface(address=device_accesses[0].address, 
+        with IcontrolInterface(address=device_accesses[0].address,
                                username=cred.username,
                                password=cred.password,
                                port=device_accesses[0].ports['https']) as icifc:
@@ -267,17 +267,17 @@ class FailoverMacro(Macro):
             devices = ic.Management.Device.get_list()
             fostates = ic.Management.Device.get_failover_state(devices=devices)
             mgmtaddrs = ic.Management.Device.get_management_address(devices=devices)
-            
-        trios = map(lambda x:(devices_map.get(x[2]), x[1], x[0]), zip(devices, 
-                                                                      fostates, 
-                                                                      mgmtaddrs))
+
+        trios = map(lambda x: (devices_map.get(x[2]), x[1], x[0]), zip(devices,
+                                                                       fostates,
+                                                                       mgmtaddrs))
         LOG.debug(trios)
-        active_devices = filter(lambda x:x[1] == 'HA_STATE_ACTIVE', trios)
+        active_devices = filter(lambda x: x[1] == 'HA_STATE_ACTIVE', trios)
         return active_devices
 
     def do_config_sync(self):
         groups = self.groups.keys()
-        
+
         # Wait for at least one Active device.
         active_devices = wait(self.do_get_active, timeout=30, interval=2)
         # Will initiate config sync only from the first Active device.
@@ -285,7 +285,7 @@ class FailoverMacro(Macro):
         LOG.info("Doing Config Sync to group %s...", groups)
 
         cred = first_active_device[0].get_admin_creds()
-        with IcontrolInterface(address=first_active_device[0].address, 
+        with IcontrolInterface(address=first_active_device[0].address,
                                username=cred.username,
                                password=cred.password,
                                port=first_active_device[0].ports['https']) as icifc:
@@ -306,7 +306,7 @@ class FailoverMacro(Macro):
                 LOG.warning('No configuration found for device %s', device[2])
                 continue
             cred = device[0].get_admin_creds()
-            with IcontrolInterface(address=device[0].address, 
+            with IcontrolInterface(address=device[0].address,
                                    username=cred.username,
                                    password=cred.password,
                                    port=device[0].ports['https']) as icifc:
@@ -319,26 +319,26 @@ class FailoverMacro(Macro):
                 devices = ic.Management.Device.get_list()
                 mgmtaddrs = ic.Management.Device.get_management_address(devices=devices)
                 device_map = dict(zip(mgmtaddrs, devices))
-                
+
                 if device_map.get(desired_active):
                     LOG.info("Current Active device is %s.", device[2])
                     LOG.info("Setting %s to Active...", device_map[desired_active])
                     ic.System.Failover.set_standby_to_device(device=device_map[desired_active])
 
         def _is_desired_device_active(devices):
-            return [x for x in devices if x[1] == 'HA_STATE_ACTIVE' 
+            return [x for x in devices if x[1] == 'HA_STATE_ACTIVE'
                                        and x[2] == device_map[desired_active]]
         if device_map.get(desired_active):
             LOG.info("Waiting for Active status...")
-            wait(self.do_get_active, _is_desired_device_active, timeout=10, 
-                 interval=1, message="Timed out waiting for %s to become Active." % device_map[desired_active])
+            wait(self.do_get_active, _is_desired_device_active, timeout=10,
+                 interval=1)
 
     def do_config_all(self):
         peers = self.peers
         groups = self.groups
         ipv6 = self.options.ipv6
         cas = self.cas
-        
+
         if not cas:
             LOG.warning('No CAs specified, NOOP!')
             return
@@ -351,7 +351,7 @@ class FailoverMacro(Macro):
             v = ICMD.system.get_version(ifc=caicifc)
             if v.product.is_bigip and v < 'bigip 11.0':
                 raise NotImplementedError('Not working for < 11.0: %s' % caicifc.address)
-        
+
             self.do_prep_dgs(caicifc, cas[0], groups)
             self.do_prep_cmi(caicifc, cas[0], ipv6)
 
@@ -360,11 +360,11 @@ class FailoverMacro(Macro):
                 with IcontrolInterface(address=peer.address, username=cred.username,
                                        password=cred.password,
                                        port=peer.ports['https']) as peericifc:
-                
+
                     v = ICMD.system.get_version(ifc=peericifc)
                     if v.product.is_bigip and v < 'bigip 11.0':
                         raise NotImplemented('Not working for < 11.0')
-                    
+
                     self.do_prep_cmi(peericifc, peer, ipv6)
                     peer_address = peericifc.api.Networking.AdminIP.get_list()[0]
 
@@ -382,11 +382,11 @@ class FailoverMacro(Macro):
                 with IcontrolInterface(address=peer.address, username=cred.username,
                                        password=cred.password,
                                        port=peer.ports['https']) as peericifc:
-                
+
                     v = ICMD.system.get_version(ifc=peericifc)
                     if v.product.is_bigip and v < 'bigip 11.0':
                         raise NotImplemented('Not working for < 11.0')
-                    
+
                     self.do_prep_cmi(peericifc, peer, ipv6)
                     peer_address = peericifc.api.Networking.AdminIP.get_list()[0]
 
@@ -399,25 +399,25 @@ class FailoverMacro(Macro):
                                                              browser_cert_signature='',
                                                              browser_cert_sha1_fingerprint='',
                                                              browser_cert_md5_fingerprint='')
-            
+
             group_2_devices = {}
             for device in cas + peers:
                 for group in device.groups:
                     group_2_devices.setdefault(group, [])
                     group_2_devices[group].append(device.alias)
-            
+
             device_groups, devices = zip(*group_2_devices.items())
 
             LOG.info('Adding devices %s to %s...', devices, device_groups)
             ca_api.Management.DeviceGroup.add_device(device_groups=device_groups,
                                                      devices=devices)
-            
+
             if self.options.floatingip:
                 LOG.info('Adding floating ip to %s...', DEFAULT_TG)
                 ip = IPNetwork(self.options.floatingip)
                 if ip.prefixlen == 32:
                     raise ValueError("Did you forget the /16 prefix?")
-                
+
 #                from SOAPpy import SOAPBuilder
                 ca_api.Networking.SelfIPV2.create(self_ips=['int_floating'],
                                                   vlan_names=['internal'],
@@ -426,7 +426,7 @@ class FailoverMacro(Macro):
                                                   traffic_groups=[DEFAULT_TG],
                                                   floating_states=['STATE_ENABLED']
                                                   )
-            
+
             # BUG: BZ364939 (workaround restart tmm on all peers)
             # 01/22: Appears to work sometimes in 11.2 955.0
             self.do_BZ364939()
@@ -434,10 +434,10 @@ class FailoverMacro(Macro):
     def setup(self):
         self.set_devices()
         self.set_groups()
-        
+
         if self.options.reset:
             self.do_reset_all()
-        
+
         if self.options.config:
             self.do_config_all()
 
@@ -446,7 +446,7 @@ class FailoverMacro(Macro):
 
         if self.options.sync:
             self.do_config_sync()
-                    
+
 
 def main():
     import optparse
@@ -456,24 +456,24 @@ def main():
     """<peer address>[:port][,<peer username>[,<peer password>]] [<peer address>...]"""
     """[-g dg1[:dgtype]] [-g ...]"""
 
-    formatter = optparse.TitledHelpFormatter(indent_increment=2, 
+    formatter = optparse.TitledHelpFormatter(indent_increment=2,
                                              max_help_position=60)
     p = optparse.OptionParser(usage=usage, formatter=formatter,
                             version="CMI Device Trust Configurator v%s" % __version__
         )
     p.add_option("-v", "--verbose", action="store_true",
                  help="Debug messages")
-    
+
     p.add_option("-u", "--username", metavar="USERNAME", default='admin',
                  type="string", help="Default username. (default: admin)")
-    p.add_option("-p", "--password", metavar="PASSWORD", default='f5site02',
-                 type="string", help="Default password. (default: f5site02)")
-    p.add_option("-g", "--dg", metavar="DEVICEGROUP", type="string", 
+    p.add_option("-p", "--password", metavar="PASSWORD", default='admin',
+                 type="string", help="Default password. (default: admin)")
+    p.add_option("-g", "--dg", metavar="DEVICEGROUP", type="string",
                  action="append",
                  help="Device Group(s) and type. (default: %s)" % DEFAULT_DG)
     p.add_option("-6", "--ipv6", action="store_true", default=False,
                  help="Use only IPv6 self IPs as ConfigSync IPs.")
-    p.add_option("-f", "--floatingip", metavar="IP/PREFIX", type="string", 
+    p.add_option("-f", "--floatingip", metavar="IP/PREFIX", type="string",
                  help="Floating self IP for the default TG.")
 
     p.add_option("-c", "--config", action="store_true", default=False,
@@ -500,12 +500,12 @@ def main():
 
     LOG.setLevel(level)
     logging.basicConfig(level=level)
-    
+
     if not args:
         p.print_version()
         p.print_help()
         sys.exit(2)
-    
+
     cas = args[:1]
     if cas[0].startswith('~'):
         cas[0] = cas[0][1:]
@@ -516,14 +516,14 @@ def main():
             cas.append(spec[1:])
         else:
             peers.append(spec)
-    
+
     # Backward compatibility:
     # Assume config action is desired when no other actions are set.
-    if not (options.config or options.reset or options.sync or 
+    if not (options.config or options.reset or options.sync or
             options.set_active):
         options.config = True
-    
-    cs = FailoverMacro(options=options, authorities=cas, peers=peers, 
+
+    cs = FailoverMacro(options=options, authorities=cas, peers=peers,
                        groups=options.dg)
     cs.run()
 

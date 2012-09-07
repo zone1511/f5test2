@@ -10,7 +10,6 @@ from ..base import Options
 import urllib
 import urllib2
 import f5test.commands.icontrol as ICMD
-#import f5test.commands.shell as SCMD
 from ..utils import Version
 
 LOG = logging.getLogger(__name__)
@@ -47,11 +46,11 @@ class BVTInfo(Plugin):
             "You can disable this plugin by passing --no-bvtinfo."
 
     def _get_duts_info(self):
-        devices = [x for x in self.config_ifc.get_all_devices() 
+        devices = [x for x in self.config_ifc.get_all_devices()
                      if 'no-bvtinfo-reporting' not in x.tags]
         if not devices:
             return
-        
+
         ret = []
         for device in devices:
             info = Options()
@@ -70,8 +69,11 @@ class BVTInfo(Plugin):
         return ret
 
     def finalize(self, result):
-        LOG.info("Reporting results to BVTInfo...")
+        if result.testsRun == len(result.errors):
+            LOG.warning("Total failure: reporting aborted. Please investigate.")
+            return
 
+        LOG.info("Reporting results to BVTInfo...")
         config = self.config_ifc.open()
         bvtinfocfg = config.bvtinfo
         if config.testopia._testrun:
@@ -79,10 +81,10 @@ class BVTInfo(Plugin):
         else:
             result_url = self.config_ifc.get_session().get_url()
         result_text = "Total: %d, Fail: %d, Err: %d, Skip: %d" % \
-                        ( result.testsRun,
-                          len(result.failures),
-                          len(result.errors),
-                          len(result.skipped))
+                        (result.testsRun,
+                        len(result.failures),
+                        len(result.errors),
+                        len(result.skipped))
 
         # Report each device
         for dut in self._get_duts_info():
@@ -100,17 +102,17 @@ class BVTInfo(Plugin):
             if dut.version.product.is_em  and \
                abs(dut.version) == 'em 3.0':
                 project = 'Em3.0.0'
-    
+
             params = urllib.urlencode(dict(
-                bvttool = bvtinfocfg.name,
-                project = bvtinfocfg.get('project', project),
-                buildno = bvtinfocfg.get('build', dut.version.build),
-                test_pass = int(not len(result.failures) and not len(result.errors)),
-                platform = dut.platform,
-                result_url = result_url,
-                result_text = result_text
+                bvttool=bvtinfocfg.name,
+                project=bvtinfocfg.get('project', project),
+                buildno=bvtinfocfg.get('build', dut.version.build),
+                test_pass=int(not len(result.failures) and not len(result.errors)),
+                platform=dut.platform,
+                result_url=result_url,
+                result_text=result_text
             ))
-    
+
             LOG.debug(params)
             opener = urllib2.build_opener()
             urllib2.install_opener(opener)
