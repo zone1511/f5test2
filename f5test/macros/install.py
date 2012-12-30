@@ -20,6 +20,8 @@ import time
 LOG = logging.getLogger(__name__)
 SHARED_IMAGES = '/shared/images'
 SHARED_TMP = '/shared/tmp'
+BOTD_HOST = 'bvtinfo.att.pdsea.f5net.com'
+BOTD_PATH = '/bvtinfo/api/build_of_the_day/'
 __version__ = '0.1'
 __all__ = ['VersionNotSupported', 'InstallSoftware', 'EMInstallSoftware']
 
@@ -148,6 +150,14 @@ class InstallSoftware(Macro):
             version = SCMD.ssh.get_version(ifc=sshifc)
             LOG.info('running on %s', version)
 
+            if version > 'bigip 9.6.0':
+                cluster = SCMD.tmsh.list('sys clu', ifc=sshifc)
+                if cluster.get('sys'):
+                    raise NotImplementedError('Due to potential complications image2disk '
+                                              'installations on clustered '
+                                              'systems are not supported by this tool '
+                                              'and should be done by hand. Sorry!')
+
             if not essential and iso_version < version or \
                iso_version.product != version.product:
                 LOG.warning('Enforcing --esential-config')
@@ -156,7 +166,7 @@ class InstallSoftware(Macro):
             #XXX: Image checksum is not verified!!
             if (not base in ssh.run('ls ' + SHARED_IMAGES).stdout.split()):
                 LOG.info('Deleting all images...')
-                ssh.run('rm -f %s/*' % SHARED_IMAGES)
+                ssh.run('rm -rf %s/*' % SHARED_IMAGES)
 
                 LOG.info('Importing iso %s', filename)
                 SCMD.ssh.scp_put(ifc=sshifc, source=filename, nokex=False)
@@ -200,44 +210,44 @@ class InstallSoftware(Macro):
 
         if hfiso:
             if essential:
-                ssh = SSHInterface(address=self.address, timeout=timeout,
-                                   port=self.options.ssh_port)
+                sshifc = SSHInterface(address=self.address, timeout=timeout,
+                                      port=self.options.ssh_port)
             else:
-                ssh = SSHInterface(address=self.address, timeout=timeout,
-                                   username=self.options.root_username,
-                                   password=self.options.root_password,
-                                   port=self.options.ssh_port)
+                sshifc = SSHInterface(address=self.address, timeout=timeout,
+                                      username=self.options.root_username,
+                                      password=self.options.root_password,
+                                      port=self.options.ssh_port)
 
-            with ssh:
-                version = SCMD.ssh.get_version(ifc=ssh)
+            with sshifc:
+                version = SCMD.ssh.get_version(ifc=sshifc)
                 LOG.info('running on %s', version)
                 if reboot:
-                    audit = SCMD.ssh.audit_software(version=version, ifc=ssh)
+                    audit = SCMD.ssh.audit_software(version=version, ifc=sshifc)
                     volume = get_inactive_volume(audit)
                     LOG.info('Installing image on %s...', volume)
-                    SCMD.ssh.install_software(version=version, ifc=ssh,
+                    SCMD.ssh.install_software(version=version, ifc=sshifc,
                                               repository=filename, reboot=False,
                                               essential=essential, volume=volume,
                                               progress_cb=log_progress,
                                               repo_version=iso_version)
                 hfbase = os.path.basename(hfiso)
-                if (not hfbase in ssh.run('ls ' + SHARED_IMAGES).stdout.split()):
+                if (not hfbase in sshifc.api.run('ls ' + SHARED_IMAGES).stdout.split()):
                     LOG.info('Importing hotfix %s', hfiso)
-                    SCMD.ssh.scp_put(ifc=ssh, source=hfiso, nokex=not reboot)
+                    SCMD.ssh.scp_put(ifc=sshifc, source=hfiso, nokex=not reboot)
                 hfiso = os.path.join(SHARED_IMAGES, hfbase)
 
                 LOG.info('Installing hotfix on %s...', volume)
-                SCMD.ssh.install_software(version=version, ifc=ssh,
+                SCMD.ssh.install_software(version=version, ifc=sshifc,
                                           repository=hfiso, is_hf=True,
                                           essential=essential, volume=volume,
                                           progress_cb=log_progress,
                                           repo_version=hfiso_version,
                                           reboot=False)
                 if essential:
-                    self._initialize_big3d(ssh)
+                    self._initialize_big3d(sshifc)
                 LOG.info('Rebooting...')
-                SCMD.ssh.switchboot(ifc=ssh, volume=volume)
-                SCMD.ssh.reboot(ifc=ssh)
+                SCMD.ssh.switchboot(ifc=sshifc, volume=volume)
+                SCMD.ssh.reboot(ifc=sshifc)
 
         # Grab a new iControl handle that uses the default admin credentials.
         current_version = self._wait_after_reboot(essential)
@@ -254,6 +264,32 @@ class InstallSoftware(Macro):
 
 #    def by_tmsh(self):
 #        return
+
+    def copy_only(self, filename, hfiso=None):
+        timeout = self.options.timeout
+
+        def is_available(items):
+            all_count = len(items)
+            return len(filter(lambda x: x['verified'] is True,
+                           items)) == all_count
+
+        base = os.path.basename(filename)
+        LOG.info('Importing base iso %s', base)
+        SCMD.ssh.scp_put(address=self.address,
+                        username=self.options.root_username,
+                        password=self.options.root_password,
+                        port=self.options.ssh_port,
+                        source=filename, nokex=False, timeout=timeout)
+
+        if hfiso:
+            hfbase = os.path.basename(hfiso)
+            LOG.info('Importing hotfix iso %s', hfbase)
+            SCMD.ssh.scp_put(address=self.address,
+                             username=self.options.root_username,
+                             password=self.options.root_password,
+                             port=self.options.ssh_port,
+                             source=hfiso, nokex=True)
+
 
     def by_icontrol(self, filename, hfiso=None):
         iso_version = cm.version_from_metadata(filename)
@@ -496,17 +532,19 @@ class InstallSoftware(Macro):
             if self.options.phf:
                 LOG.warning("Hotfix parameter ignored in BotD mode.")
 
-            with RestInterface(address='bvtinfo.att.pdsea.f5net.com',
-                               proto='http') as restifc:
+            with RestInterface(address=BOTD_HOST, proto='http') as restifc:
                 r = restifc.api
                 LOG.info('Querying build of the day...')
-                response = r.get('/bvtinfo/api/build_of_the_day/')
-                botd = response.data.branches[identifier].build_id
-                filename = cm.isofile(identifier=identifier,
-                                      product=self.options.product,
-                                      build=botd)
-                LOG.info("Found: %s", filename)
-                return filename, None
+                response = r.get(BOTD_PATH)
+                botd_product = self.options.product.upper()
+
+                if self.options.phf:
+                    botd_branch = "%s-%s" % (identifier, self.options.phf)
+                else:
+                    botd_branch = identifier
+
+                build = response.data.products[botd_product].branches[botd_branch].build_id
+                LOG.info("Found: %s", build)
 
         if self.options.image:
             filename = self.options.image
@@ -542,6 +580,10 @@ class InstallSoftware(Macro):
         LOG.info(title)
         filename, hfiso = self._find_iso()
         iso_version = cm.version_from_metadata(filename)
+        
+        if self.options.copy_only:
+            self.copy_only(filename, hfiso)
+            return
 
         if self.options.format_partitions or self.options.format_volumes:
             with SSHInterface(address=self.address,
@@ -845,6 +887,8 @@ def main():
                  help="Pre-format to lvm. (default: no)")
     p.add_option("", "--format-partitions", action="store_true", default=False,
                  help="Pre-format to partitions. (default: no)")
+    p.add_option("", "--copy-only", action="store_true", default=False,
+                 help="Just copy the ISO images. Don't install anything. (default: no)")
 
     options, args = p.parse_args()
 

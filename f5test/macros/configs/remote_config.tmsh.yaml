@@ -14,36 +14,6 @@ options:
     put users on Common partition: no
 
 provision:
-    module to license:
-        apm: ltm
-        woml: ltm
-        ltm: ltm
-        wam: wa
-        psm: afw
-        asm: asm
-        lc:  lc
-        gtm: gtm
-        em:  em
-        wom: woc
-    
-    keys base:
-        bigip:
-            ltm: nominal
-        em:
-            em: dedicated
-
-    keys extra:
-        bigip:
-            #- asm: minimum
-            #- woml: minimum
-            #- wam: minimum
-            #- psm: minimum
-            - gtm: minimum
-            - wom: minimum
-            - lc:  minimum
-            # Doesn't work on Viprion
-            #- apm: minimum
-
     template: |
         sys provision %(provision.key)s {
            level %(provision.level)s
@@ -57,6 +27,76 @@ mgmt: |
     sys management-route default {
        gateway %(ltm.gateway)s
     }
+
+trunk:
+    # Viprions need the cluster number
+    puma1: |
+        net trunk trunk_external {
+            %(lacp.enabled)s
+            interfaces {
+                1/2.2
+                2/2.2
+                3/2.2
+                4/2.2
+            }
+        }
+        net trunk trunk_internal {
+            %(lacp.enabled)s
+            interfaces {
+                1/2.1
+                2/2.1
+                3/2.1
+                4/2.1
+            }
+        }
+
+    puma2: |
+        net trunk trunk_internal {
+            %(lacp.enabled)s
+            interfaces {
+                1/1.1
+                2/1.1
+                3/1.1
+                4/1.1
+            }
+        }
+        net trunk trunk_external {
+            %(lacp.enabled)s
+            interfaces {
+                1/1.2
+                2/1.2
+                3/1.2
+                4/1.2
+            }
+        }
+
+    P8: |
+        net trunk trunk_internal {
+            %(lacp.enabled)s
+            interfaces {
+                1/1.1
+                2/1.1
+                3/1.1
+                4/1.1
+                5/1.1
+                6/1.1
+                7/1.1
+                8/1.1
+            }
+        }
+        net trunk trunk_external {
+            %(lacp.enabled)s
+            interfaces {
+                1/1.2
+                2/1.2
+                3/1.2
+                4/1.2
+                5/1.2
+                6/1.2
+                7/1.2
+                8/1.2
+            }
+        }
 
 vlan:
     common: |
@@ -72,7 +112,27 @@ vlan:
                 1.2 { }
             }
         }
+
+    cluster: |
+        net vlan internal {
+            interfaces {
+                trunk_internal
+            }
+        }
+        net vlan external {
+            interfaces {
+                trunk_external
+            }
+        }
     
+    generic: |
+        net vlan %(vlan)s {
+            %(tag)s
+            interfaces {
+                %(interfaces)s
+            }
+        }
+
     # No interfaces on VMWare images
     SKI23: |
         net vlan internal {
@@ -112,47 +172,20 @@ vlan:
             }
         }
 
-    # Viprions need the cluster number
-    puma1: |
-        net vlan internal {
-            tag 4094
-            interfaces {
-                1/2.1 { }
-            }
-        }
-        net vlan external {
-            tag 4093
-            interfaces {
-                1/2.2 { }
-            }
-        }
-
-    puma2: |
-        net vlan internal {
-            tag 4094
-            interfaces {
-                1/1.1 { }
-            }
-        }
-        net vlan external {
-            tag 4093
-            interfaces {
-                1/1.2 { }
-            }
-        }
-
-self: |
+self internal: |
     net self %(self.int_ip.addr)s/%(self.int_ip.prefix)s {
         vlan internal
-        allow-service default
-    }
-    net self %(self.ext_ip.addr)s/%(self.ext_ip.prefix)s {
-        vlan external
         allow-service default
     }
     net self int_6 {
         address %(self.int_ip6.addr)s/%(self.int_ip6.prefix)s
         vlan internal
+        allow-service default
+    }
+
+self external: |
+    net self %(self.ext_ip.addr)s/%(self.ext_ip.prefix)s {
+        vlan external
         allow-service default
     }
     net self ext_6 {
@@ -203,6 +236,7 @@ ntp:
     template: |
         sys ntp {
            servers { %(ntp.servers)s }
+           %(ntp.timezone)s
         }
 
 network failover: |
@@ -256,8 +290,8 @@ system:
             - em 3.0.0
         data: |
             sys smtp-server /Common/mail.f5net.com {
-                from-address me@%(system.hostname)s
-                local-host-name %(system.hostname)s
+                from-address nobody@f5net.com
+                local-host-name test.net
                 smtp-server-host-name mail.f5net.com
             }
     
@@ -574,6 +608,24 @@ profiles:
                defaults-from isession
             }
 
+    isession_130:
+        min version: 11.3.0
+        require module: ltm
+        text: |
+            wom profile isession /Common/myisession {
+                app-service none
+                defaults-from /Common/isession
+            }
+
+    srdf:
+        min version: 11.3.0
+        require module: ltm
+        text: |
+            wom profile srdf /Common/mysrdf {
+                app-service none
+                defaults-from /Common/srdf
+            }
+
     oneconnect:
         min version: 9.3.1
         require module: ltm
@@ -606,6 +658,15 @@ profiles:
                defaults-from xml
             }
 
+    xml_1130:
+        min version: 11.3.0
+        require module: ea
+        text: |
+            ltm profile xml /Common/myxml {
+                app-service none
+                defaults-from /Common/xml
+            }
+
     ntlm:
         min version: 10.0.1
         require module: ltm
@@ -616,6 +677,7 @@ profiles:
     avr:
         min version: 11.2.0
         require module: pem
+        require provision: avr
         text: |
             ltm profile analytics myavr {
                 app-service none
@@ -740,7 +802,7 @@ profiles:
                defaults-from sctp
             }
 
-    sctp:
+    request-log:
         min version: 11.1.0
         require module: ltm
         text: |
@@ -751,6 +813,88 @@ profiles:
                 request-log-protocol mds-tcp
                 request-log-template "<14>1 $DATE_YYYY-${DATE_MM}-${DATE_DD}T$TIME_HMS.${TIME_USECS}Z $BIGIP_HOSTNAME runfiles 11100 - [BIGIP_BLADE_ID=\"$BIGIP_BLADE_ID\",BIGIP_CACHED=\"$BIGIP_CACHED\",BIGIP_HOSTNAME=\"$BIGIP_HOSTNAME\",CLIENT_IP=\"$CLIENT_IP\",CLIENT_PORT=\"$CLIENT_PORT\",DATE_D=\"$DATE_D\",DATE_DAY=\"$DATE_DAY\",DATE_DD=\"$DATE_DD\",DATE_DY=\"$DATE_DY\",DATE_HTTP=\"$DATE_HTTP\",DATE_MM=\"$DATE_MM\",DATE_MON=\"$DATE_MON\",DATE_MONTH=\"$DATE_MONTH\",DATE_YY=\"$DATE_YY\",DATE_YYYY=\"$DATE_YYYY\",HTTP_CLASS=\"$HTTP_CLASS\",HTTP_KEEPALIVE=\"$HTTP_KEEPALIVE\",HTTP_METHOD=\"$HTTP_METHOD\",HTTP_PATH=\"$HTTP_PATH\",HTTP_QUERY=\"$HTTP_QUERY\",HTTP_REQUEST=\"$HTTP_REQUEST\",HTTP_STATCODE=\"$HTTP_STATCODE\",HTTP_STATUS=\"$HTTP_STATUS\",HTTP_URI=\"$HTTP_URI\",HTTP_VERSION=\"$HTTP_VERSION\",RESPONSE_MSECS=\"$RESPONSE_MSECS\",RESPONSE_SIZE=\"$RESPONSE_SIZE\",RESPONSE_USECS=\"$RESPONSE_USECS\",SERVER_IP=\"$SERVER_IP\",SERVER_PORT=\"$SERVER_PORT\",SNAT_IP=\"$SNAT_IP\",SNAT_PORT=\"$SNAT_PORT\",TIME_AMPM=\"$TIME_AMPM\",TIME_H12=\"$TIME_H12\",TIME_HRS=\"$TIME_HRS\",TIME_HH12=\"$TIME_HH12\",TIME_HMS=\"$TIME_HMS\",TIME_HH24=\"$TIME_HH24\",TIME_MM=\"$TIME_MM\",TIME_MSECS=\"$TIME_MSECS\",TIME_OFFSET=\"$TIME_OFFSET\",TIME_SS=\"$TIME_SS\",TIME_UNIX=\"$TIME_UNIX\",TIME_USECS=\"$TIME_USECS\",TIME_ZONE=\"$TIME_ZONE\",VIRTUAL_IP=\"$VIRTUAL_IP\",VIRTUAL_NAME=\"$VIRTUAL_NAME\",VIRTUAL_POOL_NAME=\"$VIRTUAL_POOL_NAME\",VIRTUAL_PORT=\"$VIRTUAL_PORT\",VIRTUAL_SNATPOOL_NAME=\"$VIRTUAL_SNATPOOL_NAME\"]"
                 request-logging enabled
+            }
+
+    dns:
+        min version: 11.3.0
+        require module: ltm
+        text: |
+            ltm profile dns mydns {
+                app-service none
+                cache none
+                defaults-from dns
+                dns64 disabled
+                dns-security none
+                enable-cache no
+                enable-dns-express yes
+                enable-dns-firewall no
+                enable-dnssec yes
+                enable-gtm yes
+                enable-logging no
+                log-profile none
+                process-rd yes
+                unhandled-query-action allow
+                use-local-bind yes
+            }
+
+    icap:
+        min version: 11.3.0
+        require module: ltm
+        text: |
+            ltm profile icap myicap {
+                app-service none
+                defaults-from icap
+                header-from none
+                host none
+                preview-length 0
+                referer none
+                uri none
+                user-agent none
+            }
+
+    requestadapt:
+        min version: 11.4.0
+        require module: ltm
+        text: |
+            ltm profile request-adapt myrequestadapt {
+                app-service none
+                defaults-from requestadapt
+                enabled yes
+                internal-virtual none
+                preview-size 1024
+                service-down-action ignore
+                timeout 0
+            }
+
+    reponseadapt:
+        min version: 11.4.0
+        require module: ltm
+        text: |
+            ltm profile response-adapt reponseadapt {
+                app-service none
+                defaults-from responseadapt
+                enabled yes
+                internal-virtual none
+                preview-size 1024
+                service-down-action ignore
+                timeout 0
+            }
+
+    smtp_1120:
+        min version: 11.2.0
+        require module: ltm
+        text: |
+            ltm profile smtp /Common/mysmtp {
+                defaults-from /Common/smtp
+            }
+
+    spdy:
+        min version: 11.3.0
+        require module: ltm
+        text: |
+            ltm profile spdy myspdy {
+                app-service none
+                defaults-from spdy
             }
 
     auth-ocsp:

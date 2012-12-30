@@ -30,7 +30,8 @@ class KeySwap(Macro):
                           username=self.options.username,
                           password=self.options.password,
                           port=self.options.port) as ssh:
-            return ssh.api.exchange_key()
+            ssh.api.exchange_key()
+            ssh.api.run('test -x /sbin/restorecon && /sbin/restorecon ~/.ssh ~/.ssh/authorized_keys')
 
 
 def main():

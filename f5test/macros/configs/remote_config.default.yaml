@@ -14,36 +14,6 @@ options:
     put users on Common partition: no
 
 provision:
-    module to license:
-        apm: ltm
-        woml: ltm
-        ltm: ltm
-        wam: wa
-        psm: afw
-        asm: asm
-        lc:  lc
-        gtm: gtm
-        em:  em
-        wom: woc
-    
-    keys base:
-        bigip:
-            ltm: nominal
-        em:
-            em: dedicated
-
-    keys extra:
-        bigip:
-            #- asm: minimum
-            #- woml: minimum
-            #- wam: minimum
-            #- psm: minimum
-            - gtm: minimum
-            - wom: minimum
-            - lc:  minimum
-            # Doesn't work on Viprion
-            #- apm: minimum
-
     template: |
         provision %(provision.key)s {
            level %(provision.level)s
@@ -57,6 +27,48 @@ mgmt: |
        gateway %(ltm.gateway)s
     }
 
+trunk:
+    # Viprions need the cluster number
+    puma1: |
+        trunk trunk_internal {
+            %(lacp.enabled)s
+            interfaces {
+                1/2.1
+                2/2.1
+                3/2.1
+                4/2.1
+            }
+        }
+        trunk trunk_external {
+            %(lacp.enabled)s
+            interfaces {
+                1/2.2
+                2/2.2
+                3/2.2
+                4/2.2
+            }
+        }
+
+    puma2: |
+        trunk trunk_internal {
+            %(lacp.enabled)s
+            interfaces {
+                1/1.1
+                2/1.1
+                3/1.1
+                4/1.1
+            }
+        }
+        trunk trunk_external {
+            %(lacp.enabled)s
+            interfaces {
+                1/1.2
+                2/1.2
+                3/1.2
+                4/1.2
+            }
+        }
+
 vlan:
     common: |
         vlan internal {
@@ -67,7 +79,23 @@ vlan:
            tag 4093
            interfaces 1.2
         }
-    
+
+    cluster: |
+        vlan internal {
+            trunks trunk_internal
+        }
+        vlan external {
+            trunks trunk_external
+        }
+
+    generic: |
+        vlan %(vlan)s {
+            %(tag)s
+            interfaces {
+                %(interfaces)s
+            }
+        }
+
     # No interfaces on VMWare images
     SKI23: |
         vlan internal {
@@ -99,41 +127,22 @@ vlan:
            interfaces wan
         }
 
-    # Viprions need the cluster number
-    puma1: |
-        vlan internal {
-           tag 4094
-           interfaces 1/2.1
-        }
-        vlan external {
-           tag 4093
-           interfaces 1/2.2
-        }
-
-    puma2: |
-        vlan internal {
-           tag 4094
-           interfaces 1/1.1
-        }
-        vlan external {
-           tag 4093
-           interfaces 1/1.2
-        }
-
-self: |
+self internal: |
     self %(self.int_ip.addr)s {
        netmask %(self.int_ip.netmask)s
        vlan internal
        allow default
     }
-    self %(self.ext_ip.addr)s {
-       netmask %(self.ext_ip.netmask)s
-       vlan external
-    }
     self %(self.int_ip6.addr)s {
        netmask %(self.int_ip6.netmask)s
        vlan internal
        allow default
+    }
+
+self external: |
+    self %(self.ext_ip.addr)s {
+       netmask %(self.ext_ip.netmask)s
+       vlan external
     }
     self %(self.ext_ip6.addr)s {
        netmask %(self.ext_ip6.netmask)s
@@ -184,6 +193,7 @@ ntp:
     template: |
         ntp {
            servers %(ntp.servers)s
+           %(ntp.timezone)s
         }
 
 network failover: |

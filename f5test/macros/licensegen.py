@@ -17,16 +17,19 @@ LOG = logging.getLogger(__name__)
 
 BANNED_FEATURES = set(('Appliance Mode', 'TrustedIP Subscription',
                        'IP Intelligence Subscription', 'IPI Subscription',
-                       'App Mode'))
+                       'App Mode', 'LTM, 1 Gbps - 3 Gbps Upgrade, VE'))
 
 MAP = Options()
 MAP.eval = {}
 MAP.eval.bigip = {}
 MAP.eval.bigip['VE'] = 'F5-BIG-LTM-VE-1G-LIC'
+MAP.eval.bigip['VE3'] = 'F5-BIG-LTM-VE-3G-LIC'
 MAP.eval.bigip['1600'] = 'F5-BIG-LTM-1600-4G-LIC'
+MAP.eval.bigip['2000'] = 'F5-BIG-LTM-2000S-LIC'
+MAP.eval.bigip['2200'] = 'F5-BIG-LTM-2200S-LIC'
 MAP.eval.bigip['3600'] = 'F5-BIG-LTM-3600-4G-LIC'
 MAP.eval.bigip['3900'] = 'F5-BIG-LTM-3900-8G-LIC'
-MAP.eval.bigip['4200V'] = 'F5-BIG-LTM-4200V-LIC'
+MAP.eval.bigip['4000'] = 'F5-BIG-LTM-4200V-LIC'
 MAP.eval.bigip['6400'] = 'F5-BIG-LTM-6400-LIC'
 MAP.eval.bigip['6800'] = 'F5-BIG-LTM-6800-LIC'
 MAP.eval.bigip['6900'] = 'F5-BIG-LTM-6900-8G-LIC'
@@ -34,7 +37,7 @@ MAP.eval.bigip['8400'] = 'F5-BIG-LTM-8400-LIC'
 MAP.eval.bigip['8800'] = 'F5-BIG-LTM-8800-LIC'
 MAP.eval.bigip['8900'] = 'F5-BIG-LTM-8900-LIC'
 MAP.eval.bigip['8950'] = 'F5-BIG-LTM-8950-LIC'
-#MAP.eval.bigip['10200'] = 'F5-BIG-LTM-10200-V-LIC'
+MAP.eval.bigip['10000'] = 'F5-BIG-LTM-10200V-LIC'
 MAP.eval.bigip['11000'] = 'F5-BIG-LTM-11000-48G-LIC'
 MAP.eval.bigip['11050'] = 'F5-BIG-LTM-11050-LIC'
 MAP.eval.bigip['C2400'] = 'F5-VPR-LTM-C2400-AC-LIC'
@@ -47,10 +50,13 @@ MAP.eval.em['4000'] = 'F5-EM-4000-LIC'
 MAP.dev = {}
 MAP.dev.bigip = {}
 MAP.dev.bigip['VE'] = 'F5-BIG-LTM-VE-1G-LIC-DEV'
+MAP.dev.bigip['VE3'] = 'F5-BIG-LTM-VE-3G-LIC-DEV'
 MAP.dev.bigip['1600'] = 'F5-BIG-LTM-1600-4G-DEV'
+MAP.dev.bigip['2000'] = 'F5-BIG-LTM-2000S-LIC-DEV'
+MAP.dev.bigip['2200'] = 'F5-BIG-LTM-2200S-LIC-DEV'
 MAP.dev.bigip['3600'] = 'F5-BIG-LTM-3600-4G-DEV'
 MAP.dev.bigip['3900'] = 'F5-BIG-LTM-3900-4G-DEV'
-MAP.dev.bigip['4200V'] = 'F5-BIG-LTM-4200V-LIC-DEV'
+MAP.dev.bigip['4000'] = 'F5-BIG-LTM-4200V-LIC-DEV'
 MAP.dev.bigip['6400'] = 'F5-BIG-LTM-6400-LIC-DEV'
 MAP.dev.bigip['6800'] = 'F5-BIG-LTM-6800-LIC-DEV'
 MAP.dev.bigip['6900'] = 'F5-BIG-LTM-6900-8G-LIC-DEV'
@@ -58,7 +64,7 @@ MAP.dev.bigip['8400'] = 'F5-BIG-LTM-8400-LIC-DEV'
 MAP.dev.bigip['8800'] = 'F5-BIG-LTM-8800-LIC-DEV'
 MAP.dev.bigip['8900'] = 'F5-BIG-LTM-8900-LIC-DEV'
 MAP.dev.bigip['8950'] = 'F5-BIG-LTM-8950-LIC-DEV'
-MAP.dev.bigip['10200'] = 'F5-BIG-LTM-10200-V-LIC-DEV'
+MAP.dev.bigip['10000'] = 'F5-BIG-LTM-10200V-LIC-DEV'
 MAP.dev.bigip['11000'] = 'F5-BIG-LTM-11000-48G-LIC-DEV'
 MAP.dev.bigip['11050'] = 'F5-BIG-LTM-11050-LIC-DEV'
 MAP.dev.bigip['C2400'] = 'F5-VPR-LTM-C2400-AC-LIC-DEV'
@@ -172,9 +178,16 @@ class LicenseGenerator(Macro):
         for e in table.find_elements_by_xpath("//tr[td='Multiple Options (please select one)']"
                                               "/following-sibling::tr[1]/td[1]"):
             text = e.text.strip()
-            LOG.debug(text)
-            img = e.find_element_by_tag_name('img')
-            img.click()
+            for label in BANNED_FEATURES:
+                banned = False
+                if text.find(label) >= 0:
+                    banned = True
+                    break
+
+            if not banned:
+                LOG.debug(text)
+                img = e.find_element_by_tag_name('img')
+                img.click()
 
         e = b.find_element_by_name('copier')
         e.clear()

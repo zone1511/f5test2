@@ -436,10 +436,14 @@ class ConfigGeneratorStage(Stage, ConfigGenerator):
                           peer_device=specs.get('peer'),
                           unitid=specs.get('unitid'),
                           license=specs.get('license'),
+                          timezone=specs.get('timezone'),
                           timeout=specs.get('timeout'),
                           selfip_floating=specs.get('floating ip'),
                           selfip_internal=specs.get('selfip internal'),
                           selfip_external=specs.get('selfip external'),
+                          vlan_internal=specs.get('vlan internal'),
+                          vlan_external=specs.get('vlan external'),
+                          trunks_lacp=specs.get('trunks lacp'),
                           provision=specs.get('provision'),
                           partitions=specs.get('partitions'),
                           node_count=specs.get('node count'),
@@ -553,7 +557,7 @@ class EMDiscocveryStage(Stage, Macro):
                 uid = EMAPI.device.discover(to_discover, device=self.device)
                 task = EMSQL.device.GetDiscoveryTask(uid, ifc=ssh) \
                             .run_wait(lambda x: x['status'] != 'started',
-                                      timeout=360,  # Sometimes it takes more.
+                                      timeout=666,  # Sometimes it takes more.
                                       progress_cb=lambda x: 'discovery: %d%%' % x.progress_percent)
                 summary = ''
                 for detail in task.details:

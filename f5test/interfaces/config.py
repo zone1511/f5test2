@@ -137,8 +137,8 @@ class Session(object):
     def __init__(self, config):
         self.config = config
         self.level1 = time.strftime("%Y%m%d")
-        self.level2 = time.strftime("%H%M%S")
-        self.name = "session-%s-%s" % (self.level1, self.level2)
+        self.level2 = "{0}-{1}".format(time.strftime("%H%M%S"), os.getpid())
+        self.name = "%s-%s" % (self.level1, self.level2)
         session = os.path.join('session-%s' % self.level1, self.level2)
         self.session = session
         

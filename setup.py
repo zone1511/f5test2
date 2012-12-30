@@ -45,6 +45,7 @@ try:
                 'f5.loggen = f5test.macros.loggen:main',
                 ],
             'nose.plugins.0.10': [
+                'randomize = f5test.noseplugins.randomize:Randomize',
                 'config = f5test.noseplugins.testconfig:TestConfig',
                 'logcollect = f5test.noseplugins.logcollect:LogCollect',
                 'testopia = f5test.noseplugins.testopia:Testopia',

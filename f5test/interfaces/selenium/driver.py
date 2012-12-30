@@ -3,25 +3,26 @@ from selenium.webdriver.remote.webdriver import WebDriver as RemoteWebDriver
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.remote.command import Command
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys #@UnusedImport
-from selenium.common.exceptions import (NoSuchElementException, 
+from selenium.webdriver.common.keys import Keys  # @UnusedImport
+from selenium.common.exceptions import (NoSuchElementException,
     StaleElementReferenceException, NoSuchWindowException)
-from ...utils.wait import Wait
+from ...utils.wait import Wait, wait
 from ...base import Options
 import copy
 import time
 import logging
 import uuid
 
-LOG = logging.getLogger(__name__) 
+LOG = logging.getLogger(__name__)
 
 
 class ConditionError(Exception):
     pass
 
+
 class Is(object):
     DISPLAYED = "is_displayed"
-    VISIBLE = "is_displayed" # alias of DISPLAYED
+    VISIBLE = "is_displayed"  # alias of DISPLAYED
     SELECTED = "is_selected"
     ENABLED = "is_enabled"
     PRESENT = 0
@@ -39,21 +40,20 @@ class ElementWait(Wait):
         self._element = element
         return super(ElementWait, self).__init__(*args, **kwargs)
 
-    def function(self, value=None, by=By.ID, frame=None,
-                 it=Is.DISPLAYED):
+    def function(self, value=None, by=By.ID, frame=None, it=Is.DISPLAYED):
         if not self._frame:
             self._frame = frame
         self._it = it
         # Start from an element (if specified) or the entire DOM.
         parent = self._element
-        
+
         f = Options()
         f.by = by
         f.value = value
         f.stabilize = self.stabilize
         f.negated = 'yes' if self.negated else 'no'
         f.frame = '.' if frame is None else frame
-        
+
         if it == Is.VISIBLE or it == Is.DISPLAYED:
             f.state = 'visible'
         elif it == Is.SELECTED:
@@ -68,14 +68,20 @@ class ElementWait(Wait):
                          "stabilize={0.stabilize}".format(f)
         self.timeout_message = "Criteria: {0} not met after {{0}} seconds.".format(self._criteria)
         LOG.debug("Waiting for: {0}".format(self._criteria))
-        
+
         b = parent.parent if isinstance(parent, WebElement) else parent
         assert isinstance(b, RemoteWebDriver)
-        
-        if self._frame:
-            b.switch_to_frame(frame)
-            # Absolutize the frame (in case the one provided was relative)
-            self._frame = b.get_current_frame()
+
+        # XXX: Workaround for a Selenium + FF14.0 (and above) issue, where the
+        # current frame is lost in certain situations and the context is
+        # switched to the default document. For more see:
+        # http://code.google.com/p/selenium/issues/detail?id=4309
+        #
+#        if self._frame:
+        frame = f.frame
+        b.switch_to_frame(frame, forced=True)
+        # Absolutize the frame (in case the one provided was relative)
+        self._frame = b.get_current_frame()
 
         if not value:
             return self._element
@@ -87,7 +93,7 @@ class ElementWait(Wait):
             ret = True
         else:
             ret = getattr(result, self._it)()
-        
+
         return bool(ret) ^ self.negated
 
     def test_error(self, exc_type, exc_value, exc_traceback):
@@ -96,7 +102,7 @@ class ElementWait(Wait):
                 return True
         elif exc_type in (IndexError, StaleElementReferenceException):
             LOG.debug(exc_value)
-        
+
         return False
 
 
@@ -121,9 +127,9 @@ class WebElementWrapper(WebElement):
         self.parent.execute(Command.MOVE_TO, {'element': self.id})
         return self.parent
 
- 
+
 class RemoteWrapper(RemoteWebDriver):
-    
+
     def __init__(self, *args, **kwargs):
         self._frames = {}
         self._current_window_handle = None
@@ -143,7 +149,7 @@ class RemoteWrapper(RemoteWebDriver):
 
     def switch_to_frame(self, frame_path='.', window_handle=None, forced=False):
         """Switches focus to a frame by index or name.
-        
+
         @param frame_path: The frame path (e.g. /frame1/subframe or ../parent)
         @param window: The window handle
         @param forced: Attempt to switch frames even we're out of sync
@@ -152,11 +158,11 @@ class RemoteWrapper(RemoteWebDriver):
             window_handle = self.current_window_handle
         orig_frames = self._frames.setdefault(window_handle, [])
         frames = copy.copy(orig_frames)
-        
+
         for i, bit in enumerate(frame_path.split('/')):
             if bit == '':
                 # Path starts with a / (absolute)
-                if i == 0: 
+                if i == 0:
                     frames[:] = []
                 # Path ends / (ignore it)
                 else:
@@ -173,7 +179,7 @@ class RemoteWrapper(RemoteWebDriver):
                 continue
             else:
                 frames.append(bit)
-        
+
         if forced or frames != orig_frames:
             try:
                 super(RemoteWrapper, self).switch_to_default_content()
@@ -186,10 +192,10 @@ class RemoteWrapper(RemoteWebDriver):
                 for frame in orig_frames:
                     super(RemoteWrapper, self).switch_to_frame(frame)
                 raise
-                
+
     def get_current_frame(self, window_handle=None):
         """Returns the frame locator for the given window.
-        
+
         @param window: The window handle
         """
         if window_handle is None:
@@ -202,16 +208,16 @@ class RemoteWrapper(RemoteWebDriver):
 
     def switch_to_window(self, window_name, frame=None, timeout=3):
         """Switching the window automatically resets the current frame to _top.
-        
+
         @param window_name: Window handle or name
-        @param frame: Frame path to set inside the window. By default it'll set 
+        @param frame: Frame path to set inside the window. By default it'll set
         the last frame path and if none is set it'll be /.
         @param timeout: Wait this long for the window to become available.
         @type timeout: int (seconds)
         """
         interval = 0.1
         now = start = time.time()
-        
+
         while True:
             try:
                 super(RemoteWrapper, self).switch_to_window(window_name)
@@ -232,7 +238,7 @@ class RemoteWrapper(RemoteWebDriver):
 
     def create_web_element(self, element_id):
         """Override from RemoteWebDriver to use firefox.WebElement."""
-        return WebElementWrapper(self, element_id) 
+        return WebElementWrapper(self, element_id)
 
     def move_to_element(self, to_element):
         """Moving the mouse to the middle of an element.
@@ -262,13 +268,13 @@ class RemoteWrapper(RemoteWebDriver):
         else:
             LOG.warning("maximize_window not supported in %s." % self.name)
 
-    def wait(self, value=None, by=By.ID, frame=None, it=Is.DISPLAYED, 
+    def wait(self, value=None, by=By.ID, frame=None, it=Is.DISPLAYED,
              negated=False, timeout=10, interval=0.1, stabilize=0, element=None):
         """Waits for an element to satisfy a certain condition.
-        
-        @param value: the locator 
+
+        @param value: the locator
         @type value: str
-        @param by: the locator type, one of: ID, XPATH, LINK_TEXT, NAME, 
+        @param by: the locator type, one of: ID, XPATH, LINK_TEXT, NAME,
                    TAG_NAME, CSS_SELECTOR, CLASS_NAME
         @type by: enum
         @param frame: the frame path (e.g. /topframe/subframe, default: current frame)
@@ -287,6 +293,14 @@ class RemoteWrapper(RemoteWebDriver):
         @param element: parent element
         @type element: WebElement instance
         """
-        
+
         w = ElementWait(element or self, timeout, interval, stabilize, negated)
         return w.run(value=value, by=by, frame=frame, it=it)
+
+    def wait_ajax(self, timeout=10, interval=0.1, stabilize=0):
+        """Waits for the number of jQuery Ajax calls to drop to 0."""
+        def xhr_pending():
+            return self.execute_script('return $.active;') == 0
+
+        return wait(xhr_pending, timeout=timeout, interval=interval,
+                    stabilize=stabilize)

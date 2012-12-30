@@ -9,7 +9,8 @@ import time
 import traceback
 import logging
 
-LOG = logging.getLogger(__name__) 
+LOG = logging.getLogger(__name__)
+
 
 class WaitTimedOut(Exception):
     pass
@@ -18,17 +19,17 @@ class WaitTimedOut(Exception):
 class Wait(object):
     timeout_message = "Criteria not met after {0} seconds."
     progress_message = None
-    
-    def __init__(self, timeout=180, interval=5, stabilize=0, negated=False, 
+
+    def __init__(self, timeout=180, interval=5, stabilize=0, negated=False,
                  timeout_message=None, progress_message=None):
         self.timeout = timeout
         self.interval = interval
         self.stabilize = stabilize
         self.negated = negated
-        
+
         if timeout_message:
             self.timeout_message = timeout_message
-        
+
         if progress_message:
             self.progress_message = progress_message
 
@@ -39,7 +40,8 @@ class Wait(object):
         last_success = result = None
         stable = 0
         end = time.time() + self.timeout
-        
+        last_time = time.time()
+
         while time.time() < end:
             success = False
             try:
@@ -62,32 +64,33 @@ class Wait(object):
                 else:
                     stable = 0
                     self.criteria_not_met(result)
-                
+
                 if success:
+                    if stable == 0 or last_success == success:
+                        self.criteria_met_stable(result)
+                        stable += time.time() - last_time
+                    else:
+                        self.criteria_met_not_stable(result)
+                        stable = 0
+
                     if stable >= self.stabilize:
                         break
-                    else:
-                        if stable == 0 or last_success == success:
-                            self.criteria_met_stable(result)
-                            stable += self.interval
-                        else:
-                            self.criteria_met_not_stable(result)
-                            stable = 0
-                
+
                 last_success = success
+                last_time = time.time()
                 time.sleep(self.interval)
         else:
             self.fail(result)
             raise WaitTimedOut(self.timeout_message.format(self.timeout))
-        
+
         return result
-    
+
     def test_result(self, result):
         return bool(result) ^ self.negated
 
     def test_error(self, exc_type, exc_value, exc_traceback):
         return False ^ self.negated
-    
+
     def criteria_met(self, result):
         LOG.debug('Criteria met.')
 
@@ -99,7 +102,7 @@ class Wait(object):
 
     def criteria_met_stable(self, result):
         LOG.debug('Criteria met and stable.')
-    
+
     def criteria_met_not_stable(self, result):
         LOG.debug('Criteria met but not stable. Timer reset.')
 

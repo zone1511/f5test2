@@ -68,12 +68,12 @@ def nosetests(data):
 
     if data.get('debug'):
         args.append('--no-email')
-        args.append('%s/tests/stirling-em/embvt/integration/filesystem/' % VENV)
+        args.append('%s/tests/solar/bvt/integration/filesystem/' % VENV)
     else:
         args.append('--attr=status=CONFIRMED,priority=1')
         args.append('--with-bvtinfo')
         args.append('--with-irack')
-        args.append('%s/tests/stirling-em/embvt/' % VENV)
+        args.append('%s/tests/solar/bvt/' % VENV)
 
     # Connect the signal only during this iteration.
     with Signals.on_before_extend.connected_to(do_stuff):

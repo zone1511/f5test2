@@ -43,7 +43,7 @@ class FilterDeviceInfo(Query): #@IgnorePep8
 
         # Starting with solar-em-em the 'supports_asm' column has been removed.
         # Faking it using a JOIN with device_component.
-        if parse_version_file(ifc=self.ifc).get('project') == 'solar-em-em':
+        if parse_version_file(ifc=self.ifc).get('project') in ('solar-em-em', 'em-nsd'):
             fields.append('COUNT(dc1.uid) AS supports_asm')
             query = "SELECT %s FROM device d " \
                     "LEFT JOIN device_component dc1 " \

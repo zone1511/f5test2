@@ -52,7 +52,7 @@ class EnableStats(SeleniumCommand):
             wait_for_loading(css='success', ifc=self.ifc)
         # XXX: solar-topaz-em and allagasg are EM 3.1 but are missing certain UI changes.
         # This project check must be removed when these branches will be invalidated.
-        elif v.product.is_em and v >= 'em 3.1' and vdict.get('project') not in ('solar-topaz-em', 'allagash', 'solar', 'em-core2'):
+        elif v.product.is_em and vdict.get('project') in ('em-nsd',):
             e = b.find_element_by_id('saveBtn')
             e.click()
             wait_for_loading(css='success', ifc=self.ifc)

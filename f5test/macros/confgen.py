@@ -11,6 +11,7 @@ from f5test.utils.net import ip4to6
 from f5test.utils.parsers.tmsh import tmsh_to_dict
 from f5test.macros.base import Macro
 from f5test.macros.webcert import WebCert
+from f5test.macros.keyswap import KeySwap
 from f5test.base import Options
 from f5test.defaults import ROOT_USERNAME, ROOT_PASSWORD
 from pygraph.algorithms.accessibility import accessibility  # @UnresolvedImport
@@ -18,6 +19,7 @@ from pygraph.classes.graph import graph  # @UnresolvedImport
 from netaddr import IPAddress, IPNetwork
 import logging
 import os
+import re
 import socket
 import tempfile
 import yaml
@@ -39,7 +41,7 @@ DEFAULT_NODE_START = '10.10.0.50'
 DEFAULT_POOLS = 60
 DEFAULT_MEMBERS = 1
 DEFAULT_VIPS = 8
-DEFAULT_PARTITIONS = 1
+DEFAULT_PARTITIONS = 0
 DEFAULT_ROOT_PASSWORD = ROOT_PASSWORD
 DEFAULT_TIMEOUT = 180
 DEFAULT_SELF_PREFIX = 16
@@ -49,7 +51,7 @@ DEFAULT_TMSH_CONFIG = 'remote_config.tmsh.yaml'
 # All known 172.27.XXX.0/24 subnets tangent to the VLAN1011.
 # This is used for VS address allocation.
 SUBNET_MAP = dict([(y, x) for x, y in enumerate((27, 58, 62, 63, 65, 90, 91, 92,
-                                                 93, 94, 95, 96, 97))])
+                                                 93, 94, 95, 96, 97, 59, 11))])
 
 __version__ = 1.2
 
@@ -177,6 +179,7 @@ class ConfigGenerator(Macro):
         self._status = None
         self._modules = {}
         self._features = {}
+        self._provision = {}
 
         self.f_base = None
         self.f_common = None
@@ -204,6 +207,7 @@ class ConfigGenerator(Macro):
         self.can_net_failover = False
         self.can_tmsh = False
         self.can_folders = False
+        self.can_afm = False
 
         self.formatter = {}
         self.formatter['VERSION'] = __version__
@@ -395,7 +399,7 @@ class ConfigGenerator(Macro):
 
             # Get all VLAN -> self IPs pairs
             ret = irack.api.staticaddress.filter(bag=bagid, type=1)
-            assert ret.data.meta.total_count >= 1, "No StaticAddress entries for bagid=%s" % bagid
+            #assert ret.data.meta.total_count >= 1, "No StaticAddress entries for bagid=%s" % bagid
             data['selfip'] = {}
             for o in ret.data.objects:
                 vlan = o['vlan'].split('/')[-1]
@@ -476,13 +480,13 @@ class ConfigGenerator(Macro):
         if self.options.get('provision'):
             for prov in self.options['provision'].split(','):
                 if prov:
-                    bits = prov.split(':', 1)
+                    bits = prov.lower().split(':', 1)
                     if len(bits) > 1:
                         module, level = bits
                         assert level in ('minimum', 'nominal', 'dedicated')
                     else:
                         module = bits[0]
-                        level = 'minimum'
+                        level = 'nominal' if module == 'ltm' else 'minimum'
                     self.prov.append((module, level))
 
         if self.options.get('peer'):
@@ -513,9 +517,7 @@ class ConfigGenerator(Macro):
                     p.selfip_external = IPNetwork("{0[selfip][external][address]}/{0[selfip][external][netmask]}".
                                             format(self.config['static'][peer_ip]))
                 except KeyError:
-                    raise ValueError("Couldn't find a static entry for '%s'! "
-                        "--selfip-internal and --selfip-external must be specified "
-                        "or device must be discovered by iRack." % peer_ip)
+                    LOG.debug('No Self IP addresses will be set.')
 
             if self.options.get('unitid'):
                 p['unit'] = self.options['unitid']
@@ -562,11 +564,12 @@ class ConfigGenerator(Macro):
                 self.selfip_external = IPNetwork("{0[address]}/{0[netmask]}".format(
                                self.config['static'][ip]['selfip']['external']))
             except KeyError:
-                raise ValueError("Couldn't find a static entry for '%s'! "
-                    "--selfip-internal and --selfip-external must be specified" % ip)
+                LOG.debug('No Self IP addresses will be set.')
 
-        LOG.info('Internal selfIP: %s', self.selfip_internal)
-        LOG.info('External selfIP: %s', self.selfip_external)
+        if self.selfip_internal:
+            LOG.info('Internal selfIP: %s', self.selfip_internal)
+        if self.selfip_external:
+            LOG.info('External selfIP: %s', self.selfip_external)
 
         self.ssh = SSHInterface(address=self.address, password=passwd,
                                timeout=self.options.timeout,
@@ -617,12 +620,15 @@ class ConfigGenerator(Macro):
             self.can_folders = True
             #raise NotImplementedError('eh...')
 
+        if self._product.is_bigip and self._version >= 'bigip 11.3.0':
+            self.can_afm = True
+
         # XXX: Temporary workaround before the solstice merges into EM3.0
         #if (self._product.is_em and self._version < 'em 3.0.1'):
         #    self.can_folders = False
 
         #if self._platform in ['A100', 'A101', 'A107', 'A111']:
-        if self._platform.startswith('A'):
+        if self._platform.startswith('A') or self._platform in ('D113',):
             self.can_cluster = True
 
     def pick_configuration(self):
@@ -663,41 +669,28 @@ class ConfigGenerator(Macro):
         if not self.can_provision:
             LOG.info('Provision not supported on the target')
             return
-        base = self.config['provision']['keys base']
-        extra = self.config['provision']['keys extra']
         tmpl = self.config['provision']['template']
-        product = str(self._product)
-        m2l = self.config['provision']['module to license']
         formatter = self.formatter
-
-        licensed_modules = self._modules
-        is_dedicated = bool(filter(lambda x: x[1] == 'dedicated', self.prov))
-
-        if not is_dedicated:
-            for key, value in base.get(product, {}).items():
-                if not licensed_modules.get(m2l[key]):
-                    LOG.warning('%s not licensed on this target' % m2l[key])
-                    #continue
-                formatter['provision.key'] = key
-                formatter['provision.level'] = value
-                self.f_base.write(tmpl % formatter)
 
         if self.prov:
             for module, level in self.prov:
-                formatter['provision.key'] = module
-                formatter['provision.level'] = level
-                self.f_base.write(tmpl % formatter)
-        else:
-            for item in extra.get(product, []):
-                module = item.keys()[0]
-                level = item.values()[0]
-                if not licensed_modules.get(m2l[module]):
-                    LOG.debug('%s not licensed on this target' % m2l[module])
+                if module == 'afm' and not self.can_afm:
+                    LOG.warning('AFM cannot be provisioned on this target.')
                     continue
                 formatter['provision.key'] = module
                 formatter['provision.level'] = level
+                self._provision[module] = level
                 self.f_base.write(tmpl % formatter)
-                break
+        else:
+            # Preserve provisioning.
+            modules = SCMD.tmsh.get_provision(ifc=self.ssh)
+            for module, level_kv in modules.iteritems():
+                if level_kv:
+                    level = level_kv['level']
+                    formatter['provision.key'] = module
+                    formatter['provision.level'] = level
+                    self._provision[module] = level
+                    self.f_base.write(tmpl % formatter)
 
     def print_mgmt(self):
         tmpl = self.config['mgmt']
@@ -724,23 +717,11 @@ class ConfigGenerator(Macro):
             self.f_base.write(tmpl % formatter)
             return
 
-        # Try to find the existing IP on eth0
-        dev = 'mgmt' if self.can_cluster else 'eth0'
-        ret = self.call(r"ip a s dev {0}|grep '\binet\b.*scope global {0}\b'".format(dev))
-        # inet 172.27.27.62/24 brd 172.27.27.255 scope global eth0
+        # Try to find the existing IP configuration on management interface.
+        ret = self.call(r"ethconfig --getcurrent")
         bits = ret.stdout.split()
-        ip = IPNetwork(bits[1])
-
-        if not ret or ret.stdout.strip() == 'No Management IP Addresses were found.':
-            LOG.warning(ret)
-            return
-
-        ret = self.call(r"ip r s|grep 'default\b'")
-        bits = ret.stdout.split()
+        ip = IPNetwork("{0[0]}/{0[1]}".format(bits))
         gw = IPAddress(bits[2])
-
-        if not ret or ret.stdout.strip() == 'No Management Routes were found.':
-            gw = ''
 
         formatter['ltm.ip'] = str(ip.ip)
         formatter['ltm.netmask'] = str(ip.netmask)
@@ -748,48 +729,94 @@ class ConfigGenerator(Macro):
 
         self.f_base.write(tmpl % formatter)
 
+    def do_generate_vlan(self, tmpl, tags, **kwargs):
+        formatter = {}
+        formatter.update(kwargs)
+        formatter['interfaces'] = ''
+        formatter['tag'] = ''
+        for tag in re.split('\s+', tags):
+            key, value = tag.split('=')
+            if key == 'tag':
+                formatter[key] = "tag %s\n" % value
+            elif key in ('tagged', 'untagged'):
+                for interface in value.split(','):
+                    label = key if key == 'tagged' else ''
+                    formatter['interfaces'] += "%s { %s }\n" % (interface, label)
+            else:
+                LOG.warning('Unknown key "%s" found in %s', key, tags)
+        return tmpl % formatter
+
     def print_vlan(self):
         root = self.config['vlan']
+        trunk = self.config['trunk']
         formatter = self.formatter
 
-        if self._platform in ['Z101']:
-            ret = self.call(r"tmsh list net vlan")
-            tmpl = ret.stdout
-        elif self._platform in ['A100']:
-            tmpl = root['puma1']
-        elif self._platform in ['A107', 'A109', 'A111']:
-            tmpl = root['puma2']
-        elif self._platform in ['D84']:
-            tmpl = root['D84']
-        elif self._platform in ['D100', 'D41']:
-            tmpl = root['wanjet']
-        elif self._platform in ['SKI23']:
-            tmpl = root['SKI23']
+        if self.can_cluster:
+            if self._platform in ['A100']:
+                tmpl = trunk['puma1']
+            elif self._platform in ['A108']:
+                tmpl = trunk['P8']
+            elif self._platform in ['A107', 'A109', 'A111']:
+                tmpl = trunk['puma2']
+
+            if self.options.trunks_lacp:
+                if self.can_tmsh:
+                    formatter['lacp.enabled'] = 'lacp enabled'
+                else:
+                    formatter['lacp.enabled'] = 'lacp enable'
+            else:
+                formatter['lacp.enabled'] = ''
+
+            self.f_base.write(tmpl % formatter)
+
+        if self.options.get('vlan_internal') and \
+           self.options.get('vlan_external'):
+            tmpl = self.do_generate_vlan(root['generic'],
+                                         self.options['vlan_internal'],
+                                         vlan='internal')
+            tmpl += self.do_generate_vlan(root['generic'],
+                                          self.options['vlan_external'],
+                                          vlan='external')
         else:
-            tmpl = root['common']
+            if self._platform in ['Z101']:
+                ret = self.call(r"tmsh list net vlan")
+                tmpl = ret.stdout
+            elif self._platform in ['D84']:
+                tmpl = root['D84']
+            elif self._platform in ['D100', 'D41']:
+                tmpl = root['wanjet']
+            elif self._platform in ['SKI23']:
+                tmpl = root['SKI23']
+            elif self.can_cluster:
+                tmpl = root['cluster']
+            else:
+                tmpl = root['common']
 
         self.f_base.write(tmpl % formatter)
 
     def print_self(self):
-        tmpl = self.config['self']
         formatter = self.formatter
-        formatter['self.int_ip.addr'] = str(self.selfip_internal.ip)
-        formatter['self.ext_ip.addr'] = str(self.selfip_external.ip)
-        formatter['self.int_ip.prefix'] = self.selfip_internal.prefixlen
-        formatter['self.ext_ip.prefix'] = self.selfip_external.prefixlen
-        formatter['self.int_ip.netmask'] = str(self.selfip_internal.netmask)
-        formatter['self.ext_ip.netmask'] = str(self.selfip_external.netmask)
+        if self.selfip_internal:
+            tmpl = self.config['self internal']
+            int_ip6 = ip4to6(self.selfip_internal)
+            formatter['self.int_ip.addr'] = str(self.selfip_internal.ip)
+            formatter['self.int_ip.prefix'] = self.selfip_internal.prefixlen
+            formatter['self.int_ip.netmask'] = str(self.selfip_internal.netmask)
+            formatter['self.int_ip6.addr'] = str(int_ip6.ip)
+            formatter['self.int_ip6.prefix'] = int_ip6.prefixlen
+            formatter['self.int_ip6.netmask'] = str(int_ip6.netmask)
+            self.f_base.write(tmpl % formatter)
 
-        int_ip6 = ip4to6(self.selfip_internal)
-        ext_ip6 = ip4to6(self.selfip_external)
-        formatter['self.int_ip6.addr'] = str(int_ip6.ip)
-        formatter['self.ext_ip6.addr'] = str(ext_ip6.ip)
-        formatter['self.int_ip6.prefix'] = int_ip6.prefixlen
-        formatter['self.ext_ip6.prefix'] = ext_ip6.prefixlen
-        formatter['self.int_ip6.netmask'] = str(int_ip6.netmask)
-        formatter['self.ext_ip6.netmask'] = str(ext_ip6.netmask)
-
-        self.f_base.write(tmpl % formatter)
+        if self.selfip_external:
+            tmpl = self.config['self external']
+            ext_ip6 = ip4to6(self.selfip_external)
+            formatter['self.ext_ip.addr'] = str(self.selfip_external.ip)
+            formatter['self.ext_ip.prefix'] = self.selfip_external.prefixlen
+            formatter['self.ext_ip.netmask'] = str(self.selfip_external.netmask)
+            formatter['self.ext_ip6.addr'] = str(ext_ip6.ip)
+            formatter['self.ext_ip6.prefix'] = ext_ip6.prefixlen
+            formatter['self.ext_ip6.netmask'] = str(ext_ip6.netmask)
+            self.f_base.write(tmpl % formatter)
 
     def print_simple(self, section, dest='base', can_print=True):
         if not can_print:
@@ -844,6 +871,13 @@ class ConfigGenerator(Macro):
         tmpl = root['template']
         formatter = self.formatter
         formatter['ntp.servers'] = ''
+
+        if self.options.get('timezone'):
+            tz = self.options['timezone'].replace(' ', '_')
+            formatter['ntp.timezone'] = "timezone %s" % tz
+        else:
+            tz = SCMD.tmsh.list('sys ntp timezone', ifc=self.ssh)
+            formatter['ntp.timezone'] = "timezone %s" % tz.sys.ntp.timezone
 
         for elem in root['servers']:
             formatter['ntp.servers'] += "%s\n" % elem
@@ -1075,6 +1109,9 @@ class ConfigGenerator(Macro):
 
         pools = self.options['pool_count']
         vips = self.options['vip_count']
+        if not vips:
+            return
+
         tmpls = self.config['vip template']
         tmpl_count = len(tmpls)
         vip_start = self.options.get('vip_start')
@@ -1084,7 +1121,7 @@ class ConfigGenerator(Macro):
             subnet_index = SUBNET_MAP.get(subnet_id)
 
             if subnet_index is None:
-                raise ValueError('The %d subnet was not found. Please add it to SUBNET_MAP list!',
+                raise ValueError('The %d subnet was not found. Please add it to SUBNET_MAP list!' %
                                  subnet_id)
 
             # Start from 10.11.50.0 - 10.11.147.240 (planned for 10 subnets, 8 VIPs each)
@@ -1145,6 +1182,7 @@ class ConfigGenerator(Macro):
         i = 0
         licensed_modules = self._modules
         licensed_features = self._features
+        provisioned_modules = self._provision
 
         for types in profiles:
             min_ver = Version(profiles[types].get('min version', MIN_VER),
@@ -1153,6 +1191,7 @@ class ConfigGenerator(Macro):
                               Product.BIGIP)
             req_mod = profiles[types].get('require module', None)
             req_feat = profiles[types].get('require feature', None)
+            req_prov = profiles[types].get('require provision', None)
 
             # XXX
             #if types == 'iiop':
@@ -1162,7 +1201,8 @@ class ConfigGenerator(Macro):
             if (self._version >= min_ver and
                 self._version <= max_ver and
                 (req_mod is None or licensed_modules.get(req_mod)) and
-                (req_feat is None or licensed_features.get(req_feat))
+                (req_feat is None or licensed_features.get(req_feat)) and
+                (req_prov is None or req_prov in provisioned_modules)
                 ):
 
                 tmpl = profiles[types]['text']
@@ -1282,6 +1322,19 @@ class ConfigGenerator(Macro):
 
         options.alias = [self._hostname]
         cs = WebCert(options, address=self.address)
+        cs.run()
+
+    def handle_sshkey(self):
+        if self.options.get('dry_run'):
+            LOG.info('Would exchange SSH keys.')
+            return
+
+        LOG.info('Exchanging SSH keys...')
+
+        options = Options()
+        options.password = self.options.password
+
+        cs = KeySwap(options, address=self.address)
         cs.run()
 
     @property
@@ -1509,6 +1562,7 @@ class ConfigGenerator(Macro):
         self.save_config()
         self.handle_dbvars()
         self.handle_keycert()
+        self.handle_sshkey()
         self.ready_wait()
 
 
@@ -1557,7 +1611,7 @@ def main(*args, **kwargs):
         p.add_option("", "--partitions", metavar="NUMBER",
                      default=DEFAULT_PARTITIONS, type="int",
                      help="How many partitions. (default: %d)" % DEFAULT_PARTITIONS)
-        p.add_option("", "--node-start", metavar="NUMBER", type="string",
+        p.add_option("", "--node-start", metavar="IP", type="string",
                      help="The start address for nodes. (default: 10.10.0.50)")
         p.add_option("-n", "--node-count", metavar="NUMBER",
                      default=DEFAULT_NODES, type="int",
@@ -1568,7 +1622,7 @@ def main(*args, **kwargs):
         p.add_option("", "--pool-members", metavar="NUMBER",
                      default=DEFAULT_MEMBERS, type="int",
                      help="How many pool members per pool. (default: %d)" % DEFAULT_MEMBERS)
-        p.add_option("", "--vip-start", metavar="NUMBER", type="string",
+        p.add_option("", "--vip-start", metavar="IP", type="string",
                      help="The start address for vips. (default: auto)")
         p.add_option("-v", "--vip-count", metavar="NUMBER",
                      default=DEFAULT_VIPS, type="int",
@@ -1606,12 +1660,24 @@ def main(*args, **kwargs):
         p.add_option("", "--selfip-floating", metavar="IP/PREFIX",
                      type="string",
                      help="Floating self IP address on the internal vlan for HA.")
+        p.add_option("", "--vlan-internal", metavar="KEY-VALUE PAIRS",
+                     type="string",
+                     help="Internal VLAN configuration. (e.g 'tag=1111 tagged=1.1 untagged=1.2')")
+        p.add_option("", "--vlan-external", metavar="IP[/PREFIX]",
+                     type="string",
+                     help="External VLAN configuration. (e.g 'tag=1112 tagged=1.1 untagged=1.2')")
+        p.add_option("", "--trunks-lacp",
+                     action="store_true",
+                     help="Enable LACP on bonth internal and external trunks. (Clusters only)")
         p.add_option("", "--provision", metavar="MODULE:[LEVEL],[MODULE:LEVEL]",
                      type="string",
                      help="Provision module list")
         p.add_option("", "--license", metavar="REGKEY",
                      type="string",
                      help="Set the license")
+        p.add_option("", "--timezone", metavar="ZONE",
+                     type="string",
+                     help="Set the timezone. (e.g. 'America/Los Angeles')")
         p.add_option("", "--clean",
                      action="store_true",
                      help="Clean vips, pools, nodes on the target")
@@ -1632,6 +1698,9 @@ def main(*args, **kwargs):
         p.add_option("", "--no-mon",
                      action="store_true",
                      help="Don't set monitors for nodes and pool members. Useful for huge configs.")
+        p.add_option("", "--no-sshkey",
+                     action="store_true",
+                     help="Don't exchange SSH keys.")
         p.add_option("", "--timeout",
                      default=DEFAULT_TIMEOUT, type="int",
                      help="The SSH timeout. (default: %d)" % DEFAULT_TIMEOUT)

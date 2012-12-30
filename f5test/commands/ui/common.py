@@ -329,11 +329,6 @@ class BrowseTo(SeleniumCommand): #@IgnorePep8
         panel = panel.strip()
         locator = locator.strip()
         xpath = "//div[@id='mainpanel']/div[a[text()='%s']]" % panel
-        e = b.find_element_by_xpath(xpath)
-        css = e.get_attribute('class').split()
-        if 'open' not in css:
-            e = b.find_element_by_xpath("%s/a" % xpath)
-            e.click()
 
         for t in locator.split('|'):
             t = t.strip()
