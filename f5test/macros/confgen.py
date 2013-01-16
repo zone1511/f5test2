@@ -876,8 +876,13 @@ class ConfigGenerator(Macro):
             tz = self.options['timezone'].replace(' ', '_')
             formatter['ntp.timezone'] = "timezone %s" % tz
         else:
-            tz = SCMD.tmsh.list('sys ntp timezone', ifc=self.ssh)
-            formatter['ntp.timezone'] = "timezone %s" % tz.sys.ntp.timezone
+            if self.can_tmsh:
+                tz = SCMD.tmsh.list('sys ntp timezone', ifc=self.ssh)
+                formatter['ntp.timezone'] = "timezone %s" % tz.sys.ntp.timezone
+            else:
+                ret = self.call('getdb NTP.TimeZone')
+                tz = ret.stdout.strip()
+                formatter['ntp.timezone'] = "timezone %s" % tz
 
         for elem in root['servers']:
             formatter['ntp.servers'] += "%s\n" % elem

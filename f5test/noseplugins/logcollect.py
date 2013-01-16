@@ -9,6 +9,7 @@ import os
 import sys
 import threading
 import traceback
+import yaml
 
 LOG = logging.getLogger(__name__)
 
@@ -146,6 +147,7 @@ class LogCollect(LogCapture):
         return proxy
 
     def begin(self):
+        from f5test.interfaces.config import ConfigInterface
         # setup our handler with root logger
         root_logger = logging.getLogger()
 
@@ -153,6 +155,11 @@ class LogCollect(LogCapture):
         if not log_dir:
             return
         run_filename = os.path.join(log_dir, 'run.log')
+
+        config = ConfigInterface().open()
+        filename = os.path.join(log_dir, 'config.yaml')
+        with open(filename, "wt") as f:
+            yaml.dump(config, f, indent=4, default_flow_style=False)
 
         fmt = logging.Formatter(self.logformat, self.logdatefmt)
         handler = logging.FileHandler(run_filename)

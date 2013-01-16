@@ -141,7 +141,7 @@ setup(
         'python-graph-core',
         'pyOpenSSL',
         'PyYAML',
-        'pyparsing',
+        'pyparsing<2.0.0',  # 2.0 is not compatible with 2.X anymore.
         'restkit',
         'selenium',
         'jinja2',
