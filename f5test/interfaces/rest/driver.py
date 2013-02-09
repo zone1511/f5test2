@@ -17,9 +17,9 @@ except ImportError:
 
 class WrappedResponse(object):
 
-    def __init__(self, response):
+    def __init__(self, response, body=None):
         self.response = response
-        self.body = response.body_string()
+        self.body = body or response.body_string()
         self._data = None
 
     @staticmethod
@@ -90,7 +90,7 @@ class RestResource(Resource):
             if self.trailing_slash and path[-1] != '/':
                 path += '/'
 
-        if payload and headers.get('Content-Type'):
+        if payload and headers and headers.get('Content-Type'):
             ctype = headers['Content-Type']
             try:
                 mimetype, _ = ctype.split(";")

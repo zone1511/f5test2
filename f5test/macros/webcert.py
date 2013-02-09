@@ -82,7 +82,7 @@ else:
 
 class WebCert(Macro):
     def __init__(self, options, address=None):
-        self.options = Options(options.__dict__)
+        self.options = Options(options)
         
         self.address = ConfigInterface().get_device_address(options.device) \
                        if self.options.device else address

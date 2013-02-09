@@ -17,7 +17,7 @@ class Dictionary:
             self.put(key, data[key])
     
     def put(self, name, value):
-        if isinstance(value, str) or isnumber(value):
+        if isinstance(value, basestring) or isnumber(value):
             self.data[name] = String(value)
         elif isinstance(value, list):
             anArray = Array()
@@ -169,7 +169,7 @@ class Array:
             for key in value.keys():
                 aDict.put(key, value.get(key))
             self.data.append(aDict)
-        elif isinstance(value, str) or isnumber(value):
+        elif isinstance(value, basestring) or isnumber(value):
             self.data.append(String(value))
         else:
             self.data.append(value)
@@ -236,7 +236,7 @@ class String:
         self.set(val)
     
     def set(self, val): #@ReservedAssignment
-        if isinstance(val, str):
+        if isinstance(val, basestring):
             self.data = val
         else:
             self.data = str(val)

@@ -17,7 +17,7 @@ __version__ = '1.0'
 class TrafficGen(Macro):
 
     def __init__(self, options, urls):
-        self.options = Options(options.__dict__)
+        self.options = Options(options)
         self.urls = urls
 
         super(TrafficGen, self).__init__()

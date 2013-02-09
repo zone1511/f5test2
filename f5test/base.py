@@ -6,6 +6,7 @@ except ImportError:
 import sys
 import re
 import copy
+import optparse
 
 
 def main(*args, **kwargs):
@@ -64,13 +65,9 @@ class AttrDict(dict):
     """
 
     def __init__(self, default=None, **kwargs):
+        if isinstance(default, optparse.Values):
+            default = default.__dict__
         self.update(default, **kwargs)
-
-    # def __new__(cls, *args, **kwargs):
-        # self = dict.__new__(cls, *args, **kwargs)
-        # print cls.__dict__
-        # self.update(cls.__dict__, **kwargs)
-        # return self
 
     def __getattr__(self, n):
         try:
@@ -79,10 +76,6 @@ class AttrDict(dict):
             if n.startswith('__'):
                 raise AttributeError(n)
             return None
-
-    @property
-    def __dict__(self):  # @ReservedAssignment
-        return self
 
     def __setattr__(self, n, v):
         self.update({n: v})
@@ -118,6 +111,11 @@ class AttrDict(dict):
                     if not isinstance(d[k], dict):
                         d[k] = AttrDict()
                     combine(d[k], v)
+                elif isinstance(v, list):
+                    d[k] = v[:]
+                    for i, item in enumerate(v):
+                        if isinstance(item, dict):
+                            d[k][i] = AttrDict(item)
                 else:
                     d[k] = v
 
@@ -128,6 +126,14 @@ class AttrDict(dict):
 
 
 class Options(AttrDict):
+    pass
+
+# Convince yaml that AttrDict is actually a dict.
+try:
+    from yaml.representer import Representer
+    Representer.add_representer(AttrDict, Representer.represent_dict)
+    Representer.add_representer(Options, Representer.represent_dict)
+except ImportError:
     pass
 
 

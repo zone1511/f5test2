@@ -7,12 +7,43 @@ from __future__ import absolute_import
 from nose.plugins.base import Plugin
 import logging
 import datetime
+import nose.util
 import time
-from ..base import Options
 from ..utils.time import timesince
 
 LOG = logging.getLogger(__name__)
 PLUGIN_NAME = 'testtime'
+
+
+def test_address(test):
+    """Return the result of nose's test_address(), None if it's stumped."""
+    try:
+        return nose.util.test_address(test)
+    except TypeError:   # Explodes if the function passed to @with_setup applied
+                        # to a test generator has an error.
+        pass
+
+
+def nose_selector(test):
+    """Return the string you can pass to nose to run `test`, including argument
+    values if the test was made by a test generator.
+
+    Return "Unknown test" if it can't construct a decent path.
+
+    """
+    address = test_address(test)
+    if address:
+        _, module, rest = address
+
+        if module:
+            if rest:
+                try:
+                    return '%s:%s%s' % (module, rest, test.test.arg or '')
+                except AttributeError:
+                    return '%s:%s' % (module, rest)
+            else:
+                return module
+    return 'Unknown test'
 
 
 class TestTime(Plugin):
@@ -34,13 +65,19 @@ class TestTime(Plugin):
     def configure(self, options, noseconfig):
         """ Call the super and then validate and call the relevant parser for
         the configuration file passed in """
-        from f5test.interfaces.config import ConfigInterface
+        from ..interfaces.config import ConfigInterface
+        from ..interfaces.testcase import ContextHelper
         self.cfgifc = ConfigInterface()
+        self.context = ContextHelper('__main__')
 
         Plugin.configure(self, options, noseconfig)
         self.options = options
         if options.no_testtime:
             self.enabled = False
+
+    def prepareTestResult(self, result):
+        result.descriptions = 0
+        result.getDescription = lambda y: nose_selector(y)
 
     def startTest(self, test):
         """Initializes a timer before starting a test."""
@@ -59,15 +96,13 @@ class TestTime(Plugin):
     def begin(self):
         """Set the testrun start time.
         """
-        c = self.cfgifc.open()
-        c._attrs[PLUGIN_NAME] = Options()
-        c._attrs[PLUGIN_NAME].start = datetime.datetime.now()
+        container = self.context.set_container(PLUGIN_NAME)
+        container.start = datetime.datetime.now()
 
     def finalize(self, result):
         """Set the testrun stop time and delta.
         """
-        c = self.cfgifc.open()
-        c._attrs[PLUGIN_NAME].stop = datetime.datetime.now()
-        c._attrs[PLUGIN_NAME].delta = c._attrs[PLUGIN_NAME].stop - \
-                                     c._attrs[PLUGIN_NAME].start
-        c._attrs[PLUGIN_NAME].delta_str = timesince(c._attrs[PLUGIN_NAME].start)
+        container = self.context.set_container(PLUGIN_NAME)
+        container.stop = datetime.datetime.now()
+        container.delta = container.stop - container.start
+        container.delta_str = timesince(container.start)

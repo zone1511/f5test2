@@ -8,11 +8,11 @@ from nose.plugins.base import Plugin
 import logging
 import datetime
 import json
-#import time
+# import time
 from urlparse import urlparse
 from ..utils.net import get_local_ip
 
-#IRACK_HOSTNAME_DEBUG = '127.0.0.1:8081'
+# IRACK_HOSTNAME_DEBUG = '127.0.0.1:8081'
 DEFAULT_TIMEOUT = 60
 DEFAULT_HOSTNAME = 'irack.mgmt.pdsea.f5net.com'
 DEFAULT_RESERVATION_TIME = datetime.timedelta(hours=3)
@@ -23,7 +23,8 @@ LOG = logging.getLogger(__name__)
 
 def datetime_to_str(date):
     date_str = date.isoformat()
-    return date_str[:date_str.find('.')] # Remove microseconds
+    return date_str[:date_str.find('.')]  # Remove microseconds
+
 
 class IrackCheckout(Plugin):
     """
@@ -43,7 +44,7 @@ class IrackCheckout(Plugin):
     def configure(self, options, noseconfig):
         """ Call the super and then validate and call the relevant parser for
         the configuration file passed in """
-        from f5test.interfaces.config import ConfigInterface
+        from ..interfaces.config import ConfigInterface
 
         Plugin.configure(self, options, noseconfig)
         self.options = options
@@ -56,12 +57,12 @@ class IrackCheckout(Plugin):
                                  "found in the config."
 
     def begin(self):
-        from f5test.interfaces.rest.irack import IrackInterface
+        from ..interfaces.rest.irack import IrackInterface
         LOG.info("Checking out devices from iRack...")
-        
+
         config = self.config_ifc.open()
         irackcfg = config.irack
-        devices = [x for x in self.config_ifc.get_all_devices() 
+        devices = [x for x in self.config_ifc.get_all_devices()
                      if 'no-irack-reservation' not in x.tags]
 
         if not devices:
@@ -79,7 +80,7 @@ class IrackCheckout(Plugin):
             params = dict(q_accessaddress__in=[x.address for x in devices])
             ret = irack.api.f5asset.get(params_dict=params)
             assert ret.data.meta.total_count == len(devices), \
-                "Managed devices=%d, iRack returned=%d!" % (len(devices), 
+                "Managed devices=%d, iRack returned=%d!" % (len(devices),
                                                             ret.data.meta.total_count)
             for asset in ret.data.objects:
                 assert not asset['v_is_reserved'], \
@@ -90,22 +91,22 @@ class IrackCheckout(Plugin):
             now_str = datetime_to_str(now)
             end = now + DEFAULT_RESERVATION_TIME
             end_str = datetime_to_str(end)
-            
+
             headers = {"Content-type": "application/json"}
-            notes = 'runner={0}\n' \
-                    'id={1}\n' \
-                    'config={2}\n' \
-                    'url={3}\n'.format(get_local_ip(address), 
+            notes = 'runner: {0}\n' \
+                    'id: {1}\n' \
+                    'config: {2}\n' \
+                    'url: {3}\n'.format(get_local_ip(address),
                                      self.config_ifc.get_session().name,
                                      config._filename,
                                      self.config_ifc.get_session().get_url())
-            payload = json.dumps(dict(notes=notes, 
+            payload = json.dumps(dict(notes=notes,
                                       assets=[x['resource_uri'] for x in ret.data.objects],
-                                      #to=URI_USER_NOBODY, # nobody
+                                      # to=URI_USER_NOBODY, # nobody
                                       start=now_str,
-                                      end=end_str, 
+                                      end=end_str,
                                       reminder='0:15:00'))
-            
+
             ret = irack.api.from_uri(URI_RESERVATION).post(payload=payload,
                                                            headers=headers)
             LOG.debug("Checkout HTTP status: %s", ret.response.status)
@@ -114,7 +115,7 @@ class IrackCheckout(Plugin):
             irackcfg._reservation = res
 
     def finalize(self, result):
-        from f5test.interfaces.rest.irack import IrackInterface
+        from ..interfaces.rest.irack import IrackInterface
         LOG.info("Checking in devices to iRack...")
 
         config = self.config_ifc.open()

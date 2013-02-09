@@ -5,25 +5,24 @@
 </head>
 
 <body>
-<pre>TestRun report
-==============
-
+<pre>
 Good:    {{ bars.good }}
 Bad:     {{ bars.bad }}
 Skipped: {{ bars.unknown }}
 
 {% if testtime %}Duration: {{ testtime.delta_str }}{% endif %}
 
+{% if not noseconfig.options.no_logcollect -%}
 Session logs: {{ sessionurl }}
+{%- endif %}
 {%- if config.testopia._testrun %}
 Testopia run: {{ config.testopia.address }}/tr_show_run.cgi?run_id={{ config.testopia._testrun }}
 {%- endif %}
 
-
 DUTs info:
 ==========
 {%- for dut in duts %}
- - {{ dut.device.alias|ljust(10) }} - <a href="https://{{ dut.device.address }}">{{ dut.device.address|ljust(16) }}</a>: {{ dut.platform|ljust(4) }} {{ dut.version.product.to_tmos()|rjust(7) }} {{ dut.version.version }} {{ dut.version.build }} {{ dut.project }} {% if config._reports and config._reports.cores[dut.device.alias] %}[CORED]{% endif %}
+ - {{ dut.device.alias|ljust(10) }} - <a href="https://{{ dut.device.address }}">{{ dut.device.address|ljust(16) }}</a>: {{ dut.platform|ljust(4) }} {{ dut.version.product.to_tmos()|rjust(7) }} {{ dut.version.version }} {{ dut.version.build }} {{ dut.project }} {% if data and data.cores[dut.device.alias] %}[CORED]{% endif %}
 {%- endfor %}
 
 Skipped:
@@ -36,9 +35,9 @@ Skipped:
 {% endif %}
 <b>*</b> {% if 0 %}<a href="http://mgmtdata.mgmt.pdsea.f5net.com/tr_show_case.cgi?case_id={{ tcid }}">{{ tc }}</a>{% else %}{{ tc }}{% endif %}
 Author: {{ skip.0.test.author }} 
-{{ skip.1|string|indent(2, true) }}
+{{ skip.1|string|indent(2, true)|bzify|safe }}
 {% endfor %}
-
+{#
 Failures:
 =========
 {%- for failure in result.failures -%}
@@ -66,7 +65,7 @@ Author: {{ error.0.test.author }}
 {{ error.1.strip()|indent(2, true) }}
 {% endif -%}
 {% endfor %}
-
+#}
 Test Runner:
 ============
 <b>{{ test_runner_ip }}</b> 

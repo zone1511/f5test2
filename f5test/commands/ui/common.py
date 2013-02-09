@@ -6,6 +6,8 @@ from ...base import AttrDict
 from ..base import WaitableCommand, CommandError
 import os
 import logging
+import re
+import codecs
 
 LOG = logging.getLogger(__name__)
 
@@ -214,11 +216,18 @@ class ScreenShot(SeleniumCommand): #@IgnorePep8
 
         try:
             filename = os.path.join(self.dir, '%s.html' % self.name)
+            #src = b.execute_script("return document.documentElement.innerHTML;")
             src = b.page_source
-            src = src.replace('<HEAD>', '<HEAD><BASE href="%s"/>' % b.current_url)
-            src = src.replace('/xui/common/scripts/api.js', '')
-            with open(filename, "wt") as f:
-                f.write(src.encode('utf-8'))
+            src = re.sub('<head>', '<HEAD><BASE href="%s"/>' % b.current_url,
+                         src, flags=re.IGNORECASE)
+
+            # Prevent javascript from being executed when the saved page is loaded.
+            src = re.sub('/xui/common/scripts/api.js', '', src)
+            src = re.sub(re.escape('$(document).ready( startup );'), '', src)
+
+            # Save the page source encoded as UTF-8
+            with codecs.open(filename, "w", 'utf-8-sig') as f:
+                f.write(src)
         except IOError, e:
             LOG.error('I/O error dumping source: %s', e)
 

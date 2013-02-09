@@ -98,7 +98,7 @@ class Wait(object):
         LOG.debug('Criteria not met.')
 
     def fail(self, result):
-        LOG.warn('Giving up...')
+        LOG.debug('Giving up...')
 
     def criteria_met_stable(self, result):
         LOG.debug('Criteria met and stable.')
@@ -137,6 +137,7 @@ class CallableWait(Wait):
         else:
             super(CallableWait, self).progress(result)
 
+
 def wait_args(func, func_args=None, func_kwargs=None, *args, **kwargs):
     if not func_args:
         func_args = []
@@ -144,6 +145,7 @@ def wait_args(func, func_args=None, func_kwargs=None, *args, **kwargs):
         func_kwargs = {}
 
     return CallableWait(func, *args, **kwargs).run(*func_args, **func_kwargs)
+
 
 def wait(func, condition=None, progress_cb=None, *args, **kwargs):
     return CallableWait(func, condition, progress_cb, *args, **kwargs).run()

@@ -13,6 +13,7 @@ from f5test.interfaces.config import (expand_devices, ConfigInterface,
 from f5test.interfaces.ssh import SSHInterface
 from f5test.interfaces.icontrol import IcontrolInterface
 from f5test.interfaces.subprocess import ShellInterface
+from f5test.interfaces.testcase import ContextHelper
 from f5test.macros.base import Macro, Stage
 from f5test.macros.install import InstallSoftware, EMInstallSoftware
 import f5test.commands.icontrol as ICMD
@@ -67,7 +68,7 @@ def carry_flag(d, flag=None):
             carry_flag(v, flag)
 
 
-def process_stages(stages, section, ifcs):
+def process_stages(stages, section, context):
     if not stages:
         LOG.debug('No stages found.')
         return
@@ -127,7 +128,7 @@ def process_stages(stages, section, ifcs):
 
             stage_class = stages_map[specs.type]
             parameters = specs.get('parameters', Options())
-            parameters._IFCS = ifcs
+            parameters._context = context
 
             for device in expand_devices(specs):
                 stage = stage_class(device, parameters)
@@ -172,7 +173,7 @@ class TweaksStage(Stage, Macro):
     def __init__(self, device, specs=None, *args, **kwargs):
         self.device = device
         self.specs = specs
-        self.ifcs = specs.get('_IFCS')
+        self._context = specs.get('_context')
         super(TweaksStage, self).__init__(*args, **kwargs)
 
     def setup(self):
@@ -229,19 +230,19 @@ class CoresStage(Stage, Macro):
 
     def __init__(self, device, specs=None, *args, **kwargs):
         self.device = device
+        cfgifc = ConfigInterface()
+        self.session = cfgifc.get_session()
         super(CoresStage, self).__init__(*args, **kwargs)
 
     def run(self):
         LOG.debug('Looking for cores on device %s', self.device)
+        email_container = ContextHelper('__main__').set_container('email')
 
         with SSHInterface(device=self.device) as sshifc:
             if SCMD.ssh.cores_exist(ifc=sshifc):
                 LOG.debug('Cores found on device %s', self.device)
-                ifc = ConfigInterface()
-                config = ifc.open()
-                config._reports.update(dict(cores={}))
-                session = ifc.get_session().path
-                cores_dir = os.path.join(session, 'cores',
+                email_container.cores = {}
+                cores_dir = os.path.join(self.session.path, 'cores',
                                          self.device.get_address())
                 cores_dir = os.path.expanduser(cores_dir)
                 cores_dir = os.path.expandvars(cores_dir)
@@ -255,7 +256,7 @@ class CoresStage(Stage, Macro):
                 # Add read permissions to group and others.
                 with ShellInterface(shell=True) as shell:
                     shell.api.run('chmod -R go+r %s' % cores_dir)
-                config._reports.cores[self.device.get_alias()] = True
+                email_container.cores[self.device.get_alias()] = True
 
 
 class SetPasswordStage(Stage, Macro):
@@ -364,7 +365,7 @@ class InstallSoftwareStage(Stage, InstallSoftware):
     def __init__(self, device, specs, *args, **kwargs):
         configifc = ConfigInterface()
         config = configifc.open()
-        self.ifcs = specs.get('_IFCS')
+        self._context = specs.get('_context')
         self.specs = specs
         self.device = device
 
@@ -409,13 +410,13 @@ class InstallSoftwareStage(Stage, InstallSoftware):
 
     def revert(self):
         super(InstallSoftwareStage, self).revert()
-        if isinstance(self.ifcs, list):
+        if self._context:
             LOG.debug('In InstallSoftwareStage.revert()')
             device = self.options.device
             # If the installation has failed before rebooting then no password
             # change is needed.
             #ICMD.system.set_password(device=self.options.device)
-            self.ifcs.append(SSHInterface(device=device))
+            self._context.get_interface(SSHInterface, device=device)
 
 
 class ConfigGeneratorStage(Stage, ConfigGenerator):
@@ -429,7 +430,7 @@ class ConfigGeneratorStage(Stage, ConfigGenerator):
         configifc = ConfigInterface()
         config = configifc.open()
         password = configifc.get_device(device).get_root_creds().password
-        self.ifcs = specs.get('_IFCS')
+        self._context = specs.get('_context')
 
         options = Options(device=device,
                           config=specs.get('config file'),
@@ -464,20 +465,20 @@ class ConfigGeneratorStage(Stage, ConfigGenerator):
     def setup(self):
         ret = super(ConfigGeneratorStage, self).setup()
         LOG.debug('Locking device %s...', self.options.device)
-        assert ICMD.system.set_password(device=self.options.device)
+        ICMD.system.SetPassword(device=self.options.device).run_wait(timeout=60)
         self.options.device.specs._x_tmm_bug = True
 
         return ret
 
     def revert(self):
         super(ConfigGeneratorStage, self).revert()
-        if isinstance(self.ifcs, list):
+        if self._context:
             LOG.debug('In ConfigGeneratorStage.revert()')
             device = self.options.device
             # If the installation has failed before rebooting then no password
             # change is needed.
             #ICMD.system.set_password(device=self.options.device)
-            self.ifcs.append(SSHInterface(device=device))
+            self._context.get_interface(SSHInterface, device=device)
 
 
 class KeySwapStage(Stage, KeySwap):
@@ -500,14 +501,14 @@ class EMDiscocveryStage(Stage, Macro):
     parallelizable = False
 
     def __init__(self, device, specs, *args, **kwargs):
-        self.ifcs = specs.get('_IFCS', [])
+        self._context = specs.get('_context')
         self.device = device
         self.specs = specs
         self.to_discover = expand_devices(specs, 'devices')
 
         super(EMDiscocveryStage, self).__init__(*args, **kwargs)
 
-    def run(self):
+    def setup(self):
         devices = self.to_discover
         assert devices, 'No devices to discover on DUT?'
 
@@ -524,7 +525,6 @@ class EMDiscocveryStage(Stage, Macro):
                                                                 'addresses': 'ALL'})
 
         with SSHInterface(device=self.device) as ssh:
-            self.ifcs.append(ssh)
             reachable_devices = [int(x.is_local_em) and
                                     x.mgmt_address or
                                     x.access_address
@@ -577,6 +577,12 @@ class EMDiscocveryStage(Stage, Macro):
                                                     'big3d_update_required',
                                                     None):
                             LOG.warn(ret)
+
+    def revert(self):
+        super(EMDiscocveryStage, self).revert()
+        if self._context:
+            LOG.debug('In EMDiscocveryStage.revert()')
+            self._context.get_interface(SSHInterface, device=self.device)
 
 
 class EMInstallSoftwareStage(Stage, EMInstallSoftware):
@@ -645,13 +651,13 @@ class HAStage(Stage, FailoverMacro):
         options = Options(specs.options)
         if options.set_active:
             options.set_active = configifc.get_device(options.set_active)
-        self.ifcs = specs.get('_IFCS')
+        self._context = specs.get('_context')
 
         super(HAStage, self).__init__(options, authorities, peers, groups)
 
     def revert(self):
         super(HAStage, self).revert()
-        if isinstance(self.ifcs, list):
+        if self._context:
             LOG.debug('In HAStage.revert()')
             for device in self.cas + self.peers:
-                self.ifcs.append(SSHInterface(device=device))
+                self._context.get_interface(SSHInterface, device=device)

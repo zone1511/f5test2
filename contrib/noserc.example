@@ -6,5 +6,5 @@ nocapture=1
 tc-format=yaml
 all-modules=1
 exe=1
-with-progressive=1
+;with-progressive=1
 ;progressive-advisories=1

@@ -1237,7 +1237,7 @@ class Popen(object):
                            restore_signals, start_new_session):
             u"""Execute program (POSIX version)"""
 
-            if isinstance(args, (unicode, str)):
+            if isinstance(args, basestring):
                 args = [args]
             else:
                 args = list(args)

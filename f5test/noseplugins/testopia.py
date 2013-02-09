@@ -72,8 +72,8 @@ class Testopia(Plugin):
     def configure(self, options, noseconfig):
         """ Call the super and then validate and call the relevant parser for
         the configuration file passed in """
-        from f5test.interfaces.testopia import TestopiaInterface
-        from f5test.interfaces.config import ConfigInterface
+        from ..interfaces.testopia import TestopiaInterface
+        from ..interfaces.config import ConfigInterface
         import f5test.commands.icontrol as ICMD
         import f5test.commands.testopia as TCMD
 

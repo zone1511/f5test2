@@ -23,7 +23,7 @@ class Client:
     def sendMsg(self, taskName, request):
         packetTxt = self.formatMsg(taskName, request)
         
-        for _ in xrange(self.retries):
+        for _ in range(self.retries):
             LOG.debug('request: %s', packetTxt)
             ret = self.icontrol.Management.EM.sendRequest(daemon=self.msgType,
                                                            request=packetTxt)

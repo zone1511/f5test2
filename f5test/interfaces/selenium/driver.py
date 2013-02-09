@@ -107,6 +107,8 @@ class ElementWait(Wait):
 
 
 class WebElementWrapper(WebElement):
+    def __repr__(self):
+        return u"<WebElement %s>" % self.id
 
     def wait(self, *args, **kwargs):
         """Waits for condition c"""
@@ -251,6 +253,7 @@ class RemoteWrapper(RemoteWebDriver):
     def get(self, *args, **kwargs):
         """Loads a web page in the current browser."""
         super(RemoteWrapper, self).get(*args, **kwargs)
+        self.switch_to_default_content()
         return self
 
     def open_window(self, location='', name=None, tokens=''):
@@ -262,11 +265,8 @@ class RemoteWrapper(RemoteWebDriver):
         return name
 
     def maximize_window(self):
-        if not self.name in ('chrome'):
-            self.set_window_position(0, 0)
-            self.set_window_size(1366, 768)
-        else:
-            LOG.warning("maximize_window not supported in %s." % self.name)
+        self.set_window_position(0, 0)
+        self.set_window_size(1366, 768)
 
     def wait(self, value=None, by=By.ID, frame=None, it=Is.DISPLAYED,
              negated=False, timeout=10, interval=0.1, stabilize=0, element=None):
@@ -304,3 +304,19 @@ class RemoteWrapper(RemoteWebDriver):
 
         return wait(xhr_pending, timeout=timeout, interval=interval,
                     stabilize=stabilize)
+
+    def execute(self, driver_command, params=None):
+        """
+        Selenium's debug logging is really dumb and useless. Override it here.
+        """
+        def pretty(x):
+            if x:
+                return ', '.join(["%s='%s'" % (n, unicode(v)[:1024])
+                                  for n, v in x.iteritems() if n != 'sessionId'])
+            else:
+                return ''
+
+        LOG.debug(u'{0}({1})'.format(driver_command, pretty(params)))
+        ret = super(RemoteWrapper, self).execute(driver_command, params)
+        LOG.debug(u'{0}'.format(pretty(ret)))
+        return ret

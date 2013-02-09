@@ -1,59 +1,130 @@
 from ..base import TestCase, Options
 from .config import ConfigInterface
-from .selenium import SeleniumInterface
+from .selenium import SeleniumInterface, DEFAULT_SELENIUM
 from .ssh import SSHInterface
 from .icontrol import IcontrolInterface, EMInterface
 from .rest import RestInterface
+import logging
 
 INTERFACES_CONTAINER = 'interfaces'
+# This container is used by logcollect plugin to copy extra files needed for
+# troubleshooting in case of a failure/error. The format is expected to be:
+# To copy files from a remote device.
+# <filename>: (<SSHInterface instance>, <remote_file_path>)
+# OR
+# <filename>: <local_file_path>
+# To copy from the local file system.
+LOGCOLLECT_CONTAINER = 'logcollect'
+LOG = logging.getLogger(__name__)
 
 
 class InterfaceHelper(object):
-    """Adds get_selenium() helper to a TestCase.
-
-    - If key is a string, then it will use it as the key to lookup in the global
-    handles store, which is managed by the test package.
-
-    - If key is a SeleniumInterface instance then it will open it, add it to the
-    local handles store and return the opened interface.
-
-    - If key is None then it will try to open a new SeleniumInterface using the
-    args and kwargs provided.
     """
-    def _setup(self, name, ifcs=None):
+    Provides a few helper methods that will make the interface handling
+    easier and also data sharing between contexts. This class may be used
+    stand-alone or subclassed by a TestCase class.
+    """
+    def _setup(self, name):
+        """
+        Initializes the class. The main reason why this is not called
+        __init__ is because it would collide with TestCase class' __init__.
+
+        :param name: The context name (usually the test name/id).
+        :type name: string
+        """
         config = ConfigInterface().open()
         self.config = config.setdefault('_attrs', Options())
         self.name = name
 
-        if ifcs:
-            del ifcs[:]
-        self.ifcs = ifcs
-        self._apis = {}
-        self._data = Options()
-
     def _teardown(self):
-        for interface in self._apis.keys():
-            self.pop_interface(interface)
+        """
+        Closes every interface opened in the current context only! This method
+        should be called from a teardown* method, __exit__ method of a context
+        manager or a finally block.
+        """
+        for name, interface in self.get_container(container=INTERFACES_CONTAINER,
+                                                  exact=True).items():
+            interface.close()
+            self.unset_data(name, container=INTERFACES_CONTAINER)
 
         if self.name in self.config:
             del self.config[self.name]
 
+    def _clear(self):
+        """
+        WARNING: This clears *ALL* contexts, not only the current one.
+        """
+        if isinstance(self.config, dict):
+            self.config.clear()
+
     def set_data(self, key, data, container='default'):
-        root = self.config.setdefault(self.name, Options())
-        container = root.setdefault(container, Options())
+        """
+        Sets a name=value for the current context, just like you'd do with a
+        dictionary. Each context may have multiple containers. The default
+        container is meant to be used for storing user data. Other containers
+        may be used to avoid key collision with user data.
+
+        :param key: The key (or name) of the mapping.
+        :param data: The value (or data) of the mappting.
+        :param container: Container name.
+        """
+        container = self.set_container(container)
         container[key] = data
 
     def get_data(self, key, container='default'):
+        """
+        Retrieve the data stored by set_data().
+
+        Example:
+        Current context is 'context.level.1.1'.
+
+        context.level.1:
+            foo=bar (container=default)
+            foo=bar2 (container=other)
+            foo2=masked (container=default)
+        context.level.1.1:
+            foo2=barbar (container=default)
+
+        >>> get_data('foo')
+        bar
+        >>> get_data('foo', container='other')
+        bar2
+        >>> get_data('foo2')
+        barbar
+
+        :param key: The key (or name) of the mapping.
+        :param container: Container name.
+        """
         data = self.get_container(container)
         if isinstance(data, dict):
             return data.get(key)
 
-    def get_container(self, container='default'):
+    def set_container(self, container='default'):
+        """
+        Create an empty container or return an existing one.
+        """
+        root = self.config.setdefault(self.name, Options())
+        return root.setdefault(container, Options())
+
+    def get_container(self, container='default', exact=False):
+        """
+        Returns a *volatile* dictionary of a container built hierarchically from
+        parent containers.
+
+        :param container: Container name.
+        :param exact: Allow values defined in parent contexts to be included in
+        child contexts.
+        :type exact: bool
+        """
         i = pos = 0
         my_id = self.name
-        data = {}
+        data = Options()
         while pos != -1:
-            pos = my_id.find('.', i)
+            if exact:
+                pos = -1
+            else:
+                pos = my_id.find('.', i)
+
             if pos > 0:
                 parent = my_id[:pos]
             else:
@@ -67,46 +138,57 @@ class InterfaceHelper(object):
         return data
 
     def unset_data(self, key, container='default'):
+        """
+        Delete a mapping from a container by its key.
+        """
         root = self.config.setdefault(self.name, Options())
         container = root.setdefault(container, Options())
         del container[key]
 
-    def push_interface(self, interface, managed=False):
-        if not managed:
-            interface.open()
-        self._apis[interface] = managed
-        if isinstance(self.ifcs, list):
-            self.ifcs.append(interface)
-        return interface
+    def get_interface(self, name_or_class, name=None, *args, **kwargs):
+        """
+        Get a previously stored interface or create a new one. If the optional
+        parameter name is given then the created interface will be stored as a
+        mapping with that name. Interface specific arguments can be passed in
+        *args and **kwargs.
 
-    def pop_interface(self, interface):
-        managed = self._apis.pop(interface)
-        if isinstance(self.ifcs, list):
-            self.ifcs.remove(interface)
-        if not managed:
-            interface.close()
-
-    def get_interface(self, interface_class, key=None, *args, **kwargs):
-        managed = False
-        if isinstance(key, basestring):
-            interface = self.get_data(key, container=INTERFACES_CONTAINER)
-            managed = True
+        :param name_or_class: The interface class or name (given as a string)
+        :type name_or_class: a subclass of Interface or a string
+        :param name:  The name to be used when storing this newly created
+        interface instance.
+        :type name: string
+        """
+        if isinstance(name_or_class, basestring):
+            interface = self.get_data(name_or_class,
+                                      container=INTERFACES_CONTAINER)
+            assert interface, 'Interface %s was not found.' % name_or_class
+            return interface
         else:
-            if isinstance(key, interface_class):
-                interface = key
-            elif key is None:
-                interface = interface_class(*args, **kwargs)
-            else:
-                raise ValueError("key argument must be either string, "
-                                 "%s or None" % interface_class)
+            interface = name_or_class(*args, **kwargs)
+            interface.open()
 
-        return self.push_interface(interface, managed)
+        if name is None:
+            name = id(interface)
+
+        self.set_data(name, interface, container=INTERFACES_CONTAINER)
+        return interface
 
     def get_config(self, *args, **kwargs):
         return self.get_interface(ConfigInterface, *args, **kwargs)
 
-    def get_selenium(self, key='selenium', *args, **kwargs):
-        return self.get_interface(SeleniumInterface, key, *args, **kwargs)
+    def get_selenium(self, name_or_class=DEFAULT_SELENIUM, *args, **kwargs):
+        """
+        Historically get_selenium() would be called from the majority of tests
+        without any arguments, in which case it should reuse a previously opened
+        SeleniumInterface shared by all UI tests.
+
+        As things got reworked in this class, the name/signature of these
+        methods became obsolete.
+        """
+        return self.get_interface(name_or_class, *args, **kwargs)
+
+    def get_selenium_anon(self, *args, **kwargs):
+        return self.get_interface(SeleniumInterface, *args, **kwargs)
 
     def get_ssh(self, *args, **kwargs):
         return self.get_interface(SSHInterface, *args, **kwargs)
@@ -121,25 +203,19 @@ class InterfaceHelper(object):
         return self.get_interface(RestInterface, *args, **kwargs)
 
 
+class ContextHelper(InterfaceHelper):
+
+    def __init__(self, name):
+        self._setup(name)
+
+    def teardown(self):
+        self._teardown()
+
+
 class InterfaceTestCase(InterfaceHelper, TestCase):
-    """Updates the current test attributes with the ones set in config._attrs.
-
-    In tests.setup_module():
-    config._attrs['tests'] = dict(handle1=1)
-
-    In tests.em.setup_module():
-    config._attrs['tests.em'] = dict(handle1=2)
-
-    In tests.em.ui.setup_module():
-    config._attrs['tests.em.ui'] = dict(handle2=3)
-
-
-    Then the test would be able to access these attrs like this:
-
-    tests.em.ui.test_file.TestClass.testMe:
-    def testMe(self):
-        print self.handle1 # would print '2'
-        print self.handle2 # would print '3'
+    """
+    A TestCase subclass that brings the functionality of the InterfaceHelper
+    class to each test case method.
     """
     @classmethod
     def setup_class(cls):

@@ -72,7 +72,7 @@ def force_unicode(s, encoding='utf-8', strings_only=False, errors='strict'):
     if strings_only and is_protected_type(s):
         return s
     try:
-        if not isinstance(s, basestring,):
+        if not isinstance(s, basestring):
             if hasattr(s, '__unicode__'):
                 s = unicode(s)
             else:

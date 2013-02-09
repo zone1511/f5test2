@@ -270,8 +270,7 @@ class InstallSoftware(Macro):
 
         def is_available(items):
             all_count = len(items)
-            return len(filter(lambda x: x['verified'] is True,
-                           items)) == all_count
+            return sum(bool(x['verified']) for x in items) == all_count
 
         base = os.path.basename(filename)
         LOG.info('Importing base iso %s', base)
@@ -332,10 +331,10 @@ class InstallSoftware(Macro):
         # in the software repository.
         #=======================================================================
         images = ICMD.software.get_software_image(ifc=icifc)
-        haz_it = filter(lambda x: x['verified'] and
+        haz_it = any(filter(lambda x: x['verified'] and
                                x['product'] == iso_version.product.to_tmos() and
                                x['version'] == iso_version.version and
-                               x['build'] == iso_version.build, images)
+                               x['build'] == iso_version.build, images))
 
         volume = self.options.volume or ICMD.software.get_inactive_volume(ifc=icifc)
         LOG.info('Preparing volume %s...', volume)
@@ -343,8 +342,7 @@ class InstallSoftware(Macro):
 
         def is_available(items):
             all_count = len(items)
-            return len(filter(lambda x: x['verified'] is True,
-                           items)) == all_count
+            return sum(bool(x['verified']) for x in items) == all_count
 
         is_clustered = ic.System.Cluster.is_clustered_environment()
 
@@ -366,10 +364,10 @@ class InstallSoftware(Macro):
 
         if hfiso:
             images = ICMD.software.get_software_image(ifc=icifc, is_hf=True)
-            haz_it = filter(lambda x: x['verified'] and
+            haz_it = any(filter(lambda x: x['verified'] and
                                    x['product'] == hfiso_version.product.to_tmos() and
                                    x['version'] == hfiso_version.version and
-                                   x['build'] == hfiso_version.build, images)
+                                   x['build'] == hfiso_version.build, images))
 
             if not haz_it:
                 LOG.info('Deleting all hotfix images...')
@@ -388,15 +386,15 @@ class InstallSoftware(Macro):
                              .run_wait(is_available)
 
         def is_still_removing(items):
-            return len(filter(lambda x: x['status'].startswith('removing'),
-                              items)) == 0
+            return not any(filter(lambda x: x['status'].startswith('removing'),
+                                  items))
 
         def is_still_installing(items):
-            return len(filter(lambda x: x['status'].startswith('installing') or \
+            return not any(filter(lambda x: x['status'].startswith('installing') or \
                                         x['status'].startswith('waiting') or \
                                         x['status'] in ('audited', 'auditing',
                                                         'upgrade needed'),
-                              items)) == 0
+                                  items))
 
         volumes = ICMD.software.get_software_status(ifc=icifc)
         assert is_still_installing(volumes), "An install is already in " \
@@ -418,7 +416,7 @@ class InstallSoftware(Macro):
                                # CAVEAT: tracks progress only for the first blade
                                progress_cb=lambda x: x[0]['status'],
                                timeout=timeout,
-                               stabilize=5)
+                               stabilize=10)
 
         LOG.info('Resetting the global DB vars...')
         ic.Management.DBVariable.modify(variables=[
@@ -428,7 +426,7 @@ class InstallSoftware(Macro):
             'value': essential and 'enable' or 'disable'}
         ])
 
-        if len(filter(lambda x: x['status'] == 'complete', ret)) != len(ret):
+        if sum(x['status'] == 'complete' for x in ret) != len(ret):
             raise InstallFailed('Install did not succeed: %s' % ret)
 
         # Will use SSH!
@@ -718,9 +716,6 @@ class EMInstallSoftware(Macro):
                 device_info = EMSQL.device.get_device_info(mgmtip, ifc=ssh)
                 active_slot = EMSQL.device.get_device_active_slot(mgmtip,
                                                                   ifc=ssh)
-                #slots = EMSQL.device.get_device_slots(mgmtip=mgmtip,
-                #                                      ifc=ssh)
-                #filter(lambda x:int(x['is_cf']) and )
                 targets.append(dict(device_uid=device_info['uid'],
                                     slot_uid=active_slot['uid']))
 
@@ -908,7 +903,7 @@ def main():
         p.print_help()
         sys.exit(2)
 
-    cs = InstallSoftware(options=options.__dict__, address=args[0])
+    cs = InstallSoftware(options=options, address=args[0])
     cs.run()
 
 

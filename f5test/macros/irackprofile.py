@@ -11,7 +11,7 @@ from netaddr import IPAddress
 import logging
 
 IRACK_HOSTNAME = 'irack.mgmt.pdsea.f5net.com'
-IRACK_HOSTNAME_DEBUG = '127.0.0.1:8081'
+IRACK_HOSTNAME_DEBUG = '127.0.0.1'
 LOG = logging.getLogger(__name__)
 DEFAULT_RANGE = '172.27.58.0/24'
 IP_BLOCKS = {
@@ -28,7 +28,7 @@ def id_from_uri(uri):
 class IrackProfile(Macro):
 
     def __init__(self, options, address=None):
-        self.options = Options(options.__dict__)
+        self.options = Options(options)
         self.address = address
 
         super(IrackProfile, self).__init__()
@@ -129,12 +129,15 @@ class IrackProfile(Macro):
     def setup(self):
         if self.options.verbose:
             hostname = IRACK_HOSTNAME_DEBUG
+            port = 8000
         else:
             hostname = IRACK_HOSTNAME
+            port = 80
         with IrackInterface(address=hostname,
                             timeout=self.options.timeout,
                             username=self.options.username,
-                            password=self.options.apikey, ssl=False) as irack:
+                            password=self.options.apikey,
+                            port=port, proto='http') as irack:
 
             if self.options.lastip:
                 self.do_get_ip_by_vlan(irack)

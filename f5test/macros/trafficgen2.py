@@ -24,14 +24,14 @@ __version__ = '0.3'
 
 def partition(size, n):
     q, r = divmod(size, n)
-    indices = [q * i + min(i, r) for i in xrange(n + 1)]
-    return [indices[i + 1] - indices[i] for i in xrange(n)]
+    indices = [q * i + min(i, r) for i in range(n + 1)]
+    return [indices[i + 1] - indices[i] for i in range(n)]
 
 
 class TrafficGen(Macro):
 
     def __init__(self, options, urls):
-        self.options = Options(options.__dict__)
+        self.options = Options(options)
         self.urls = urls
 
         super(TrafficGen, self).__init__()

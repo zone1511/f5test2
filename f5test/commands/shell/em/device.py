@@ -97,7 +97,7 @@ class GetDeviceState(Query): #@IgnorePep8
         elif isinstance(mgmtip, (tuple, list)):
             where = "WHERE access_address IN (%s)" % ','.join(("'%s'" % str(x) for x in mgmtip))
         elif isinstance(uids, (tuple, list)):
-            where = "WHERE uid IN (%s)" % ','.join(("%s" % str(x) for x in uids))
+            where = "WHERE d.uid IN (%s)" % ','.join(("%s" % str(x) for x in uids))
         else:
             where = ''
 

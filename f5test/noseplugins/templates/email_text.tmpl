@@ -7,16 +7,17 @@ Skipped: {{ bars.unknown }}
 
 {% if testtime %}Duration: {{ testtime.delta_str }}{% endif %}
 
+{% if not noseconfig.options.no_logcollect -%}
 Session logs: {{ sessionurl }}
+{%- endif %}
 {%- if config.testopia._testrun %}
 Testopia run: {{ config.testopia.address }}/tr_show_run.cgi?run_id={{ config.testopia._testrun }}
 {%- endif %}
 
-
 DUTs info:
 ==========
 {%- for dut in duts %}
- - {{ dut.device.alias }} - {{ dut.device.address }}: {{ dut.platform }} {{ dut.version }} {{ dut.project }} {% if config._reports and config._reports.cores[dut.device.alias] %}[CORED]{% endif %}
+ - {{ dut.device.alias }} - {{ dut.device.address }}: {{ dut.platform }} {{ dut.version }} {{ dut.project }} {% if data and data.cores[dut.device.alias] %}[CORED]{% endif %}
 {%- endfor %}
 
 Skipped:
@@ -31,7 +32,7 @@ Skipped:
 Author: {{ skip.0.test.author }} 
 {{ skip.1|string|indent(2, true) }}
 {% endfor %}
-
+{#
 Failures:
 =========
 {%- for failure in result.failures -%}
@@ -59,7 +60,7 @@ Author: {{ error.0.test.author }}
 {{ error.1.strip()|indent(2, true) }}
 {% endif -%}
 {% endfor %}
-
+#}
 Test Runner:
 ============
 {{ test_runner_ip }} 

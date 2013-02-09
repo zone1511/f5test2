@@ -22,11 +22,11 @@ DEFAULT_TIMEOUT = 90
 LOG = logging.getLogger(__name__)
 
 
-#class TestopiaError(Exception):
+# class TestopiaError(Exception):
 #    pass
 #
 #
-#class TestopiaXmlrpcError(Exception):
+# class TestopiaXmlrpcError(Exception):
 #    def __init__(self, verb, params, wrappedError):
 #        self.verb = verb
 #        self.params = params
@@ -46,7 +46,7 @@ class Testopia(xmlrpclib.ServerProxy):
     @type username: str
     @param password: the password associated with the username
     @type password: str
-    @param timeout: transport timeout in seconds 
+    @param timeout: transport timeout in seconds
     @type timeout: int
 
     Example: t = Testopia('jdoe@mycompany.com',
@@ -56,19 +56,19 @@ class Testopia(xmlrpclib.ServerProxy):
 
     def __init__(self, url, username, password, timeout=DEFAULT_TIMEOUT,
                  *args, **kwargs):
-        
+
         if sys.version_info[0:2] < (2, 7):
-            from .transport_26 import SafeCookieTransport, CookieTransport #@UnusedImport
+            from .transport_26 import SafeCookieTransport, CookieTransport  # @UnusedImport
         else:
-            from .transport_27 import SafeCookieTransport, CookieTransport #@Reimport
+            from .transport_27 import SafeCookieTransport, CookieTransport  # @Reimport
 
         if url.startswith('https://'):
             transport = SafeCookieTransport(timeout=timeout)
         elif url.startswith('http://'):
             transport = CookieTransport(timeout=timeout)
         else:
-            raise "Unrecognized URL scheme"
-        
+            raise ValueError("Unrecognized URL scheme")
+
         transport.cookiejar = CookieJar()
         xmlrpclib.ServerProxy.__init__(self, url, transport=transport,
                                        *args, **kwargs)

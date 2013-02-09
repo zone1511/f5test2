@@ -22,7 +22,7 @@ __version__ = '0.3'
 class SeleniumRC(Macro):
 
     def __init__(self, options, action):
-        self.options = Options(options.__dict__)
+        self.options = Options(options)
         self.action = action
 
         if options.env:

@@ -154,7 +154,7 @@ class URLGetterPool(object):
         self.add(self.size)
 
     def add(self, n):
-        for _ in xrange(n):
+        for _ in range(n):
             t = self.getter(self.getters, self.result_queue)
             t.manager = self
             if self.limit_rate > 0:
@@ -309,7 +309,7 @@ class LoadManager(object):
             self.stop()
             raise Exception('Nonsense in BASIC')
         LOG.debug('Wait for %d requests to finish...' % self.n)
-        for _ in xrange(self.n):
+        for _ in range(self.n):
             try:
                 self.stats.add(self.pool.result_queue.get())
             except KeyboardInterrupt:
@@ -353,7 +353,7 @@ class PALB(object):
         stats = ResultStats()
         producer.start()
 
-        for _ in xrange(self.n):
+        for _ in range(self.n):
             if not keep_processing:
                 break
             stats.add(pool.result_queue.get())

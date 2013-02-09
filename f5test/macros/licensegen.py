@@ -12,7 +12,7 @@ import getpass
 import logging
 import pprint
 
-__version__ = '0.2'
+__version__ = '0.3'
 LOG = logging.getLogger(__name__)
 
 BANNED_FEATURES = set(('Appliance Mode', 'TrustedIP Subscription',
@@ -46,6 +46,11 @@ MAP.eval.em = {}
 MAP.eval.em['VE'] = 'F5-EM-VE-LIC'
 MAP.eval.em['3000'] = 'F5-EM-3000-LIC'
 MAP.eval.em['4000'] = 'F5-EM-4000-LIC'
+MAP.eval.bigiq = {}
+MAP.eval.bigiq['VE-CLOUD'] = ''
+MAP.eval.bigiq['VE-AFM'] = ''
+MAP.eval.bigiq['4000-CLOUD'] = ''
+MAP.eval.bigiq['4000-AFM'] = ''
 
 MAP.dev = {}
 MAP.dev.bigip = {}
@@ -73,12 +78,17 @@ MAP.dev.em = {}
 MAP.dev.em['VE'] = 'F5-EM-VE-LIC-DEV'
 MAP.dev.em['3000'] = 'F5-EM-3000-LIC-DEV'
 MAP.dev.em['4000'] = 'F5-EM-4000-LIC-DEV'
+MAP.dev.bigiq = {}
+MAP.dev.bigiq['VE-CLOUD'] = 'F5-BIQ-CLD-VE-M-LIC-DEV'
+MAP.dev.bigiq['VE-AFM'] = 'F5-BIQ-AFM-VE-50-LIC-DEV'
+MAP.dev.bigiq['4000-CLOUD'] = 'F5-BIQ-CLD-4000-LIC-DEV'
+MAP.dev.bigiq['4000-AFM'] = 'F5-BIQ-AFM-4000-LIC-DEV'
 
 
 class LicenseGenerator(Macro):
 
     def __init__(self, options, ifc=None):
-        self.options = Options(options.__dict__)
+        self.options = Options(options)
         self.ifc = ifc
         self._ourifc = False
 
@@ -113,8 +123,13 @@ class LicenseGenerator(Macro):
             if not product:
                 pprint.pprint(root.em)
                 raise ValueError("Only EM %s are supported." % root.em.keys())
+        elif self.options.bigiq:
+            productline = 'BIG-IQ'
+            product = root.bigiq.get(options.bigiq)
+            if not product:
+                raise ValueError("Only BIGIQ %s are supported." % root.bigiq.keys())
         else:
-            raise ValueError("Only BIGIP or EM are supported.")
+            raise ValueError("Only BIGIP, EM or BIGIQ are supported.")
 
         if self.options.eval:
             b.get('https://license.f5net.com/evalkeygenerator/')
@@ -155,7 +170,7 @@ class LicenseGenerator(Macro):
             if text.startswith('APM') or text.startswith('Access Policy Manager'):
                 if not 'Max CCU' in text:
                     continue
-            LOG.debug(text)
+            LOG.info("  %s", text)
             img = e.find_element_by_tag_name('img')
             img.click()
 
@@ -170,13 +185,14 @@ class LicenseGenerator(Macro):
                     break
 
             if not banned:
-                LOG.debug(text)
+                LOG.info("  %s", text)
                 img = e.find_element_by_tag_name('img')
                 img.click()
 
         LOG.info('Selecting radio buttons...')
-        for e in table.find_elements_by_xpath("//tr[td='Multiple Options (please select one)']"
-                                              "/following-sibling::tr[1]/td[1]"):
+        # This xpath selects every last radio button from each "Multiple Options" group.
+        xpath = "//tr[td[@class='availRadioFont'] and following-sibling::tr[position()=1 and td[not(@class) or @class!='availRadioFont']]]"
+        for e in table.find_elements_by_xpath(xpath):
             text = e.text.strip()
             for label in BANNED_FEATURES:
                 banned = False
@@ -185,7 +201,7 @@ class LicenseGenerator(Macro):
                     break
 
             if not banned:
-                LOG.debug(text)
+                LOG.info("  %s", text)
                 img = e.find_element_by_tag_name('img')
                 img.click()
 
@@ -222,6 +238,8 @@ def main():
                  type="string", help="The BIGIP platform (e.g.: 3900, VE, etc)")
     p.add_option("", "--em", metavar="PLATFORM",
                  type="string", help="The EM platform (e.g.: 4000, VE, etc)")
+    p.add_option("", "--bigiq", metavar="PLATFORM",
+                 type="string", help="The BIGIP platform (e.g.: 4000-AFM, VE-CLOUD, etc)")
     p.add_option("", "--eval", action="store_true",
                  help="Generate Eval keys instead of Dev.")
 
@@ -238,7 +256,7 @@ def main():
     LOG.setLevel(level)
     logging.basicConfig(level=level)
 
-    if not(options.bigip or options.em):
+    if not(options.bigip or options.em or options.bigiq):
         p.print_version()
         p.print_help()
         sys.exit(2)

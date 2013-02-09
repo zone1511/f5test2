@@ -35,7 +35,7 @@ class ClonerFailed(Exception):
 class DeviceCloner(Macro):
 
     def __init__(self, options, emaddress=None, bigipaddress=None):
-        self.options = Options(options.__dict__)
+        self.options = Options(options)
 
         self.emparams = Options(device=self.options.emdevice,
                          address=emaddress, timeout=self.options.timeout,

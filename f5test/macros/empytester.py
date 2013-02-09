@@ -20,7 +20,7 @@ __version__ = '1.0'
 class EmpyTester(Macro):
 
     def __init__(self, options, address=None, params=None):
-        self.options = Options(options.__dict__)
+        self.options = Options(options)
         self.params = params
 
         self.icparams = Options(device=self.options.device,

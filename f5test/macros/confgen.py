@@ -129,7 +129,7 @@ def extend(cwd, config):
             filename = os.path.join(cwd, filename)
             base_config = yaml.load(open(filename, 'rb').read())
             config = merge(config, base_config)
-    elif isinstance(config.get('$extends'), str):
+    elif isinstance(config.get('$extends'), basestring):
         filename = os.path.join(cwd, config.get('$extends'))
         base_config = yaml.load(open(filename, 'rb').read())
         config = merge(config, base_config)
@@ -144,7 +144,7 @@ class ConfigGenerator(Macro):
     @type options: Options
     """
     def __init__(self, options, address=None, *args, **kwargs):
-        self.options = Options(options.__dict__)
+        self.options = Options(options)
 
         self.options.setifnone('node_count', DEFAULT_NODES)
         self.options.setifnone('pool_count', DEFAULT_POOLS)
@@ -294,7 +294,9 @@ class ConfigGenerator(Macro):
                                                      ifc=self.ssh).get('project')
 
     def _set_status(self):
-        status = SSH.get_prompt(ifc=self.ssh)
+        status = SCMD.ssh.GetPrompt(ifc=self.ssh).run_wait(lambda x: x not in ('INOPERATIVE',),
+                                                  progress_cb=lambda x: 'Still inoperative...',
+                                                  timeout=self.options.timeout)
         LOG.info('Status: %s', status)
         self._status = status
 

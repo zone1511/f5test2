@@ -179,8 +179,9 @@ class GetActiveVolume(WaitableCommand, IcontrolCommand):
 
     def setup(self):
         ic = self.api
-        return filter(lambda x: x['active'],
-                      ic.System.SoftwareManagement.get_all_software_status())[0]['installation_id']['install_volume']
+        _ = list(filter(lambda x: x['active'],
+                        ic.System.SoftwareManagement.get_all_software_status()))
+        return _[0]['installation_id']['install_volume']
 
 
 get_inactive_volume = None
@@ -189,6 +190,7 @@ class GetInactiveVolume(WaitableCommand, IcontrolCommand):
 
     def setup(self):
         ic = self.api
-        return filter(lambda x: not x['active'] and (x['status'] == 'complete' or
-                                                     x['status'].startswith('failed')),
-                      ic.System.SoftwareManagement.get_all_software_status())[0]['installation_id']['install_volume']
+        _ = list(filter(lambda x: not x['active'] and (x['status'] == 'complete' or
+                                                       x['status'].startswith('failed')),
+                        ic.System.SoftwareManagement.get_all_software_status()))
+        return _[0]['installation_id']['install_volume']

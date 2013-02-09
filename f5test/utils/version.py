@@ -4,11 +4,16 @@ import re
 
 class InvalidVersionString(Exception):
     """Raised when invalid version strings are used.
-    """ 
+    """
+
 
 class IllegalComparison(Exception):
     """Raised when invalid version strings are used.
-    """ 
+    """
+
+
+def py2x_cmp(a, b):
+    return (a > b) - (a < b)
 
 
 class Product(object):
@@ -21,7 +26,7 @@ class Product(object):
 
     def __init__(self, product_string):
         """String to Product class converter.
-    
+
         >>> Product('EM 1.2')
         em
         >>> Product('Enterprise Manager')
@@ -75,8 +80,8 @@ class Product(object):
     def __cmp__(self, other):
         if not isinstance(other, Product):
             other = Product(other)
-        
-        return cmp(self.product, other.product)
+
+        return py2x_cmp(self.product, other.product)
 
     def __repr__(self):
         return self.product
@@ -87,14 +92,14 @@ class Product(object):
                 Product.WANJET,
                 Product.ARX,
                 Product.SAM].index(self.product)
-    
+
     __hash__ = __int__
 
 
 class Version(object):
     """Generic Version + Build object.
     Samples:
-    
+
     >>> Version('1.1')
     <Version: 1.1.0 0.0.0>
     >>> Version('9.3.1')
@@ -115,7 +120,7 @@ class Version(object):
     etc..
     """
     def __init__(self, version=None, product=None):
-        
+
         if isinstance(version, Version):
             self.pmajor = version.pmajor
             self.pminor = version.pminor
@@ -127,22 +132,22 @@ class Version(object):
         else:
             mo = re.search("(\d+)\.(\d+)\.?(\d+)?[^\d]*(\d+)?\.?(\d+)?\.?(\d+)?",
                           str(version), re.IGNORECASE)
-            
+
             if mo is None:
                 (self.pmajor, self.pminor, self.ppatch,
                  self.bnum, self.bhotfix, self.bdevel) = (0, 0, 0, 0, 0, 0)
             else:
                 (self.pmajor, self.pminor, self.ppatch,
-                 self.bnum, self.bhotfix, self.bdevel) = map(lambda x:int(x or 0),
+                 self.bnum, self.bhotfix, self.bdevel) = map(lambda x: int(x or 0),
                                                             mo.groups())
-    
+
 #            self.version = "%s.%s.%s" % (self.pmajor, self.pminor, self.ppatch)
-#            
+#
 #            if self.bdevel:
 #                self.build = "%s.%s.%s" % (self.bnum, self.bhotfix, self.bdevel)
 #            else:
 #                self.build = "%s.%s" % (self.bnum, self.bhotfix)
-    
+
             if product:
                 self.product = Product(product)
             else:
@@ -202,23 +207,23 @@ class Version(object):
 
     def _cmp(self, other):
         """Easy comparsion with like-objects or other strings"""
-                
+
         if not isinstance(other, Version):
             other = Version(other)
 
         if (self.product is None and not other.product is None) or \
            (not self.product is None and other.product is None):
             raise IllegalComparison("Product is missing from one of the versions.")
-        
+
         if self.product != other.product:
             return None
 
-        return cmp(self.pmajor, other.pmajor) or \
-               cmp(self.pminor, other.pminor) or \
-               cmp(self.ppatch, other.ppatch) or \
-               cmp(self.bnum, other.bnum) or \
-               cmp(self.bhotfix, other.bhotfix) or \
-               cmp(self.bdevel, other.bdevel)
+        return py2x_cmp(self.pmajor, other.pmajor) or \
+               py2x_cmp(self.pminor, other.pminor) or \
+               py2x_cmp(self.ppatch, other.ppatch) or \
+               py2x_cmp(self.bnum, other.bnum) or \
+               py2x_cmp(self.bhotfix, other.bhotfix) or \
+               py2x_cmp(self.bdevel, other.bdevel)
 
     @property
     def is_none(self):
@@ -239,7 +244,7 @@ class Version(object):
             return "%(bnum)d.%(bhotfix)d.%(bdevel)d" % self.__dict__
         else:
             return "%(bnum)d.%(bhotfix)d" % self.__dict__
-    
+
     def __repr__(self):
         if self.is_none:
             return '<Version: None>'
@@ -250,26 +255,26 @@ class Version(object):
                        "%(bnum)d.%(bhotfix)d.%(bdevel)d>" % self.__dict__
             return "<Version: %(product)s %(pmajor)d.%(pminor)d.%(ppatch)d " \
                    "%(bnum)d.%(bhotfix)d.%(bdevel)d>" % self.__dict__
-        
+
         if self.product.is_none:
             return "<Version: %(pmajor)d.%(pminor)d.%(ppatch)d " \
                    "%(bnum)d.%(bhotfix)d>" % self.__dict__
         return "<Version: %(product)s %(pmajor)d.%(pminor)d.%(ppatch)d " \
                "%(bnum)d.%(bhotfix)d>" % self.__dict__
-    
+
     def __int__(self):
-        return self.pmajor  * 10 ** 5 + \
-               self.pminor  * 10 ** 4 + \
-               self.ppatch  * 10 ** 3 + \
-               self.bnum    * 10 ** 2 + \
+        return self.pmajor * 10 ** 5 + \
+               self.pminor * 10 ** 4 + \
+               self.ppatch * 10 ** 3 + \
+               self.bnum * 10 ** 2 + \
                self.bhotfix * 10 ** 1 + \
-               self.bdevel  * 10 ** 0 + \
+               self.bdevel * 10 ** 0 + \
                int(self.product) * 10 ** 6
 
     __hash__ = __int__
 
 if __name__ == '__main__':
-    
+
     assert not Version("10.1.1") < '9.4.8'
     assert not Version("9.4.8 1.0") < Version('9.4.8')
     assert Version("9.4.8 1.0") < '9.4.8 3.0'

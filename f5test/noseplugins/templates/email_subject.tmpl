@@ -1,1 +1,1 @@
-EMBVT: {% if result.wasSuccessful() %}Passed{% else %}Failed{% endif %} / {{ result.testsRun }} tests / {{ dut.version.product|upper }} {{ dut.version.version }} {{ dut.version.build }} {% if config._reports.cores %}[CORED]{% endif %}
+EMBVT: {% if result.wasSuccessful() %}Passed{% else %}Failed{% endif %} / {{ result.testsRun }} tests / {{ dut.version.product|upper }} {{ dut.version.version }} {{ dut.version.build }} {% if data.cores %}[CORED]{% endif %}

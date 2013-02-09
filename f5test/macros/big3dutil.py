@@ -22,7 +22,7 @@ __version__ = '0.1'
 class Big3dUtil(Macro):
 
     def __init__(self, options, address=None):
-        self.options = Options(options.__dict__)
+        self.options = Options(options)
 
         self.sshparams = Options(device=self.options.device,
                          address=address, timeout=self.options.timeout,

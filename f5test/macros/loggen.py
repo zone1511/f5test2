@@ -51,7 +51,7 @@ CANNED_TYPES = {
 class LogGenerator(Macro):
 
     def __init__(self, options, address):
-        self.options = Options(options.__dict__)
+        self.options = Options(options)
         self.address = address
 
         super(LogGenerator, self).__init__()

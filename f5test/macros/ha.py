@@ -8,8 +8,8 @@ from f5test.macros.base import Macro
 from f5test.base import Options
 from f5test.interfaces.icontrol import IcontrolInterface
 import f5test.commands.icontrol as ICMD
-from f5test.interfaces.config import DeviceAccess, DeviceCredential
-from f5test.defaults import DEFAULT_PORTS, ADMIN_USERNAME
+from f5test.interfaces.config import DeviceAccess, DeviceCredential, ADMIN_ROLE
+from f5test.defaults import DEFAULT_PORTS
 from f5test.utils.wait import wait
 from netaddr import IPAddress, IPNetwork
 import logging
@@ -27,7 +27,7 @@ __version__ = '0.2'
 class FailoverMacro(Macro):
 
     def __init__(self, options, authorities=None, peers=None, groups=None):
-        self.options = Options(options.__dict__)
+        self.options = Options(options)
         self.authorities_spec = list(authorities or [])
         self.peers_spec = list(peers or [])
         self.cas = []
@@ -54,15 +54,16 @@ class FailoverMacro(Macro):
             else:
                 address, port = bits[0], DEFAULT_PORTS['https']
 
+            cred = Options()
             if len(bits) == 1:
-                cred = DeviceCredential(default_username, default_password)
-                device = DeviceAccess(address, {ADMIN_USERNAME: cred})
+                cred.common = DeviceCredential(default_username, default_password)
+                device = DeviceAccess(address, {ADMIN_ROLE: cred})
             elif len(bits) == 2:
-                cred = DeviceCredential(default_username, bits[1])
-                device = DeviceAccess(address, {ADMIN_USERNAME: cred})
+                cred.common = DeviceCredential(default_username, bits[1])
+                device = DeviceAccess(address, {ADMIN_ROLE: cred})
             elif len(bits) == 3:
-                cred = DeviceCredential(bits[1], bits[2])
-                device = DeviceAccess(address, {ADMIN_USERNAME: cred})
+                cred.common = DeviceCredential(bits[1], bits[2])
+                device = DeviceAccess(address, {ADMIN_ROLE: cred})
             else:
                 raise ValueError('Invalid specs: %s', specs)
 
@@ -272,7 +273,7 @@ class FailoverMacro(Macro):
                                                                        fostates,
                                                                        mgmtaddrs))
         LOG.debug(trios)
-        active_devices = filter(lambda x: x[1] == 'HA_STATE_ACTIVE', trios)
+        active_devices = list(filter(lambda x: x[1] == 'HA_STATE_ACTIVE', trios))
         return active_devices
 
     def do_config_sync(self):

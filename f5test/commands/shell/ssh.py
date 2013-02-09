@@ -470,14 +470,17 @@ class CollectLogs(SSHCommand): #@IgnorePep8
         self.last = last
 
     def setup(self):
+        # Common
         files = ['/var/log/ltm', '/var/log/messages',
                 '/var/log/httpd/httpd_errors']
-        v = self.version
+        v = abs(self.version)
 
+        # EM specific
         if v.product.is_em:
             files.append('/var/log/em')
             files.append('/var/log/emrptschedd.log')
 
+        # UI
         if v.product.is_bigip and v > 'bigip 10.0' \
         or v.product.is_em and v > 'em 2.0':
             files.append('/var/log/tomcat/catalina.out')
@@ -485,6 +488,11 @@ class CollectLogs(SSHCommand): #@IgnorePep8
             files.append('/var/log/webui.log')
         else:
             files.append('/var/log/tomcat4/catalina.out')
+
+        # REST API
+        if v.product.is_bigip and v >= 'bigip 11.4' \
+        or v.product.is_em and v >= 'em 3.2':
+            files.append('/var/log/restjavad.0.log')
 
         for filename in files:
             ret = self.api.run('tail -n %d %s' % (self.last, filename))

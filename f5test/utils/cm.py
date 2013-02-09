@@ -53,32 +53,36 @@ BIGIP = Product.BIGIP
 class FileNotFoundError(Exception):
     pass
 
+
 class IsoNotFoundError(FileNotFoundError):
     pass
 
+
 class MD5NotFoundError(FileNotFoundError):
     pass
+
 
 class OVANotFoundError(FileNotFoundError):
     pass
 
 
-
 def is_version_string(string):
     version_regex = re.compile(r'^\s*\d+\.\d+\.\d+\s*$')
-    
+
     if version_regex.search(string):
         return True
     else:
         return False
 
+
 def is_project_string(string):
     project_regex = re.compile(r'^\s*[a-zA-Z]+')
-    
+
     if project_regex.search(string):
         return True
     else:
         return False
+
 
 def md5_file_for(filename):
     """Find the md5 associated with the specified iso filename.
@@ -199,6 +203,7 @@ def create_finder(identifier, build, hotfix=None, product=BIGIP, root=ROOT_PATH)
         raise ValueError(errmsg)
     return finder
 
+
 def iso_metadata(isofile):
     """Return a L{Options} containing version, plaftorms, etc.
 
@@ -210,13 +215,13 @@ def iso_metadata(isofile):
     start = output.find("<?xml")
     if start < 0:
         raise ValueError("Unexpected XML output: %s" % output)
-    
+
     xml = fromstring(output[start:])
     product = Product(xml.find("productName").text)
-    version = Version("%s %s" % (xml.find("version").text, 
+    version = Version("%s %s" % (xml.find("version").text,
                                  xml.find("buildNumber").text),
                       product=product)
-    
+
     ret = Options()
     spnode = xml.find('supportedPlatforms')
     if spnode is not None:
@@ -228,7 +233,7 @@ def iso_metadata(isofile):
     ret.releasenotes = xml.find("releaseNotesUrl").text
     if xml.find("versionReleaseDateText") is not None:
         ret.releasedate = xml.find("versionReleaseDateText").text
-    ret.requirements = dict((e.find('name').text, e.find('value').text) 
+    ret.requirements = dict((e.find('name').text, e.find('value').text)
                             for e in xml.find('platformRequirements'))
     ret.image_type = xml.find("imageType").text
     if ret.image_type == 'hotfix':
@@ -236,6 +241,7 @@ def iso_metadata(isofile):
         ret.hfid = hfnode.find('hotfixID').text
         ret.hftitle = hfnode.find('hotfixTitle').text
     return ret
+
 
 def version_from_metadata(isofile):
     """Return a L{Version} object according to the info in metadata.xml.
@@ -361,7 +367,7 @@ class IsoFinder(CMFileFinder):
                 yield os.path.join(basepath, subdir, 'release')
             else:
                 yield os.path.join(basepath, subdir, 'build%s' % self.build)
-        
+
         yield self.root
 
     def matches(self, filename):
@@ -382,7 +388,7 @@ class VersionFinder(IsoFinder):
     def _make_regex(self):
         iso_regex = re.compile(r'%s-'
                                '\d+\.\d+\.\d+'
-                               '\.\d+\.\d+'
+                               '\.\d+\.\d+(\.\d+)*'
                                '\.iso$' % self._product,
                                re.IGNORECASE)
         return iso_regex
@@ -405,7 +411,7 @@ class ProjectFinder(IsoFinder):
     def _make_regex(self):
         iso_regex = re.compile(r'%s-'
                                '\d+\.\d+\.\d+'
-                               '\.\d+\.\d+'
+                               '\.\d+\.\d+(\.\d+)*'
                                '\.iso$' % self._product,
                                re.IGNORECASE)
         return iso_regex
@@ -416,7 +422,7 @@ class HotfixFinder(IsoFinder):
         self.hotfix = hotfix.lower()
         hf_identifier = self.create_actual_identifier(identifier, self.hotfix)
         self._original_identifier = identifier
-        super(HotfixFinder, self).__init__(identifier=hf_identifier, 
+        super(HotfixFinder, self).__init__(identifier=hf_identifier,
                                            *args, **kwargs)
 
     def create_actual_identifier(self, identifier, hotfix):
@@ -479,7 +485,7 @@ class HotfixFinder(IsoFinder):
 
     def _make_regex(self):
         build = r'\d+\.\d+' if self.build is None else self.build
-        
+
         hotfix_regex = re.compile(r'hotfix-%s-'
                                   '%s-%s-%s\.(iso|im)$'
                                   % (self._product, self._original_identifier,

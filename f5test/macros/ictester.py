@@ -20,7 +20,7 @@ __version__ = '1.1'
 class Ictester(Macro):
 
     def __init__(self, options, address=None, params=None):
-        self.options = Options(options.__dict__)
+        self.options = Options(options)
         self.params = params
 
         self.icparams = Options(device=self.options.device,
@@ -29,20 +29,22 @@ class Ictester(Macro):
                          password=self.options.password,
                          port=self.options.port)
         self.icparams.debug = 1 if options.verbose else 0
-        
+
         super(Ictester, self).__init__()
 
     def setup(self):
-        
+
         with IcontrolInterface(**self.icparams) as icifc:
             if self.options.session:
                 icifc.set_session(self.options.session)
-            
+
             ic = icifc.api
             method = re.sub(r'[\./:]{1,2}', r'.', self.params[0])
 
-            limited_globals = dict(__builtins__=None)
-            
+            limited_globals = dict(__builtins__={'True': True,
+                                                 'False': False,
+                                                 'None': None})
+
             params = []
             for param in self.params[1:]:
                 param = param.decode('utf-8')
@@ -51,22 +53,23 @@ class Ictester(Macro):
                 try:
                     obj = eval(value, limited_globals)
                     params.append("%s=%s" % (name, obj))
-                except (NameError, SyntaxError):
+                except (NameError, SyntaxError) as e:
+                    LOG.debug(e)
                     if value.startswith('[') or value.startswith('{'):
                         LOG.warning("Did you forget quotes around %s?", value)
                     params.append("%s=%s" % (name, repr(value)))
-                
+
             LOG.debug(u"Calling: {0}({1})".format(method, ', '.join(params)))
-            x = eval(u"ic.{0}({1})".format(method, ','.join(params)), 
-                     limited_globals, {'ic':ic})
-            #print "--- RETURN ---"
+            x = eval(u"ic.{0}({1})".format(method, ','.join(params)),
+                     limited_globals, {'ic': ic})
+            # print "--- RETURN ---"
             if self.options.yaml:
                 import yaml
-                print yaml.safe_dump(x, default_flow_style=False, indent=4, 
+                print yaml.safe_dump(x, default_flow_style=False, indent=4,
                                      allow_unicode=True)
             elif self.options.json:
                 import json
-                print json.dumps(x, sort_keys=True, indent=4, 
+                print json.dumps(x, sort_keys=True, indent=4,
                                  ensure_ascii=False)
             else:
                 pprint(x)
@@ -78,16 +81,16 @@ def main():
 
     usage = """%prog [options] <address> <method> [param]...""" \
     u"""
-  
+
   SDK Help: http://172.27.32.101/iControl-11.2.0/sdk/api_reference/iControl.html
-  
+
   Examples:
   %prog 172.27.58.94 -pf5site02 System.SystemInfo.get_version
   %prog 172.27.58.94 -pf5site02 Management.KeyCertificate.get_certificate_list mode=MANAGEMENT_MODE_DEFAULT -y
   %prog 172.27.58.94 -pf5site02 System.Services.set_service services="['SERVICE_BIG3D']" service_action=SERVICE_ACTION_RESTART
   %prog 172.27.58.94 -pf5site02 Management.Device.set_comment devices='["em4000-94.mgmt.pdsea.f5net.com"]' comments='[u"UTF-8 \\"Ionuţ\\""]'"""
 
-    formatter = optparse.TitledHelpFormatter(indent_increment=2, 
+    formatter = optparse.TitledHelpFormatter(indent_increment=2,
                                              max_help_position=60)
     p = optparse.OptionParser(usage=usage, formatter=formatter,
                             version="iControl Tester %s" % __version__
@@ -98,7 +101,7 @@ def main():
                  help="JSON output")
     p.add_option("-y", "--yaml", action="store_true",
                  help="YAML output")
-    
+
     p.add_option("-u", "--username", metavar="USERNAME",
                  default=ADMIN_USERNAME, type="string",
                  help="Admin username (default: %s)"
@@ -107,7 +110,7 @@ def main():
                  default=ADMIN_PASSWORD, type="string",
                  help="Admin password (default: %s)"
                  % ADMIN_PASSWORD)
-    
+
     p.add_option("", "--port", metavar="INTEGER", type="int", default=443,
                  help="SSL Port (default: 443)")
     p.add_option("-t", "--timeout", metavar="SECONDS", type="int", default=60,
@@ -126,12 +129,12 @@ def main():
 
     LOG.setLevel(level)
     logging.basicConfig(level=level)
-    
+
     if len(args) < 2:
         p.print_version()
         p.print_help()
         sys.exit(2)
-    
+
     cs = Ictester(options=options, address=args[0], params=args[1:])
     cs.run()
 

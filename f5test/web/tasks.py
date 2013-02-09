@@ -8,7 +8,8 @@ import nose
 import os
 import logging
 import re
-from f5test.noseplugins.testconfig import Signals
+from f5test.noseplugins.testconfig import Signals, EXTENDS_KEYWORD
+from billiard import current_process
 
 BVTINFO_PROJECT_PATTERN = '(\D+)?(\d+\.\d+\.\d+)-?(hf\d+)?'
 VENV = os.environ.get('VIRTUAL_ENV', '/home/jono/work/virtualenvs/f5test2')
@@ -25,6 +26,15 @@ def add(x, y):
 def _run(*arg, **kw):
     kw['exit'] = False
     return nose.core.TestProgram(*arg, **kw).success
+
+
+def get_harness_config(logger, harnesses):
+    i = current_process().index
+    try:
+        return harnesses[i]
+    except IndexError:
+        logger.warn("Worker %d doesn't have a harness associated. Add one in "
+                    "HARNESSES or reduce the CELERY_CONCURRENCY", i)
 
 
 @task
@@ -51,6 +61,11 @@ def nosetests(data):
         else:
             params['version'] = data['project']
         params['build'] = data['build']
+
+        harness = get_harness_config(logger, config['web']['harnesses'])
+        if not harness:
+            return
+        config[EXTENDS_KEYWORD].append(harness)
         nosetests.update_state(state='RUNNING', meta=config)
 
     args = ['',

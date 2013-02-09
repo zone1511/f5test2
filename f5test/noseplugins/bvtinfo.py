@@ -9,7 +9,6 @@ import logging
 from ..base import Options
 import urllib
 import urllib2
-import f5test.commands.icontrol as ICMD
 from ..utils import Version
 
 LOG = logging.getLogger(__name__)
@@ -33,7 +32,7 @@ class BVTInfo(Plugin):
     def configure(self, options, noseconfig):
         """ Call the super and then validate and call the relevant parser for
         the configuration file passed in """
-        from f5test.interfaces.config import ConfigInterface
+        from ..interfaces.config import ConfigInterface
 
         Plugin.configure(self, options, noseconfig)
         self.options = options
@@ -46,6 +45,7 @@ class BVTInfo(Plugin):
             "You can disable this plugin by passing --no-bvtinfo."
 
     def _get_duts_info(self):
+        import f5test.commands.icontrol as ICMD
         devices = [x for x in self.config_ifc.get_all_devices()
                      if 'no-bvtinfo-reporting' not in x.tags]
         if not devices:

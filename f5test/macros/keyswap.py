@@ -14,7 +14,7 @@ __version__ = '0.1'
 class KeySwap(Macro):
 
     def __init__(self, options, address=None):
-        self.options = Options(options.__dict__)
+        self.options = Options(options)
 
         if self.options.device:
             self.address = ConfigInterface().get_device_address(options.device)
