@@ -64,9 +64,10 @@ class IrackProfile(Macro):
         static = dump['static'] = {}
 
         if self.address:
-            params = dict(address_set__address__in=self.address)
+            params = dict(address_set__address__range=self.address)
         else:
             params = dict(address_set__address__range=DEFAULT_RANGE)
+        params.update(address_set__access=1)
 
         while not done:
             if nextitem:

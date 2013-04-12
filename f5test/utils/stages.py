@@ -9,7 +9,8 @@ from f5test.macros.keyswap import KeySwap
 from f5test.macros.ha import FailoverMacro
 from f5test.interfaces.testopia import TestopiaInterface
 from f5test.interfaces.config import (expand_devices, ConfigInterface,
-                                      KEYSET_COMMON, KEYSET_LOCK)
+                                      KEYSET_COMMON, KEYSET_LOCK,
+    KEYSET_DEFAULT)
 from f5test.interfaces.ssh import SSHInterface
 from f5test.interfaces.icontrol import IcontrolInterface
 from f5test.interfaces.subprocess import ShellInterface
@@ -59,7 +60,7 @@ def carry_flag(d, flag=None):
             key: val
     """
     if flag != None:
-        d[ENABLE_KEY] = flag
+        d.setdefault(ENABLE_KEY, flag)
     else:
         flag = d.get(ENABLE_KEY)
 
@@ -178,7 +179,7 @@ class TweaksStage(Stage, Macro):
 
     def setup(self):
         super(TweaksStage, self).setup()
-        LOG.info('Flip debug switches for: %s', self.device)
+        LOG.info('Tweaks stage for: %s', self.device)
         # mcp: Enable MCPD debug logging
         if self.specs.mcp and _bool(self.specs.mcp):
             with SSHInterface(device=self.device) as sshifc:
@@ -194,15 +195,6 @@ class TweaksStage(Stage, Macro):
         if self.specs.logrotate and _bool(self.specs.logrotate):
             with SSHInterface(device=self.device) as sshifc:
                 sshifc.api.run('/usr/sbin/logrotate /etc/logrotate.conf -f')
-
-        # shell: Execute shell commands
-        if self.specs.shell:
-            commands = [self.specs.shell] if isinstance(self.specs.shell,
-                                                        basestring) \
-                                          else self.specs.shell
-            with SSHInterface(device=self.device) as sshifc:
-                for command in commands:
-                    sshifc.api.run(command)
 
         # scp: Copy files to/from
         if self.specs.scp:
@@ -220,6 +212,16 @@ class TweaksStage(Stage, Macro):
                          destination=params.destination, nokex=True)
                 else:
                     raise ValueError("Unknown scp method: %s" % params.method)
+
+        # shell: Execute shell commands
+        if self.specs.shell:
+            commands = [self.specs.shell] if isinstance(self.specs.shell,
+                                                        basestring) \
+                                          else self.specs.shell
+            with SSHInterface(device=self.device) as sshifc:
+                for command in commands:
+                    ret = sshifc.api.run(command)
+                    LOG.debug(ret)
 
 
 class CoresStage(Stage, Macro):
@@ -267,11 +269,14 @@ class SetPasswordStage(Stage, Macro):
 
     def __init__(self, device, specs=None, *args, **kwargs):
         self.device = device
+        self.specs = specs
         super(SetPasswordStage, self).__init__(*args, **kwargs)
 
     def run(self):
         LOG.debug('Unlocking device %s', self.device)
-        ICMD.system.set_password(device=self.device, keyset=KEYSET_COMMON)
+        keysets = Options(default=KEYSET_DEFAULT, common=KEYSET_COMMON, lock=KEYSET_LOCK)
+        ICMD.system.set_password(device=self.device,
+                                 keyset=keysets.get(self.specs.keyset, KEYSET_COMMON))
 
         # Save the config after password change otherwise it will be reverted
         # upon reboot.
@@ -296,7 +301,7 @@ class PrintDevicesInfo(Macro):
         i = 1
         for device in devices:
             platform = ICMD.system.get_platform(device=device)
-            version = ICMD.system.get_version(device=device, build=True)
+            version = ICMD.system.get_version(device=device)
             LOG.info("%s: %s - %s - %s" % (device.alias, device.address,
                                            platform, version))
             tags.append("device.%d.build=%s" % (i, version.build))
@@ -383,7 +388,8 @@ class InstallSoftwareStage(Stage, InstallSoftware):
     def prep(self):
         super(InstallSoftwareStage, self).prep()
         LOG.info('Resetting password before install...')
-        assert ICMD.system.set_password(device=self.options.device)
+        assert ICMD.system.set_password(device=self.options.device,
+                                        keyset=KEYSET_COMMON)
 
         if not self.specs.get('no remove em certs'):
             LOG.info('Removing EM certs...')
@@ -400,7 +406,8 @@ class InstallSoftwareStage(Stage, InstallSoftware):
             # This variable exists only on 11.0+
             v = ICMD.system.get_version(device=self.device)
             if v.product.is_bigip and v >= 'bigip 11.0' or \
-               v.product.is_em and v >= 'em 3.0':
+               v.product.is_em and v >= 'em 3.0' or \
+               v.product.is_bigiq:
                 LOG.info('Waiting on Trust.configupdatedone DB variable...')
                 ICMD.management.GetDbvar('Trust.configupdatedone',
                                          device=self.options.device).\
@@ -518,6 +525,8 @@ class EMDiscocveryStage(Stage, Macro):
             delay = self.specs.get('delay', DEFAULT_DISCOVERY_DELAY)
             LOG.info('XXX: Waiting %d seconds for tmm to come up...' % delay)
             time.sleep(delay)
+            for x in devices:
+                x.specs._x_tmm_bug = False
 
         # Enable SSH access for this EM.
         with IcontrolInterface(device=self.device) as icifc:
@@ -621,7 +630,8 @@ class EMInstallSoftwareStage(Stage, EMInstallSoftware):
         ret = super(EMInstallSoftwareStage, self).prep()
         for device_attrs in self.devices:
             LOG.debug('Resetting password before: %s...', device_attrs.device)
-            assert ICMD.system.set_password(device=device_attrs.device)
+            assert ICMD.system.set_password(device=device_attrs.device,
+                                            keyset=KEYSET_COMMON)
             SCMD.ssh.remove_em(device=device_attrs.device)
         return ret
 

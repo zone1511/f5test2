@@ -23,6 +23,7 @@ class Product(object):
     WANJET = 'wanjet'
     ARX = 'arx'
     SAM = 'sam'
+    BIGIQ = 'bigiq'
 
     def __init__(self, product_string):
         """String to Product class converter.
@@ -40,6 +41,8 @@ class Product(object):
             self.product = Product.EM
         elif re.search("BIG-?IP", str(product_string), re.IGNORECASE):
             self.product = Product.BIGIP
+        elif re.search("BIG-?IQ", str(product_string), re.IGNORECASE):
+            self.product = Product.BIGIQ
         elif re.search("(?:WANJET|WJ)", str(product_string), re.IGNORECASE):
             self.product = Product.WANJET
         elif re.search("ARX", str(product_string), re.IGNORECASE):
@@ -52,6 +55,10 @@ class Product(object):
     @property
     def is_bigip(self):
         return self.product == Product.BIGIP
+
+    @property
+    def is_bigiq(self):
+        return self.product == Product.BIGIQ
 
     @property
     def is_em(self):
@@ -74,6 +81,8 @@ class Product(object):
             return 'EM'
         elif self.product == Product.BIGIP:
             return 'BIG-IP'
+        elif self.product == Product.BIGIQ:
+            return 'BIG-IQ'
         else:
             return str(self).upper()
 
@@ -89,6 +98,7 @@ class Product(object):
     def __int__(self):
         return [Product.EM,
                 Product.BIGIP,
+                Product.BIGIQ,
                 Product.WANJET,
                 Product.ARX,
                 Product.SAM].index(self.product)

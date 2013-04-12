@@ -53,6 +53,9 @@ class IcontrolInterface(Interface):
             LOG.debug('iControl session cleared.')
             self.api._session = None
 
+    def get_session(self):
+        return self.api._session
+
     def set_query_params(self, **query):
         LOG.debug('iControl query: %s', query)
         self.api._cache.clear()

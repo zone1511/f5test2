@@ -402,15 +402,17 @@ class InstallSoftware(SSHCommand): #@IgnorePep8
             opts.append('--format=partitions')
         else:
             if (self.version.product.is_bigip and self.version >= 'bigip 10.1.0' or
-               self.version.product.is_em and self.version >= 'em 2.0'):
+               self.version.product.is_em and self.version >= 'em 2.0' or
+               self.version.product.is_bigiq):
                 opts.append('--force')
             #else:
                 #raise NotImplementedError('upgrade path not supported')
 
         v = max(self.repo_version, self.version)
         if not (self.format and
-            (v.product.is_bigip and v >= 'bigip 10.2.1') or
-            (v.product.is_em and v >= 'em 2.1.0')):
+            v.product.is_bigip and v >= 'bigip 10.2.1' or
+            v.product.is_em and v >= 'em 2.1.0' or
+            v.product.is_bigiq):
             opts.append('--instslot %s' % self.volume)
 
         opts.append('--setdefault')
@@ -482,7 +484,8 @@ class CollectLogs(SSHCommand): #@IgnorePep8
 
         # UI
         if v.product.is_bigip and v > 'bigip 10.0' \
-        or v.product.is_em and v > 'em 2.0':
+        or v.product.is_em and v > 'em 2.0' \
+        or v.product.is_bigiq:
             files.append('/var/log/tomcat/catalina.out')
             files.append('/var/log/liveinstall.log')
             files.append('/var/log/webui.log')
@@ -491,7 +494,8 @@ class CollectLogs(SSHCommand): #@IgnorePep8
 
         # REST API
         if v.product.is_bigip and v >= 'bigip 11.4' \
-        or v.product.is_em and v >= 'em 3.2':
+        or v.product.is_em and v >= 'em 3.2' \
+        or v.product.is_bigiq:
             files.append('/var/log/restjavad.0.log')
 
         for filename in files:

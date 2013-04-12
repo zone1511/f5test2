@@ -33,8 +33,8 @@ class InterfaceHelper(object):
         :type name: string
         """
         config = ConfigInterface().open()
-        self.config = config.setdefault('_attrs', Options())
-        self.name = name
+        self._config = config.setdefault('_attrs', Options())
+        self._name = name
 
     def _teardown(self):
         """
@@ -47,17 +47,17 @@ class InterfaceHelper(object):
             interface.close()
             self.unset_data(name, container=INTERFACES_CONTAINER)
 
-        if self.name in self.config:
-            del self.config[self.name]
+        if self._name in self._config:
+            del self._config[self._name]
 
     def _clear(self):
         """
         WARNING: This clears *ALL* contexts, not only the current one.
         """
-        if isinstance(self.config, dict):
-            self.config.clear()
+        if isinstance(self._config, dict):
+            self._config.clear()
 
-    def set_data(self, key, data, container='default'):
+    def set_data(self, key, data, container='default', overwrite=False):
         """
         Sets a name=value for the current context, just like you'd do with a
         dictionary. Each context may have multiple containers. The default
@@ -65,10 +65,23 @@ class InterfaceHelper(object):
         may be used to avoid key collision with user data.
 
         :param key: The key (or name) of the mapping.
-        :param data: The value (or data) of the mappting.
+        :param data: The value (or data) of the mapping.
         :param container: Container name.
+        :param overwrite: Try to find if there is another value for the given
+            key in a parent container. If found it'll use that container
+            to overwrite the value.
         """
-        container = self.set_container(container)
+        if overwrite:
+            bits = self._name.split('.')
+            for i in range(len(bits)):
+                name = '.'.join(bits[:len(bits) - i])
+                if name in self._config and key in self._config[name].get(container, {}):
+                    break
+            else:
+                name = self._name
+        else:
+            name = None
+        container = self.set_container(container, name)
         container[key] = data
 
     def get_data(self, key, container='default'):
@@ -99,11 +112,13 @@ class InterfaceHelper(object):
         if isinstance(data, dict):
             return data.get(key)
 
-    def set_container(self, container='default'):
+    def set_container(self, container='default', name=None):
         """
         Create an empty container or return an existing one.
         """
-        root = self.config.setdefault(self.name, Options())
+        if name is None:
+            name = self._name
+        root = self._config.setdefault(name, Options())
         return root.setdefault(container, Options())
 
     def get_container(self, container='default', exact=False):
@@ -117,7 +132,7 @@ class InterfaceHelper(object):
         :type exact: bool
         """
         i = pos = 0
-        my_id = self.name
+        my_id = self._name
         data = Options()
         while pos != -1:
             if exact:
@@ -130,7 +145,7 @@ class InterfaceHelper(object):
             else:
                 parent = my_id
 
-            load = self.config.get(parent)
+            load = self._config.get(parent)
             if load and container in load and \
                isinstance(load[container], dict):
                 data.update(load[container])
@@ -141,7 +156,7 @@ class InterfaceHelper(object):
         """
         Delete a mapping from a container by its key.
         """
-        root = self.config.setdefault(self.name, Options())
+        root = self._config.setdefault(self._name, Options())
         container = root.setdefault(container, Options())
         del container[key]
 
@@ -193,8 +208,11 @@ class InterfaceHelper(object):
     def get_ssh(self, *args, **kwargs):
         return self.get_interface(SSHInterface, *args, **kwargs)
 
-    def get_icontrol(self, *args, **kwargs):
-        return self.get_interface(IcontrolInterface, *args, **kwargs)
+    def get_icontrol(self, new_session=False, *args, **kwargs):
+        ifc = self.get_interface(IcontrolInterface, *args, **kwargs)
+        if new_session:
+            ifc.set_session()
+        return ifc
 
     def get_em(self, *args, **kwargs):
         return self.get_interface(EMInterface, *args, **kwargs)
@@ -219,14 +237,15 @@ class InterfaceTestCase(InterfaceHelper, TestCase):
     """
     @classmethod
     def setup_class(cls):
-        ih = InterfaceHelper()
         name = "%s.%s" % (cls.__module__, cls.__name__)
-        ih._setup(name)
-        cls.ih = ih
+        context = ContextHelper(name)
+        # This is here for backwards compatibility
+        cls.ih = context
+        cls.context = context
 
     @classmethod
     def teardown_class(cls):
-        cls.ih._teardown()
+        cls.ih.teardown()
 
     def setUp(self, *args, **kwargs):
         self._setup(self.id())

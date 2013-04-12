@@ -41,7 +41,7 @@ class InstallSoftware(Macro):
         self.has_essential_config = None
         self.address = address
 
-        LOG.info('Doing: %s', self.address)
+        LOG.info('Doing: %s', self.address or options.device)
         super(InstallSoftware, self).__init__(*args, **kwargs)
 
     def by_em_api(self, filename, hfiso=None):
@@ -67,13 +67,10 @@ class InstallSoftware(Macro):
 #    def by_bigpipe(self):
 #        return
 
-    def _initialize_big3d(self, sshifc=None):
+    def _initialize_big3d(self):
         LOG.info('Initializing big3d...')
-        if sshifc is None:
-            sshifc = SSHInterface(address=self.address,
-                                  username=self.options.root_username,
-                                  password=self.options.root_password,
-                                  port=self.options.ssh_port)
+        sshifc = SSHInterface(address=self.address, port=self.options.ssh_port)
+
         with sshifc:
             ssh = sshifc.api
             ssh.run('bigstart stop big3d;'
@@ -151,14 +148,14 @@ class InstallSoftware(Macro):
             LOG.info('running on %s', version)
 
             if version > 'bigip 9.6.0':
-                cluster = SCMD.tmsh.list('sys clu', ifc=sshifc)
-                if cluster.get('sys'):
+                ret = SCMD.tmsh.list('sys cluster', ifc=sshifc)
+                if ret:
                     raise NotImplementedError('Due to potential complications image2disk '
                                               'installations on clustered '
                                               'systems are not supported by this tool '
                                               'and should be done by hand. Sorry!')
 
-            if not essential and iso_version < version or \
+            if not essential and abs(iso_version) < abs(version) or \
                iso_version.product != version.product:
                 LOG.warning('Enforcing --esential-config')
                 essential = True
@@ -243,8 +240,6 @@ class InstallSoftware(Macro):
                                           progress_cb=log_progress,
                                           repo_version=hfiso_version,
                                           reboot=False)
-                if essential:
-                    self._initialize_big3d(sshifc)
                 LOG.info('Rebooting...')
                 SCMD.ssh.switchboot(ifc=sshifc, volume=volume)
                 SCMD.ssh.reboot(ifc=sshifc)
@@ -256,6 +251,9 @@ class InstallSoftware(Macro):
         if expected_version != current_version:
             raise InstallFailed('Version expected: %s but found %s' %
                                 (expected_version, current_version))
+
+        if essential:
+            self._initialize_big3d()
 
         if essential and current_version.product.is_em:
             self._initialize_em()
@@ -287,8 +285,7 @@ class InstallSoftware(Macro):
                              username=self.options.root_username,
                              password=self.options.root_password,
                              port=self.options.ssh_port,
-                             source=hfiso, nokex=True)
-
+                             source=hfiso, nokex=False)
 
     def by_icontrol(self, filename, hfiso=None):
         iso_version = cm.version_from_metadata(filename)
@@ -314,7 +311,7 @@ class InstallSoftware(Macro):
 
         LOG.debug('running: %s', version)
         essential = self.options.essential_config
-        if not essential and iso_version < version:
+        if not essential and abs(iso_version) < abs(version):
             LOG.warning('Enforcing --esential-config')
             essential = True
 
@@ -379,7 +376,7 @@ class InstallSoftware(Macro):
                                  username=self.options.root_username,
                                  password=self.options.root_password,
                                  port=self.options.ssh_port,
-                                 source=hfiso, nokex=True)
+                                 source=hfiso, nokex=False)
 
                 LOG.info('Wait for image to be imported %s', hfbase)
                 ICMD.software.GetSoftwareImage(filename=hfbase, ifc=icifc, is_hf=True) \
@@ -429,10 +426,6 @@ class InstallSoftware(Macro):
         if sum(x['status'] == 'complete' for x in ret) != len(ret):
             raise InstallFailed('Install did not succeed: %s' % ret)
 
-        # Will use SSH!
-        if essential:
-            self._initialize_big3d()
-
         LOG.info('Setting the active boot location %s.', volume)
         if is_clustered:
             #===================================================================
@@ -479,7 +472,7 @@ class InstallSoftware(Macro):
                               progress_cb=lambda x: 'grub.lock still present...',
                               timeout=timeout)
 
-        current_version = ICMD.system.get_version(ifc=icifc, build=True)
+        current_version = ICMD.system.get_version(ifc=icifc)
         expected_version = hfiso_version or iso_version
         try:
             if expected_version != current_version:
@@ -487,6 +480,10 @@ class InstallSoftware(Macro):
                                     (expected_version, current_version))
         finally:
             icifc.close()
+
+        # Will use SSH!
+        if essential:
+            self._initialize_big3d()
 
         if essential and current_version.product.is_em:
             self._initialize_em()
@@ -578,7 +575,7 @@ class InstallSoftware(Macro):
         LOG.info(title)
         filename, hfiso = self._find_iso()
         iso_version = cm.version_from_metadata(filename)
-        
+
         if self.options.copy_only:
             self.copy_only(filename, hfiso)
             return
@@ -597,7 +594,8 @@ class InstallSoftware(Macro):
                 version = ICMD.system.get_version(ifc=icifc)
 
         if (iso_version.product.is_bigip and iso_version >= 'bigip 10.0.0' or
-            iso_version.product.is_em and iso_version >= 'em 2.0.0'):
+            iso_version.product.is_em and iso_version >= 'em 2.0.0' or
+            iso_version.product.is_bigiq):
             if self.options.format_partitions or self.options.format_volumes or \
                (version.product.is_bigip and version < 'bigip 10.0.0' or \
                 version.product.is_em and version < 'em 2.0.0'):
@@ -709,7 +707,7 @@ class EMInstallSoftware(Macro):
             for device in self.devices:
                 mgmtip = device.address
                 version = EMSQL.device.get_device_version(mgmtip, ifc=ssh)
-                if not o.essential_config and iso_version < version:
+                if not o.essential_config and abs(iso_version) < abs(version):
                     LOG.warning('Enforcing --esential-config')
                     o.essential_config = True
 
@@ -749,7 +747,7 @@ class EMInstallSoftware(Macro):
                                      username=self.options.root_username,
                                      password=self.options.root_password,
                                      port=self.options.ssh_port,
-                                     source=hfiso, nokex=True)
+                                     source=hfiso, nokex=False)
                     hfuid = EMAPI.software.import_image(destination, ifc=emifc)
                 else:
                     hfuid = hf_list[hfiso_version]

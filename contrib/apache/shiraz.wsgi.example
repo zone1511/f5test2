@@ -1,0 +1,30 @@
+# - Create /var/www/shiraz.mgmt.pdsea.f5net.com
+# - Create symlinks:
+# lrwxrwxrwx 1 root   root   50 Mar 21 17:23 conf -> /home/jono/work/virtualenvs/f5test2/config/apache/
+# lrwxrwxrwx 1 root   root   51 Mar 21 17:26 htdocs -> /home/jono/work/virtualenvs/f5test2/src/f5test/web/
+
+# - Create a new vhost symlink for apache (/etc/apache2/vhosts.d/)
+# - Point it to the .conf file like this
+# lrwxrwxrwx 1 root root   74 Mar 21 17:24 shiraz.mgmt.pdsea.f5net.com.conf -> /var/www/shiraz.mgmt.pdsea.f5net.com/conf/shiraz.mgmt.pdsea.f5net.com.conf
+
+# - Let apache have access to our stuff:
+# chgrp -R apache /var/www/shiraz.mgmt.pdsea.f5net.com/htdocs/media/
+# chmod +r /home/jono/work/virtualenvs/f5test2/config/web.yaml
+# chmod +r /home/jono/work/virtualenvs/f5test2/config/celery/*
+# chmod +r /var/www/shiraz.mgmt.pdsea.f5net.com/conf/shiraz.wsgi
+ 
+import os
+import sys
+
+venv = '/home/jono/work/virtualenvs/f5test2'
+
+# activate virtualenv
+activate_this = os.path.join(venv, "bin/activate_buildout.py")
+execfile(activate_this, dict(__file__=activate_this))
+
+sys.path.insert(0, os.path.join(venv, "src"))
+os.environ['VIRTUAL_ENV'] = venv
+os.environ['PYTHON_EGG_CACHE'] = '/tmp/.python-eggs'
+
+import f5test.web.server
+application = f5test.web.server.app

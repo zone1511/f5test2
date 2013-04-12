@@ -8,7 +8,7 @@ import f5test.commands.shell as SCMD
 from f5test.commands.shell.base import SSHCommandError
 from f5test.utils.version import Version, Product
 from f5test.utils.net import ip4to6
-from f5test.utils.parsers.tmsh import tmsh_to_dict
+from f5test.utils.parsers import tmsh
 from f5test.macros.base import Macro
 from f5test.macros.webcert import WebCert
 from f5test.macros.keyswap import KeySwap
@@ -50,10 +50,28 @@ DEFAULT_TMSH_CONFIG = 'remote_config.tmsh.yaml'
 
 # All known 172.27.XXX.0/24 subnets tangent to the VLAN1011.
 # This is used for VS address allocation.
-SUBNET_MAP = dict([(y, x) for x, y in enumerate((27, 58, 62, 63, 65, 90, 91, 92,
-                                                 93, 94, 95, 96, 97, 59, 11))])
+SUBNET_MAP = dict([(y, x) for x, y in enumerate(('172.27.27.0/24',
+                                                 '172.27.58.0/24',
+                                                 '172.27.62.0/24',
+                                                 '172.27.63.0/24',
+                                                 '172.27.65.0/24',
+                                                 '172.27.90.0/24',
+                                                 '172.27.91.0/24',
+                                                 '172.27.92.0/24',
+                                                 '172.27.93.0/24',
+                                                 '172.27.94.0/24',
+                                                 '172.27.95.0/24',
+                                                 '172.27.96.0/24',
+                                                 '172.27.97.0/24',
+                                                 '172.27.59.0/24',
+                                                 '172.27.11.0/24',
+                                                 '172.27.29.0/24',
+                                                 '10.144.2.0/24',
+                                                 '172.27.98.0/24',
+                                                 '172.27.76.0/24',
+                                                 ))])
 
-__version__ = 1.2
+__version__ = 1.3
 
 
 class ConfigGeneratorError(Exception):
@@ -258,8 +276,9 @@ class ConfigGenerator(Macro):
             for elem in level_cur:
                 i = elem.i
                 for _ in range(parity_count):
-                    g.add_edge(edge=(level_cur[i], level_pre[k % level_pre_count]))
-                    k += 1
+                    if level_pre_count:
+                        g.add_edge(edge=(level_cur[i], level_pre[k % level_pre_count]))
+                        k += 1
             level_pre = level_cur
             j += 1
 
@@ -380,7 +399,8 @@ class ConfigGenerator(Macro):
             ret = irack.api.staticbag.filter(asset__type=1, **params)
 
             if ret.data.meta.total_count == 0:
-                raise ConfigGeneratorError("No devices with mgmtip=%s found in iRack." % mgmtip)
+                LOG.warning("No devices with mgmtip=%s found in iRack." % mgmtip)
+                return {}
             if ret.data.meta.total_count > 1:
                 raise ConfigGeneratorError("More than one device with mgmtip=%s found in iRack." % mgmtip)
 
@@ -439,8 +459,7 @@ class ConfigGenerator(Macro):
 
             LOG.info("Looking up device with mgmtip '%s' in iRack...", mgmtip)
             static = self.config.setdefault('static', {})
-            static.update(
-                            self.irack_provider(address=self.options.irack_address,
+            static.update(self.irack_provider(address=self.options.irack_address,
                                                 username=self.options.irack_username,
                                                 apikey=self.options.irack_apikey,
                                                 mgmtip=mgmtip,
@@ -505,10 +524,10 @@ class ConfigGenerator(Macro):
                                     timeout=self.options.timeout,
                                     port=self.options.ssh_port)
 
-            ret = BIGPIPE.generic('mgmt list', ifc=peer_ssh)
-            address = tmsh_to_dict(ret.stdout)
-            p.ip = IPNetwork("{0}/{1}".format(address['mgmt'].keys()[0],
-                                       address['mgmt'][address['mgmt'].keys()[0]]['netmask']))
+            ret = tmsh.parser(BIGPIPE.generic('mgmt list', ifc=peer_ssh))
+            ip = ret.glob_keys('mgmt*')[0]
+            netmask = ret['mgmt %s' % ip]['netmask']
+            p.ip = IPNetwork("{0}/{1}".format(ip, netmask))
 
             if self.options.get('peer_selfip_internal'):
                 p.selfip_internal = self.options['peer_selfip_internal']
@@ -542,31 +561,33 @@ class ConfigGenerator(Macro):
         else:
             self.formatter['ltm.ip'] = ip
 
-        if (self.options.get('selfip_internal') and
-            self.options.get('selfip_external')):
-
-            # Internal selfIP
+        # Internal selfIP
+        if self.options.get('selfip_internal'):
             self.selfip_internal = IPNetwork(self.options.selfip_internal)
             if self.selfip_internal.prefixlen == 32:
                 self.selfip_internal.prefixlen = 16
                 LOG.warning('Did you mean internal self IP = %s?',
                             self.selfip_internal)
+        else:
+            try:
+                self.selfip_internal = IPNetwork("{0[address]}/{0[netmask]}".format(
+                               self.config['static'][ip]['selfip']['internal']))
+            except KeyError:
+                LOG.debug('Internal Self IP address is missing.')
 
-            # External selfIP
+        # External selfIP
+        if self.options.get('selfip_external'):
             self.selfip_external = IPNetwork(self.options.selfip_external)
             if self.selfip_external.prefixlen == 32:
                 self.selfip_external.prefixlen = 16
                 LOG.warning('Did you mean internal self IP = %s?',
                             self.selfip_external)
-
         else:
             try:
-                self.selfip_internal = IPNetwork("{0[address]}/{0[netmask]}".format(
-                               self.config['static'][ip]['selfip']['internal']))
                 self.selfip_external = IPNetwork("{0[address]}/{0[netmask]}".format(
                                self.config['static'][ip]['selfip']['external']))
             except KeyError:
-                LOG.debug('No Self IP addresses will be set.')
+                LOG.debug('External Self IP address is missing.')
 
         if self.selfip_internal:
             LOG.info('Internal selfIP: %s', self.selfip_internal)
@@ -584,11 +605,13 @@ class ConfigGenerator(Macro):
         self._set_status()
 
         if (self._product.is_em and self._version >= 'em 2.0.0') \
-        or (self._product.is_bigip and self._version >= 'bigip 9.4.3'):
+        or (self._product.is_bigip and self._version >= 'bigip 9.4.3') \
+        or self._product.is_bigiq:
             self.can_scf = True
 
         if (self._product.is_em and self._version >= 'em 2.0.0') \
-        or (self._product.is_bigip and self._version >= 'bigip 10.0.1'):
+        or (self._product.is_bigip and self._version >= 'bigip 10.0.1') \
+        or self._product.is_bigiq:
             self.can_provision = True
             self.can_net_failover = True
 
@@ -601,7 +624,8 @@ class ConfigGenerator(Macro):
         if (self._product.is_bigip and self._version > 'bigip 9.3.2') \
         or (self._product.is_em and self._version >= 'em 1.6.0') \
         or (self._product.is_wanjet and self._version >= 'wanjet 5.0.2') \
-        or (self._product.is_sam and self._version >= 'sam 8.0.0'):
+        or (self._product.is_sam and self._version >= 'sam 8.0.0') \
+        or self._product.is_bigiq:
             self.can_partition = True
             self.can_user = True
 
@@ -617,7 +641,8 @@ class ConfigGenerator(Macro):
 
         # Only solstice-em EM 3.0 needs the new tmsh-style configuration.
         if (self._product.is_em and self._version >= 'em 3.0.0') \
-        or (self._product.is_bigip and self._version >= 'bigip 11.0.0'):
+        or (self._product.is_bigip and self._version >= 'bigip 11.0.0') \
+        or self._product.is_bigiq:
             self.can_tmsh = True
             self.can_folders = True
             #raise NotImplementedError('eh...')
@@ -630,7 +655,7 @@ class ConfigGenerator(Macro):
         #    self.can_folders = False
 
         #if self._platform in ['A100', 'A101', 'A107', 'A111']:
-        if self._platform.startswith('A') or self._platform in ('D113',):
+        if self._platform.startswith('A'):
             self.can_cluster = True
 
     def pick_configuration(self):
@@ -703,28 +728,28 @@ class ConfigGenerator(Macro):
             if ip.prefixlen == 32:
                 ip.prefixlen = 24
                 LOG.warning('Assuming /24 to the management IP.')
-            mgmtip = {}
-            mgmtip['address'] = str(ip.ip)
-            mgmtip['netmask'] = str(ip.netmask)
-            mgmtip['gateway'] = str(ip.broadcast - 1)
+
+            if self.options.mgmtgw:
+                gw = IPAddress(self.options.mgmtgw)
+            else:
+                gw = ip.broadcast - 1
+        elif 'mgmtip' in self.config['static'].get(self._ip, {}):
+            _ = self.config['static'][self._ip]['mgmtip']
+            ip = IPNetwork("{0[address]}/{0[netmask]}".format(_))
+            gw = IPAddress(_['gateway'])
         else:
-            mgmtip = self.config['static'].get(self._ip)
-            if mgmtip:
-                mgmtip = mgmtip.get('mgmtip')
+            # Try to find the existing IP configuration on management interface.
+            ret = self.call(r"ethconfig --getcurrent")
+            bits = ret.stdout.split()
+            ip = IPNetwork("{0[0]}/{0[1]}".format(bits))
+            gw = IPAddress(bits[2])
 
-        if mgmtip:
-            formatter['ltm.ip'] = mgmtip['address']
-            formatter['ltm.netmask'] = mgmtip['netmask']
-            formatter['ltm.gateway'] = mgmtip['gateway']
-            self.f_base.write(tmpl % formatter)
-            return
+        # Preserve the DHCP flag for the management interface
+        if self.can_tmsh:
+            ret = SCMD.tmsh.list('sys db dhclient.mgmt', ifc=self.ssh)
+            formatter['db.dhclient.mgmt'] = ret['sys db dhclient.mgmt']['value']
 
-        # Try to find the existing IP configuration on management interface.
-        ret = self.call(r"ethconfig --getcurrent")
-        bits = ret.stdout.split()
-        ip = IPNetwork("{0[0]}/{0[1]}".format(bits))
-        gw = IPAddress(bits[2])
-
+        self.mgmtip = ip
         formatter['ltm.ip'] = str(ip.ip)
         formatter['ltm.netmask'] = str(ip.netmask)
         formatter['ltm.gateway'] = str(gw)
@@ -760,6 +785,10 @@ class ConfigGenerator(Macro):
                 tmpl = trunk['P8']
             elif self._platform in ['A107', 'A109', 'A111']:
                 tmpl = trunk['puma2']
+            else:
+                #tmpl = ''
+                #LOG.debug('Standalone blade, no trunking needed for: %s' % self._platform)
+                raise NotImplementedError('Unknown clustered platform: %s' % self._platform)
 
             if self.options.trunks_lacp:
                 if self.can_tmsh:
@@ -880,7 +909,7 @@ class ConfigGenerator(Macro):
         else:
             if self.can_tmsh:
                 tz = SCMD.tmsh.list('sys ntp timezone', ifc=self.ssh)
-                formatter['ntp.timezone'] = "timezone %s" % tz.sys.ntp.timezone
+                formatter['ntp.timezone'] = "timezone %s" % tz['sys ntp']['timezone']
             else:
                 ret = self.call('getdb NTP.TimeZone')
                 tz = ret.stdout.strip()
@@ -1051,9 +1080,15 @@ class ConfigGenerator(Macro):
         if not self.can_node:
             LOG.debug('Nodes not supported on this target')
             return
+
+        node_start = self.options.get('node_start')
+        if not self.selfip_internal and node_start is None:
+            LOG.warning('Nodes will not be created without --node-start')
+            return
+
         nodes = self.options['node_count']
         tmpl = self.config['node template'][0]
-        node_start = IPAddress(self.options.get('node_start') or DEFAULT_NODE_START)
+        node_start = IPAddress(node_start or DEFAULT_NODE_START)
         LOG.info('Nodes: %s (+%d)', node_start, nodes)
 
         self._nodes = Nodes(3, PREFIX_NODE)
@@ -1069,6 +1104,10 @@ class ConfigGenerator(Macro):
     def prepare_pool(self):
         if not self.can_pool:
             LOG.debug('Pools not supported on this target')
+            return
+
+        if not self._nodes:
+            LOG.debug('Pools not created without nodes.')
             return
 
         nodes = self.options['node_count']
@@ -1114,6 +1153,11 @@ class ConfigGenerator(Macro):
             LOG.debug('VIPs not supported on this target')
             return
 
+        vip_start = self.options.get('vip_start')
+        if not self.selfip_external and vip_start is None:
+            LOG.warning('VIPs will not be created without --vip-start')
+            return
+
         pools = self.options['pool_count']
         vips = self.options['vip_count']
         if not vips:
@@ -1121,15 +1165,15 @@ class ConfigGenerator(Macro):
 
         tmpls = self.config['vip template']
         tmpl_count = len(tmpls)
-        vip_start = self.options.get('vip_start')
-        if not vip_start:
-            subnet_id = int(self._ip.split('.')[2])
-            host_id = int(self._ip.split('.')[3])
-            subnet_index = SUBNET_MAP.get(subnet_id)
+        if vip_start is None:
+            # '1.1.1.1/24' -> '1.1.1.0/24'
+            cidr = "{0.network}/{0.prefixlen}".format(self.mgmtip)
+            host_id = self.mgmtip.ip.value - self.mgmtip.network.value
+            subnet_index = SUBNET_MAP.get(cidr)
 
             if subnet_index is None:
-                raise ValueError('The %d subnet was not found. Please add it to SUBNET_MAP list!' %
-                                 subnet_id)
+                raise ValueError('The %s subnet was not found. Please add it to SUBNET_MAP list!' %
+                                 cidr)
 
             # Start from 10.11.50.0 - 10.11.147.240 (planned for 10 subnets, 8 VIPs each)
             offset = 1 + 50 * 256 + DEFAULT_VIPS * (256 * subnet_index + host_id)
@@ -1280,8 +1324,9 @@ class ConfigGenerator(Macro):
             raise Exception('The box needs to be relicensed first.'
                             'Provide --license <regkey>')
 
+        # Status could be '' in some situations when the license is invalid.
         if lic and \
-        self._status in ['LICENSE INOPERATIVE', 'NO LICENSE']:
+        self._status in ['LICENSE INOPERATIVE', 'NO LICENSE', '']:
             LOG.info('Licensing...')
             self.call('SOAPLicenseClient --verbose --basekey %s' % lic)
             # We need to re-set the modules based on the new license
@@ -1371,7 +1416,7 @@ class ConfigGenerator(Macro):
         # Wait for ASM config server to come up.
         if self.can_provision and self._is_asm:
             LOG.info('Waiting for ASM config server to come up...')
-            SCMD.ssh.Generic(r'netstat -anp|grep "9781.*0\.0\.0\.0:\*.*/perl"|wc -l',
+            SCMD.ssh.Generic(r'netstat -anp|grep "9781.*0\.0\.0\.0:\*.*LISTEN"|wc -l',
                             ifc=self.ssh).run_wait(lambda x: int(x.stdout),
                                                    progress_cb=lambda x: 'ASM cfg server not up...',
                                                    timeout=timeout)
@@ -1569,7 +1614,8 @@ class ConfigGenerator(Macro):
         self.save_config()
         self.handle_dbvars()
         self.handle_keycert()
-        self.handle_sshkey()
+        if not self.options.get('no_sshkey'):
+            self.handle_sshkey()
         self.ready_wait()
 
 
@@ -1653,7 +1699,10 @@ def main(*args, **kwargs):
                      help="The device hostname")
         p.add_option("", "--mgmtip", metavar="IP/PREFIX",
                      type="string",
-                     help="The device management address (if different from --ltm)")
+                     help="The device management address")
+        p.add_option("", "--mgmtgw", metavar="IP",
+                     type="string",
+                     help="The device management gateway")
         p.add_option("", "--ssl-port", metavar="INTEGER", type="int", default=443,
                      help="SSL Port. (default: 443)")
         p.add_option("", "--ssh-port", metavar="INTEGER", type="int", default=22,

@@ -1,8 +1,13 @@
-from ..base import Interface, Options
-from ..defaults import ADMIN_PASSWORD, ADMIN_USERNAME, ROOT_PASSWORD, \
-    ROOT_USERNAME, DEFAULT_PORTS
-from ..compat import _bool
-from ..utils import net
+'''
+Created on Mar 16, 2013
+
+@author: jono
+'''
+from ...base import Interface, Options
+from ...defaults import ADMIN_PASSWORD, ADMIN_USERNAME, ROOT_PASSWORD, \
+    ROOT_USERNAME, DEFAULT_PORTS, KIND_TMOS
+from ...compat import _bool
+from ...utils import net
 import copy
 import logging
 import os
@@ -12,7 +17,6 @@ from hashlib import md5
 LOG = logging.getLogger(__name__)
 STDOUT = logging.getLogger('stdout')
 REACHABLE_HOST = 'f5net.com'
-NOTADUT_TAG = 'not-a-dut'
 KEYSET_DEFAULT = 0
 KEYSET_COMMON = 1
 KEYSET_LOCK = 2
@@ -20,6 +24,7 @@ KEYSET_ALL = 3
 
 ADMIN_ROLE = 0
 ROOT_ROLE = 1
+DEFAULT_ROLE = 2
 
 
 class ConfigError(Exception):
@@ -70,7 +75,7 @@ class DeviceAccess(object):
         self.address = address
         self.credentials = credentials
         self.alias = alias
-        self.specs = specs or {}
+        self.specs = specs or Options()
         self.tags = set([])
         self.groups = set([])
         self.hostname = self.specs.get('address')
@@ -80,6 +85,7 @@ class DeviceAccess(object):
         self.ports = copy.copy(DEFAULT_PORTS)
         self.ports.update(self.specs.get('ports', {}))
         self.specs.setdefault('_keyset', KEYSET_COMMON)
+        self.kind = self.specs.get('kind', KIND_TMOS)
 
     def __repr__(self):
         return "%s:%s" % (self.alias, self.address)
@@ -92,25 +98,25 @@ class DeviceAccess(object):
             if cred.username == username:
                 return cred
 
-    def get_user_creds(self, role, keyset=None):
+    def get_creds(self, role=DEFAULT_ROLE, keyset=None):
         creds = self.credentials[role]
         if keyset == KEYSET_ALL:
             return creds
         if keyset is None:
-            keyset = self.specs.get('_keyset', KEYSET_DEFAULT)
+            keyset = self.specs._keyset
 
         if keyset == KEYSET_LOCK:
-            return creds.lock
+            return creds.lock or creds.common or creds.default
         elif keyset == KEYSET_COMMON:
-            return creds.common
+            return creds.common or creds.default
         else:
             return creds.default
 
     def get_admin_creds(self, *args, **kwargs):
-        return self.get_user_creds(role=ADMIN_ROLE, *args, **kwargs)
+        return self.get_creds(role=ADMIN_ROLE, *args, **kwargs)
 
     def get_root_creds(self, *args, **kwargs):
-        return self.get_user_creds(role=ROOT_ROLE, *args, **kwargs)
+        return self.get_creds(role=ROOT_ROLE, *args, **kwargs)
 
     def get_address(self):
         return self.address
@@ -170,19 +176,25 @@ class Session(object):
 
 class ConfigInterface(Interface):
 
-    def __init__(self, data=None):
-        from f5test.noseplugins.testconfig import CONFIG
+    def __init__(self, data=None, loader=None):
+        from .driver import CONFIG
 
-        self.config = data if data else getattr(CONFIG, 'data', None)
+        if data:
+            self.config = data
+        elif loader:
+            self.config = loader.load()
+        else:
+            self.config = getattr(CONFIG, 'data', None)
+
         if not self.config:
-            raise ConfigNotLoaded("Is nose-testconfig plugin loaded?")
+            raise ConfigNotLoaded("No global config found")
         super(ConfigInterface, self).__init__()
 
     def get_config(self):
         return self.config
 
     def set_global_config(self):
-        from f5test.noseplugins.testconfig import CONFIG
+        from .driver import CONFIG
 
         setattr(CONFIG, 'data', self.get_config())
 
@@ -199,20 +211,10 @@ class ConfigInterface(Interface):
         return list(filter(lambda x: _bool(x.get('default')),
                            collection.values()))[0]
 
-    def get_device(self, device=None):
-
-        if isinstance(device, DeviceAccess):
-            return device
-
-        if device is None:
-            device = self.get_default_key(self.config['devices'])
-
-        try:
-            specs = self.config['devices'][device]
-            if not specs:
-                return
-        except KeyError:
-            raise DeviceDoesNotExist(device)
+    def _get_roles(self, specs):
+        default = Options()
+        default.default = DeviceCredential(specs.get('username'),
+                                           specs.get('password'))
 
         admin = Options()
         admin.default = DeviceCredential(ADMIN_USERNAME, ADMIN_PASSWORD)
@@ -236,9 +238,26 @@ class ConfigInterface(Interface):
                                      specs.get('lock root password',
                                                root.common.password))
 
-        return DeviceAccess(specs['address'],
-                            credentials={ADMIN_ROLE: admin, ROOT_ROLE: root},
-                            alias=device, specs=specs)
+        return {ADMIN_ROLE: admin, ROOT_ROLE: root, DEFAULT_ROLE: default}
+
+    def get_device(self, device=None):
+
+        if isinstance(device, DeviceAccess):
+            return device
+
+        if device is None:
+            device = self.get_default_key(self.config['devices'])
+
+        try:
+            specs = self.config['devices'][device]
+            if not specs:
+                return
+        except KeyError:
+            raise DeviceDoesNotExist(device)
+
+        roles = self._get_roles(specs)
+        return DeviceAccess(specs['address'], credentials=roles, alias=device,
+                            specs=specs)
 
     def get_device_by_address(self, address):
         for device in self.get_all_devices():
@@ -250,10 +269,10 @@ class ConfigInterface(Interface):
         device_access = self.get_device(device)
         return device_access.address
 
-    def get_all_devices(self):
+    def get_all_devices(self, kind=KIND_TMOS):
         for device in self.config.devices:
             device = self.get_device(device)
-            if device and NOTADUT_TAG not in device.tags:
+            if device.kind.startswith(kind):
                 yield device
 
     def get_selenium_head(self, head=None):

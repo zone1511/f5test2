@@ -9,6 +9,11 @@ import copy
 import optparse
 
 
+def enum(*args, **kwargs):
+    enums = dict(zip(args, range(len(args))), **kwargs)
+    return type('Enum', (), enums)
+
+
 def main(*args, **kwargs):
     import nose
     from f5test.noseplugins.logcollect import LogCollect
@@ -107,7 +112,9 @@ class AttrDict(dict):
             for k, v in n.items():
                 d.setdefault(k, AttrDict())
 
-                if isinstance(v, dict):
+                if isinstance(v, AttrDict):
+                    d[k] = v
+                elif isinstance(v, dict):
                     if not isinstance(d[k], dict):
                         d[k] = AttrDict()
                     combine(d[k], v)

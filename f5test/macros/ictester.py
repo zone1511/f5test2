@@ -8,9 +8,9 @@ from f5test.macros.base import Macro
 from f5test.base import Options
 from f5test.interfaces.icontrol import IcontrolInterface
 from f5test.defaults import ADMIN_PASSWORD, ADMIN_USERNAME
+from f5test.utils.parsers.python_arguments import parser
 import logging
 import re
-from pprint import pprint
 
 
 LOG = logging.getLogger(__name__)
@@ -19,9 +19,16 @@ __version__ = '1.1'
 
 class Ictester(Macro):
 
-    def __init__(self, options, address=None, params=None):
+    def __init__(self, options, method, address=None, params=None):
         self.options = Options(options)
-        self.params = params
+        self.method = method
+        if isinstance(params, basestring):
+            self.params = []
+            if params.strip():
+                for name, value in parser(params):
+                    self.params.append("%s=%r" % (name, value))
+        else:
+            self.params = params
 
         self.icparams = Options(device=self.options.device,
                          address=address, timeout=self.options.timeout,
@@ -33,26 +40,25 @@ class Ictester(Macro):
         super(Ictester, self).__init__()
 
     def setup(self):
-
         with IcontrolInterface(**self.icparams) as icifc:
             if self.options.session:
                 icifc.set_session(self.options.session)
 
             ic = icifc.api
-            method = re.sub(r'[\./:]{1,2}', r'.', self.params[0])
+            method = re.sub(r'[\./:]{1,2}', r'.', self.method)
 
             limited_globals = dict(__builtins__={'True': True,
                                                  'False': False,
                                                  'None': None})
 
             params = []
-            for param in self.params[1:]:
+            for param in self.params:
                 param = param.decode('utf-8')
                 name, value = param.split('=', 1)
                 # Convert the command-line arguments to Python objects.
                 try:
                     obj = eval(value, limited_globals)
-                    params.append("%s=%s" % (name, obj))
+                    params.append("%s=%r" % (name, obj))
                 except (NameError, SyntaxError) as e:
                     LOG.debug(e)
                     if value.startswith('[') or value.startswith('{'):
@@ -65,14 +71,17 @@ class Ictester(Macro):
             # print "--- RETURN ---"
             if self.options.yaml:
                 import yaml
-                print yaml.safe_dump(x, default_flow_style=False, indent=4,
+                result = yaml.safe_dump(x, default_flow_style=False, indent=4,
                                      allow_unicode=True)
             elif self.options.json:
                 import json
-                print json.dumps(x, sort_keys=True, indent=4,
+                result = json.dumps(x, sort_keys=True, indent=4,
                                  ensure_ascii=False)
             else:
-                pprint(x)
+                import pprint
+                result = pprint.pformat(x)
+
+            return result
 
 
 def main():
@@ -85,10 +94,10 @@ def main():
   SDK Help: http://172.27.32.101/iControl-11.2.0/sdk/api_reference/iControl.html
 
   Examples:
-  %prog 172.27.58.94 -pf5site02 System.SystemInfo.get_version
-  %prog 172.27.58.94 -pf5site02 Management.KeyCertificate.get_certificate_list mode=MANAGEMENT_MODE_DEFAULT -y
-  %prog 172.27.58.94 -pf5site02 System.Services.set_service services="['SERVICE_BIG3D']" service_action=SERVICE_ACTION_RESTART
-  %prog 172.27.58.94 -pf5site02 Management.Device.set_comment devices='["em4000-94.mgmt.pdsea.f5net.com"]' comments='[u"UTF-8 \\"Ionuţ\\""]'"""
+  %prog 172.27.58.94 System.SystemInfo.get_version
+  %prog 172.27.58.94 Management.KeyCertificate.get_certificate_list mode=MANAGEMENT_MODE_DEFAULT -y
+  %prog 172.27.58.94 System.Services.set_service services="['SERVICE_BIG3D']" service_action=SERVICE_ACTION_RESTART
+  %prog 172.27.58.94 Management.Device.set_comment devices='["device-172.27.58.94"]' comments='[u"UTF-8 \\"Ionuţ\\""]'"""
 
     formatter = optparse.TitledHelpFormatter(indent_increment=2,
                                              max_help_position=60)
@@ -135,9 +144,9 @@ def main():
         p.print_help()
         sys.exit(2)
 
-    cs = Ictester(options=options, address=args[0], params=args[1:])
-    cs.run()
-
+    cs = Ictester(options=options, method=args[1], address=args[0],
+                  params=args[2:])
+    print cs.run()
 
 if __name__ == '__main__':
     main()

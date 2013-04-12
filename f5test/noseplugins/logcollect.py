@@ -18,6 +18,10 @@ SESSION_LOG = 'session.log'
 TEST_LOG = 'test.log'
 
 
+class MyFileHandler(logging.FileHandler):
+    pass
+
+
 class LoggingProxy(object):
     """Forward file object to :class:`logging.Logger` instance.
 
@@ -132,7 +136,7 @@ class LogCollect(LogCapture):
             return
 
         logger = logging.getLogger('_console_')
-        logger.propagate = False
+        #logger.propagate = False
         logger.disabled = False
 
         log_dir = self._get_session_dir()
@@ -164,10 +168,10 @@ class LogCollect(LogCapture):
         config = self.cfgifc.open()
         filename = os.path.join(log_dir, 'config.yaml')
         with open(filename, "wt") as f:
-            yaml.dump(config, f, indent=4, default_flow_style=False)
+            yaml.dump(config, f, indent=4, width=1024, default_flow_style=False)
 
         fmt = logging.Formatter(self.logformat, self.logdatefmt)
-        handler = logging.FileHandler(run_filename)
+        handler = MyFileHandler(run_filename)
         handler.setFormatter(fmt)
         root_logger.addHandler(handler)
 
@@ -382,6 +386,16 @@ class LogCollect(LogCapture):
     def afterTest(self, test):
         pass
 
+    def _logging_leak_check(self, root_logger):
+        LOG.debug("Logger leak check...ugh!")
+        loggers = [('*root*', root_logger)] + root_logger.manager.loggerDict.items()
+        loggers.sort(key=lambda x: x[0])
+        for name, logger in loggers:
+            LOG.debug("%s:%s", name, logger)
+            if hasattr(logger, 'handlers'):
+                for handler in logger.handlers:
+                    LOG.debug(" %s", handler)
+
     def finalize(self, result):
         # Loose threads check
         import paramiko
@@ -396,3 +410,13 @@ class LogCollect(LogCapture):
             LOG.warning("Running paramiko.Transport threads found. Check our all "
                         "overridden tearDown, teardown_class, etc. and see that "
                         "they are correct")
+
+        root_logger = logging.getLogger()
+
+        # Uncomment in case of logger (or handler) leaks
+        #self._logging_leak_check(root_logger)
+
+        # Remove our filehandler from the root logger.
+        for handler in root_logger.handlers[:]:
+            if isinstance(handler, MyFileHandler):
+                root_logger.handlers.remove(handler)

@@ -17,22 +17,12 @@ get_version = None
 class GetVersion(IcontrolCommand):
     """Get the active software version."""
 
-    def __init__(self, build=False, *args, **kwargs):
-        super(GetVersion, self).__init__(*args, **kwargs)
-        self.build = build
-
-    def __repr__(self):
-        parent = super(GetVersion, self).__repr__()
-        opt = {}
-        opt['build'] = self.build
-        return parent + "(build=%(build)s)" % opt
-
     def setup(self):
         ic = self.api
-        version = ic.System.SystemInfo.get_version()
-        if self.build:
-            build = ic.Management.DBVariable.query(variables=['version.build'])[0]['value']
-            version = "%s %s" % (version, build)
+        db = ic.Management.DBVariable
+        version = ' '.join([x['value'] for x in db.query(variables=['version.product',
+                                                                    'version.version',
+                                                                    'version.build'])])
         return Version(version)
 
 

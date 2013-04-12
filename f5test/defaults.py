@@ -18,3 +18,17 @@ DEFAULT_PORTS = {
     'http': 80,
     'https': 443
 }
+
+# Kinds of devices that can be part of the test bed.
+KIND_ANY = ''
+KIND_TMOS = 'tmos'
+KIND_TMOS_EM = 'tmos:em'
+KIND_TMOS_BIGIQ = 'tmos:bigiq'
+KIND_TMOS_BIGIP = 'tmos:bigip'
+KIND_LINUX = 'linux'
+KIND_LINUX_LOGIQ = 'linux:logiq'
+KIND_CLOUD = 'cloud'
+KIND_CLOUD_VSM = 'cloud:vsm'
+KIND_CLOUD_VCD = 'cloud:vcd'
+KIND_CLOUD_EC2 = 'cloud:ec2'
+KIND_OTHER = 'other'

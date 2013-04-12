@@ -19,7 +19,7 @@ class WrappedResponse(object):
 
     def __init__(self, response, body=None):
         self.response = response
-        self.body = body or response.body_string()
+        self.body = body if body is not None else response.body_string()
         self._data = None
 
     @staticmethod
@@ -58,10 +58,11 @@ class WrappedResponse(object):
 
 class RestResource(Resource):
     trailing_slash = False
+    no_keepalive = False
 
     @staticmethod
     def _parse_json(data):
-        if not json:
+        if not json or isinstance(data, basestring):
             return data
         return json.dumps(data)
 
@@ -76,6 +77,12 @@ class RestResource(Resource):
 
     def request(self, method, path=None, payload=None, headers=None,
                 params_dict=None, **params):
+        if headers is None:
+            headers = {}
+
+        # Default Keep-Alive is set to 4 seconds in TMOS.
+        if self.no_keepalive:
+            headers.update({'Connection': 'Close'})
 
         if path is not None:
             path = str(path)

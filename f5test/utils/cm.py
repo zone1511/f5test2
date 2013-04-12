@@ -48,6 +48,7 @@ from ..interfaces.subprocess import ShellInterface
 
 ROOT_PATH = '/build'
 BIGIP = Product.BIGIP
+PRODUCT_REGEX = '[\w+-]+'
 
 
 class FileNotFoundError(Exception):
@@ -146,8 +147,6 @@ def isofile(identifier, build=None, hotfix=None, product=BIGIP, root=ROOT_PATH):
                              given parameters.
 
     """
-    if build and not '.' in build:
-        build = '%s.0' % build
     finder = create_finder(identifier, build, hotfix, product, root)
     return finder.find_file()
 
@@ -184,7 +183,17 @@ def ovafile(identifier, build=None, hotfix=None, product=BIGIP, disk='scsi'):
     raise OVANotFoundError("Could not find ova file for: %s" % filename)
 
 
-def create_finder(identifier, build, hotfix=None, product=BIGIP, root=ROOT_PATH):
+def create_finder(identifier, build=None, hotfix=None, product=BIGIP, root=ROOT_PATH):
+    if build and build.isdigit() and not '.' in build:
+        build = '%s.0' % build
+
+    if hotfix and hotfix.isdigit():
+        hotfix = 'hf%s' % hotfix
+
+    # CM still uses 'em' product to store bigiq builds.
+    if product == Product.BIGIQ:
+        product = Product.EM
+
     common_kwargs = dict(identifier=identifier, build=build,
                          product=product, root=root)
 
@@ -365,6 +374,8 @@ class IsoFinder(CMFileFinder):
             if self.build is None:
                 yield os.path.join(basepath, subdir, 'current')
                 yield os.path.join(basepath, subdir, 'release')
+            elif self.build.upper() == 'TC':
+                yield os.path.join(basepath, subdir, 'TC')
             else:
                 yield os.path.join(basepath, subdir, 'build%s' % self.build)
 
@@ -389,7 +400,7 @@ class VersionFinder(IsoFinder):
         iso_regex = re.compile(r'%s-'
                                '\d+\.\d+\.\d+'
                                '\.\d+\.\d+(\.\d+)*'
-                               '\.iso$' % self._product,
+                               '\.iso$' % PRODUCT_REGEX,
                                re.IGNORECASE)
         return iso_regex
 
@@ -412,7 +423,7 @@ class ProjectFinder(IsoFinder):
         iso_regex = re.compile(r'%s-'
                                '\d+\.\d+\.\d+'
                                '\.\d+\.\d+(\.\d+)*'
-                               '\.iso$' % self._product,
+                               '\.iso$' % PRODUCT_REGEX,
                                re.IGNORECASE)
         return iso_regex
 
@@ -484,22 +495,22 @@ class HotfixFinder(IsoFinder):
         return basepath
 
     def _make_regex(self):
-        build = r'\d+\.\d+' if self.build is None else self.build
+        build = r'\d+\.\d+'
 
         hotfix_regex = re.compile(r'hotfix-%s-'
                                   '%s-%s-%s\.(iso|im)$'
-                                  % (self._product, self._original_identifier,
+                                  % (PRODUCT_REGEX, self._original_identifier,
                                      build, self.hotfix), re.IGNORECASE)
         eng_hotfix_regex = re.compile(r'hotfix-%s-'
                                       '%s-%s-%s-eng\.(iso|im)$'
-                                      % (self._product,
+                                      % (PRODUCT_REGEX,
                                          self._original_identifier,
                                          self.hotfix, build), re.IGNORECASE)
         # Sometimes with an identifier of 'hf1-random', the iso will
         # only have the 'hf1' part, so we check this "partial" match as well.
         partial_hotfix_refex = re.compile(r'hotfix-%s-'
                                           '%s-%s-%s\.(iso|im)$' %
-                                          (self._product,
+                                          (PRODUCT_REGEX,
                                            self._original_identifier,
                                            build,
                                            self.hotfix.split('-')[0]),
@@ -517,5 +528,5 @@ class ReleasedHotfixFinder(HotfixFinder):
         hotfix_regex = re.compile(r'hotfix-%s-'
                                   '\d+\.\d+\.\d+'
                                   '-\d+\.\d+-(\w+)'
-                                  '\.(iso|im)$' % self._product, re.IGNORECASE)
+                                  '\.(iso|im)$' % PRODUCT_REGEX, re.IGNORECASE)
         return [hotfix_regex]

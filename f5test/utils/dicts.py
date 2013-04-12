@@ -5,36 +5,25 @@ Created on Jun 11, 2011
 '''
 import types
 
-def merge_dict(dst, src):
-    stack = [(dst, src)]
-    while stack:
-        current_dst, current_src = stack.pop()
-        for key in current_src:
-            if key not in current_dst:
-                if isinstance(current_src[key], dict):
-                    if current_dst.get(key):
-                        del current_dst[key]
-                    b = current_dst.makeBranch(key)
-                    b.update(current_src[key])
-                else:
-                    current_dst[key] = current_src[key]
+
+def merge(dst, src, skip_prefix='$'):
+    if isinstance(dst, dict) and isinstance(src, dict):
+        for k, v in src.iteritems():
+            if skip_prefix and isinstance(k, basestring) and k.startswith(skip_prefix):
+                continue
+            if k not in dst:
+                dst[k] = v
             else:
-                if isinstance(current_src[key], dict) and isinstance(current_dst[key], dict) :
-                    stack.append((current_dst[key], current_src[key]))
-                else:
-                    if isinstance(current_src[key], dict):
-                        if current_dst.get(key):
-                            del current_dst[key]
-                        b = current_dst.makeBranch(key)
-                        b.update(current_src[key])
-                    else:
-                        current_dst[key] = current_src[key]
+                dst[k] = merge(dst[k], v, skip_prefix)
+    else:
+        return src
     return dst
 
-def invert_dict(src, keys=None):
+
+def inverse(src, keys=None):
     """
     Reverts a dict of key:value into value:key.
-    
+
     >>> src = dict(key1='val1', key2=['val2', 'val3'], key3='val3')
     >>> trans = dict(val3='gaga', val2='gaga')
     >>> invert_dict(src)
@@ -51,7 +40,7 @@ def invert_dict(src, keys=None):
     if keys is None:
         keys = {}
 
-    for k,lst in src.items():
+    for k, lst in src.items():
         if type(lst) is types.StringType:
             lst = lst.split()
         for entry in lst:

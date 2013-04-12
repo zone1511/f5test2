@@ -73,12 +73,14 @@ class TrafficGen(Macro):
 
         def run(client, url):
             qs = url.request_uri
-            try:
-                response = client.get(qs)
-            except Exception, e:
-                LOG.debug("Connect %s: %s", url, e)
-                gevent.sleep(0.1)
-                return
+            while True:
+                try:
+                    response = client.get(qs)
+                    break
+                except Exception, e:
+                    LOG.debug("Connect %s: %s", url, e)
+                    gevent.sleep(0.1)
+                    continue
             #response.read()
             #assert response.status_code == 200
 
@@ -124,14 +126,20 @@ class TrafficGen(Macro):
             supergroup.spawn(superrun, url, groups[url])
 
         try:
-            supergroup.join()
+            with gevent.Timeout(o.timeout):
+                supergroup.join()
         except KeyboardInterrupt:
-            pass
+            supergroup.kill()
 
         delta = time.time() - now
         #req_per_sec = o.requests / delta
 
         LOG.info("delta: %f seconds" % delta)
+
+    def cleanup(self):
+        """Shutdown gevent as it seems to be leaking some globals."""
+        super(TrafficGen, self).cleanup()
+        gevent.shutdown()
 
 
 def main():

@@ -57,7 +57,7 @@ class BVTInfo(Plugin):
             info.device = device
             try:
                 info.platform = ICMD.system.get_platform(device=device)
-                info.version = ICMD.system.get_version(device=device, build=True)
+                info.version = ICMD.system.get_version(device=device)
                 v = ICMD.system.parse_version_file(device=device)
                 info.project = v.get('project')
                 info.edition = v.get('edition', '')
@@ -80,11 +80,9 @@ class BVTInfo(Plugin):
             result_url = bvtinfocfg.result_url % {'run_id': config.testopia._testrun}
         else:
             result_url = self.config_ifc.get_session().get_url()
-        result_text = "Total: %d, Fail: %d, Err: %d, Skip: %d" % \
-                        (result.testsRun,
-                        len(result.failures),
-                        len(result.errors),
-                        len(result.skipped))
+        result_text = "Total: %d, Fail: %d" % \
+                        (result.testsRun - len(result.skipped),
+                        len(result.failures) + len(result.errors))
 
         # Report each device
         for dut in self._get_duts_info():

@@ -11,9 +11,11 @@ import json
 # import time
 from urlparse import urlparse
 from ..utils.net import get_local_ip
+from ..utils.wait import wait, StopWait
 
 # IRACK_HOSTNAME_DEBUG = '127.0.0.1:8081'
 DEFAULT_TIMEOUT = 60
+POLL_INTERVAL = 60
 DEFAULT_HOSTNAME = 'irack.mgmt.pdsea.f5net.com'
 DEFAULT_RESERVATION_TIME = datetime.timedelta(hours=3)
 URI_USER_NOBODY = '/api/v1/user/2/'
@@ -56,6 +58,33 @@ class IrackCheckout(Plugin):
             assert config.irack, "iRack checkout requested but no irack section " \
                                  "found in the config."
 
+    def wait_on_reservation(self, irack, devices):
+        params = dict(q_accessaddress__in=[x.address for x in devices])
+
+        def loop():
+            ret = irack.api.f5asset.get(params_dict=params)
+            reservations = dict([(x['q_accessaddress'], x['v_is_reserved'])
+                                 for x in ret.data.objects])
+            not_found = set()
+            reserved = set()
+            for device in devices:
+                if device.address not in reservations:
+                    not_found.add(device)
+
+                if reservations.get(device.address):
+                    reserved.add(device)
+
+            return not_found, reserved, ret.data.objects
+
+        def loop_progress(x):
+            if x[0]:
+                raise StopWait('Devices {0[0]} were not found in iRack.'.format(x))
+            elif x[1]:
+                LOG.warning('Devices {0[1]} are currently reserved in iRack.'.format(x))
+
+        return wait(loop, lambda x: not x[1], progress_cb=loop_progress,
+                    interval=POLL_INTERVAL, timeout=DEFAULT_RESERVATION_TIME.seconds)[2]
+
     def begin(self):
         from ..interfaces.rest.irack import IrackInterface
         LOG.info("Checking out devices from iRack...")
@@ -77,16 +106,7 @@ class IrackCheckout(Plugin):
                             username=irackcfg.username,
                             password=irackcfg.apikey, ssl=False) as irack:
 
-            params = dict(q_accessaddress__in=[x.address for x in devices])
-            ret = irack.api.f5asset.get(params_dict=params)
-            assert ret.data.meta.total_count == len(devices), \
-                "Managed devices=%d, iRack returned=%d!" % (len(devices),
-                                                            ret.data.meta.total_count)
-            for asset in ret.data.objects:
-                assert not asset['v_is_reserved'], \
-                    "Device '%s' already has an active reservation." % \
-                        self.config_ifc.get_device_by_address(asset['q_accessaddress'])
-
+            assets = self.wait_on_reservation(irack, devices)
             now = datetime.datetime.now()
             now_str = datetime_to_str(now)
             end = now + DEFAULT_RESERVATION_TIME
@@ -101,7 +121,7 @@ class IrackCheckout(Plugin):
                                      config._filename,
                                      self.config_ifc.get_session().get_url())
             payload = json.dumps(dict(notes=notes,
-                                      assets=[x['resource_uri'] for x in ret.data.objects],
+                                      assets=[x['resource_uri'] for x in assets],
                                       # to=URI_USER_NOBODY, # nobody
                                       start=now_str,
                                       end=end_str,

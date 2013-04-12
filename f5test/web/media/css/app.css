@@ -1,0 +1,86 @@
+pre.code {
+  padding: 0;
+  border: none;
+  background-color: #FFF;
+}
+
+code.logs > code {
+  min-height: 32px;
+}
+
+code.logs .INFO {
+  color: #00cc66;
+}
+
+code.logs .WARNING {
+  color: #ffcc33;
+}
+
+code.logs .ERROR {
+  color: #bb1166;
+}
+
+code.logs ._console_ {
+  color: #32AAEE;
+}
+
+.copyright {
+  color: #6f7272
+}
+
+.spinner {
+    display: block;
+    height: 0px;
+    width: 14px;
+    margin-right: 24px;
+}
+
+.nav-tabs i {
+	padding-right: 7px;
+}
+
+.navbar-inner {
+    height: 40px;
+}
+
+.brand img {
+    margin-top: -6px;
+    height: 32px;
+    width: 32px;
+}
+
+.status-icon {
+  display: inline-block;
+  margin-top: -3px;
+  *margin-right: .3em;
+  line-height: 14px;
+  vertical-align: text-top;
+  background-image: url("csg-5137973ae81c7.png");
+  background-position: 14px 14px;
+  background-repeat: no-repeat;
+}
+
+.sprite-address_32{ background-position: 0 0; width: 32px; height: 32px; }
+.sprite-block_32{ background-position: -82px 0; width: 32px; height: 32px; } 
+.sprite-stop_32{ background-position: -2870px 0; width: 32px; height: 32px; } 
+.sprite-tick_32{ background-position: -2952px 0; width: 32px; height: 32px; } 
+.sprite-warning_32{ background-position: -3362px 0; width: 32px; height: 32px; } 
+
+#options.table td {
+    vertical-align: middle;
+}
+
+.table .label {
+	margin-left: 1em;
+}
+
+textarea.code {
+  font-family: Monaco, Menlo, Consolas, "Courier New", monospace;
+  font-size: 16px; 
+}
+
+.console .label {
+  -webkit-border-radius: 0 3px 0 3px;
+     -moz-border-radius: 0 3px 0 3px;
+          border-radius: 0 3px 0 3px;
+}

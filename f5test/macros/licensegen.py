@@ -10,10 +10,12 @@ from f5test.interfaces.selenium import SeleniumInterface
 from f5test.interfaces.selenium.driver import By
 import getpass
 import logging
+import os
 import pprint
 
 __version__ = '0.3'
 LOG = logging.getLogger(__name__)
+DEFAULT_USER = os.environ.get('LOGNAME')
 
 BANNED_FEATURES = set(('Appliance Mode', 'TrustedIP Subscription',
                        'IP Intelligence Subscription', 'IPI Subscription',
@@ -24,12 +26,14 @@ MAP.eval = {}
 MAP.eval.bigip = {}
 MAP.eval.bigip['VE'] = 'F5-BIG-LTM-VE-1G-LIC'
 MAP.eval.bigip['VE3'] = 'F5-BIG-LTM-VE-3G-LIC'
+MAP.eval.bigip['AWS'] = 'F5-BIG-LTM-AWS-1G-LIC'
 MAP.eval.bigip['1600'] = 'F5-BIG-LTM-1600-4G-LIC'
 MAP.eval.bigip['2000'] = 'F5-BIG-LTM-2000S-LIC'
 MAP.eval.bigip['2200'] = 'F5-BIG-LTM-2200S-LIC'
 MAP.eval.bigip['3600'] = 'F5-BIG-LTM-3600-4G-LIC'
 MAP.eval.bigip['3900'] = 'F5-BIG-LTM-3900-8G-LIC'
 MAP.eval.bigip['4000'] = 'F5-BIG-LTM-4200V-LIC'
+MAP.eval.bigip['5000'] = 'F5-BIG-LTM-5200V-LIC'
 MAP.eval.bigip['6400'] = 'F5-BIG-LTM-6400-LIC'
 MAP.eval.bigip['6800'] = 'F5-BIG-LTM-6800-LIC'
 MAP.eval.bigip['6900'] = 'F5-BIG-LTM-6900-8G-LIC'
@@ -56,12 +60,14 @@ MAP.dev = {}
 MAP.dev.bigip = {}
 MAP.dev.bigip['VE'] = 'F5-BIG-LTM-VE-1G-LIC-DEV'
 MAP.dev.bigip['VE3'] = 'F5-BIG-LTM-VE-3G-LIC-DEV'
+MAP.dev.bigip['AWS'] = 'F5-BIG-LTM-AWS-1G-LIC-DEV'
 MAP.dev.bigip['1600'] = 'F5-BIG-LTM-1600-4G-DEV'
 MAP.dev.bigip['2000'] = 'F5-BIG-LTM-2000S-LIC-DEV'
 MAP.dev.bigip['2200'] = 'F5-BIG-LTM-2200S-LIC-DEV'
 MAP.dev.bigip['3600'] = 'F5-BIG-LTM-3600-4G-DEV'
 MAP.dev.bigip['3900'] = 'F5-BIG-LTM-3900-4G-DEV'
 MAP.dev.bigip['4000'] = 'F5-BIG-LTM-4200V-LIC-DEV'
+MAP.dev.bigip['5000'] = 'F5-BIG-LTM-5200V-LIC-DEV'
 MAP.dev.bigip['6400'] = 'F5-BIG-LTM-6400-LIC-DEV'
 MAP.dev.bigip['6800'] = 'F5-BIG-LTM-6800-LIC-DEV'
 MAP.dev.bigip['6900'] = 'F5-BIG-LTM-6900-8G-LIC-DEV'
@@ -168,7 +174,7 @@ class LicenseGenerator(Macro):
                                               "and img[@src='images/assets/notSelectedBox.gif']]"):
             text = e.text.strip()
             if text.startswith('APM') or text.startswith('Access Policy Manager'):
-                if not 'Max CCU' in text:
+                if not 'Base' in text:
                     continue
             LOG.info("  %s", text)
             img = e.find_element_by_tag_name('img')
@@ -230,8 +236,8 @@ def main():
 
     p.add_option("-c", "--count", metavar="INTEGER", default=1,
                  type="int", help="How many copies (default: 1)")
-    p.add_option("-u", "--username", metavar="USERNAME",
-                 type="string", help="Your OLYMPUS username.")
+    p.add_option("-u", "--username", metavar="USERNAME", default=DEFAULT_USER,
+                 type="string", help="Your OLYMPUS username. (default: %s)" % DEFAULT_USER)
     p.add_option("-s", "--selenium", metavar="ADDRESS", default='localhost',
                  type="string", help="The selenium server address (default: localhost)")
     p.add_option("", "--bigip", metavar="PLATFORM",

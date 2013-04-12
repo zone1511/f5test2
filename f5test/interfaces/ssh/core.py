@@ -7,9 +7,9 @@ from ...defaults import ROOT_USERNAME, ROOT_PASSWORD, DEFAULT_PORTS
 
 
 class SSHInterface(Interface):
-    
-    def __init__(self, device=None, address=None, username=None, password=None, 
-                 port=None, timeout=180, *args, **kwargs):
+
+    def __init__(self, device=None, address=None, username=None, password=None,
+                 port=None, timeout=180, key_filename=None, *args, **kwargs):
         super(SSHInterface, self).__init__()
         if device or not address:
             self.device = device if isinstance(device, DeviceAccess) \
@@ -29,6 +29,7 @@ class SSHInterface(Interface):
         self.password = password or ROOT_PASSWORD
         self.port = port or DEFAULT_PORTS['ssh']
         self.timeout = timeout
+        self.key_filename = key_filename
 
     def is_opened(self):
         return self.api and self.api.is_connected()
@@ -38,7 +39,7 @@ class SSHInterface(Interface):
         from ...commands.shell.ssh import get_version
         return get_version(ifc=self)
 
-    def open(self): #@ReservedAssignment
+    def open(self):  # @ReservedAssignment
         if self.is_opened():
             return self.api
         address = self.address
@@ -46,7 +47,8 @@ class SSHInterface(Interface):
         password = self.password
 
         api = Connection(address, username, password, port=self.port,
-                         timeout=self.timeout, look_for_keys=True) # Try pubkeyauth first.
+                         timeout=self.timeout, look_for_keys=True,
+                         key_filename=self.key_filename)
         api.connect()
         self.api = api
         return api

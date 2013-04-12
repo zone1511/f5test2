@@ -1,0 +1,9 @@
+.editable-device {
+    display: block;
+    margin-bottom: 5px;  
+}
+
+.editable-device span {
+    width: 120px;  
+    display: inline-block;
+}

@@ -27,6 +27,9 @@ mgmt: |
     sys management-route default {
        gateway %(ltm.gateway)s
     }
+    sys db dhclient.mgmt {
+        value "%(db.dhclient.mgmt)s"
+    }
 
 trunk:
     # Viprions need the cluster number
@@ -218,7 +221,6 @@ self allow: |
 dns:
     nameservers:
         - 172.27.1.1
-        - 172.27.2.1
     search:
         - mgmt.pdsea.f5net.com
         - f5net.com
@@ -773,6 +775,7 @@ profiles:
 
     httpclass:
         min version: 9.3.1
+        max version: 11.3.0
         require module: asm
         text: |
             ltm profile httpclass myhttpclass {
@@ -1014,16 +1017,17 @@ profiles:
         text: |
             ltm traffic-class mytraffic_class {
                 classification something
-                destination-address 2.1.1.1
+                destination-address 169.253.2.1
                 destination-mask 255.255.0.0
                 destination-port 9900
-                source-address 1.1.1.1
+                source-address 169.253.1.1
                 source-mask 255.255.255.0
                 source-port 8800
             }
 
     rate class:
     # XXX: 10.0.1 supports it but it has a BUG
+    # 11.0.0+: Rate-shaping configuration items may only be created in /Common.
         min version: 10.1.0
         max version: 11.0.0
         text: |
@@ -1054,33 +1058,33 @@ profiles:
         require module: ltm
         text: |
             ltm snat mysnat {
-                translation 1.1.1.1
+                translation 169.253.1.3
                 origins {
                     0.0.0.0/0
                 }
             }
-            ltm snat-translation 1.1.1.1 { }
+            ltm snat-translation 169.253.1.3 { }
 
     snatpool:
         min version: 9.3.1
         text: |
             ltm snatpool mysnat_pool {
                 members {
-                    1.1.1.2
-                    1.1.1.3
+                    169.253.1.4
+                    169.253.1.5
                 }
             }
-            ltm snat-translation 1.1.1.2 { }
-            ltm snat-translation 1.1.1.3 { }
+            ltm snat-translation 169.253.1.4 { }
+            ltm snat-translation 169.253.1.5 { }
 
 
     nat:
         min version: 9.3.1
         require module: ltm
         text: |
-            ltm nat 1.1.1.4 {
-                originating-address 2.1.1.1
-                translation-address 1.1.1.4
+            ltm nat 169.253.1.10 {
+                originating-address 169.253.2.1
+                translation-address 169.253.1.10
             }
 
     class:
@@ -1110,13 +1114,13 @@ profiles:
             }
             ltm data-group internal mydatagroup_address {
                 records {
-                    1.1.1.1/32 {
+                    169.254.1.10/32 {
                         data ip1
                     }
-                    1.1.1.2/32 {
+                    169.254.1.11/32 {
                         data ip2
                     }
-                    1.1.2.0/24 {
+                    169.254.1.0/24 {
                         data net1
                     }
                 }

@@ -1,4 +1,4 @@
-from setuptools import setup, find_packages
+from setuptools import setup, find_packages, findall
 try:
     from distutils.command.build_py import build_py_2to3 as build_py
 except ImportError:
@@ -6,6 +6,8 @@ except ImportError:
     from distutils.command.build_py import build_py
 
 VERSION = '1.0.0'
+
+media_files = [x.replace('f5test/web/', '') for x in findall('f5test/web/media/')]
 
 addl_args = dict(
     zip_safe=False,
@@ -55,7 +57,8 @@ setup(
     download_url='http://ionutdb01.mgmt.pdsea.f5net.com/dist/f5test-%s.tar.bz2' % VERSION,
     package_dir={'f5test.noseplugins': 'f5test/noseplugins'},
     package_data={'f5test.noseplugins': ['templates/*.tmpl'],
-                  'f5test.macros': ['configs/*.yaml']},
+                  'f5test.macros': ['configs/*.yaml'],
+                  'f5test.web': media_files + ['views/*.tpl']},
     install_requires=[
         'paramiko',
         'SOAPpy',

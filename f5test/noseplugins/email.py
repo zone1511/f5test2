@@ -11,6 +11,7 @@ from ..utils.progress_bar import ProgressBar
 import jinja2
 import os
 import re
+import copy
 
 __test__ = False
 
@@ -94,7 +95,7 @@ class Email(Plugin):
             info.device = device
             try:
                 info.platform = self.ICMD.system.get_platform(device=device)
-                info.version = self.ICMD.system.get_version(device=device, build=True)
+                info.version = self.ICMD.system.get_version(device=device)
                 v = self.ICMD.system.parse_version_file(device=device)
                 info.project = v.get('project', '')
                 info.edition = v.get('edition', '')
@@ -113,7 +114,7 @@ class Email(Plugin):
         info = AttrDict()
         try:
             info.platform = self.ICMD.system.get_platform(device=device)
-            info.version = self.ICMD.system.get_version(device=device, build=True)
+            info.version = self.ICMD.system.get_version(device=device)
             v = self.ICMD.system.parse_version_file(device=device)
             info.project = v.get('project', '')
             info.edition = v.get('edition', '')
@@ -125,31 +126,79 @@ class Email(Plugin):
         return info
 
     def _set_bars(self, result, ctx):
-        pb = ProgressBar(result.testsRun)
         ctx.bars = {}
-
-        pb.update_time(result.testsRun
-                       - len(result.failures)
-                       - len(result.errors)
-                       - len(result.skipped))
-        ctx.bars.good = str(pb)
-        pb.update_time(len(result.failures)
-                       + len(result.errors))
-        ctx.bars.bad = str(pb)
-
-        pb.update_time(len(result.skipped))
-        ctx.bars.unknown = str(pb)
+        ctx.bars.good = ProgressBar(result.testsRun, result.testsRun
+                                                     - len(result.failures)
+                                                     - len(result.errors)
+                                                     - len(result.skipped))
+        ctx.bars.bad = ProgressBar(result.testsRun, len(result.failures)
+                                                    + len(result.errors))
+        ctx.bars.unknown = ProgressBar(result.testsRun, len(result.skipped))
 
         # New progress bars for when Skipped tests should be ignored.
-        pb = ProgressBar(result.testsRun - len(result.skipped))
-        pb.update_time(result.testsRun
-                       - len(result.failures)
-                       - len(result.errors)
-                       - len(result.skipped))
-        ctx.bars.good_no_skips = str(pb)
-        pb.update_time(len(result.failures)
-                       + len(result.errors))
-        ctx.bars.bad_no_skips = str(pb)
+        ctx.bars.good_no_skips = ProgressBar(result.testsRun
+                                             - len(result.skipped),
+                                             result.testsRun
+                                             - len(result.failures)
+                                             - len(result.errors)
+                                             - len(result.skipped))
+        ctx.bars.bad_no_skips = ProgressBar(result.testsRun
+                                            - len(result.skipped),
+                                            len(result.failures)
+                                            + len(result.errors))
+
+    def make_emails(self, ctx):
+        base = ctx.config.get('email', AttrDict())
+        specs = base.multi if base.multi else [base]
+
+        for spec in specs:
+            tmp = copy.copy(base)
+            tmp.update(spec)
+            spec = tmp
+            ctx.email = spec
+            headers = AttrDict()
+            if not spec:
+                LOG.warning('Email plugin not configured.')
+                return
+            headers['From'] = spec.get('from', DEFAULT_FROM)
+            headers['To'] = spec.get('to')
+            assert headers['To'], "Please set the email section in the config file."
+            if spec.get('reply-to'):
+                headers['Reply-To'] = spec['reply-to']
+
+            if spec.get('templates'):
+                config_dir = os.path.dirname(ctx.config._filename)
+                templates_dir = os.path.join(config_dir, spec.templates)
+                loader = jinja2.FileSystemLoader(templates_dir)
+            else:
+                loader = jinja2.PackageLoader(__package__)
+            env = jinja2.Environment(loader=loader, autoescape=True)
+
+            # Add custom filters
+            env.filters['ljust'] = customfilter_ljust
+            env.filters['rjust'] = customfilter_rjust
+            env.filters['bzify'] = customfilter_bzify
+
+            template_subject = env.get_template('email_subject.tmpl')
+            headers['Subject'] = template_subject.render(ctx)
+
+            msg = MIMEMultipart('alternative')
+            for key, value in headers.items():
+                if isinstance(value, (tuple, list)):
+                    value = ','.join(value)
+                msg.add_header(key, value)
+
+            template_text = env.get_template('email_text.tmpl')
+            template_html = env.get_template('email_html.tmpl')
+
+            text = template_text.render(ctx)
+            html = template_html.render(ctx)
+
+            msg.attach(MIMEText(text, 'plain'))
+            msg.attach(MIMEText(html, 'html'))
+
+            message = msg.as_string()
+            yield AttrDict(headers=headers, body=message)
 
     def finalize(self, result):
         from ..interfaces.testcase import ContextHelper
@@ -167,58 +216,15 @@ class Email(Plugin):
         ctx.testtime = global_context.get_container('testtime')
         self._set_bars(result, ctx)
 
-        headers = AttrDict()
-        email = ctx.config.get('email', AttrDict())
-        if not email:
-            LOG.warning('Email plugin not configured.')
-            return
-        headers['From'] = email.get('from', DEFAULT_FROM)
-        headers['To'] = email.get('to')
-        assert headers['To'], "Please set the email section in the config file."
-        if email.get('reply-to'):
-            headers['Reply-To'] = email['reply-to']
-
-        if email.get('templates'):
-            config_dir = os.path.dirname(ctx.config._filename)
-            templates_dir = os.path.join(config_dir, email.templates)
-            loader = jinja2.FileSystemLoader(templates_dir)
-        else:
-            loader = jinja2.PackageLoader(__package__)
-        env = jinja2.Environment(loader=loader, autoescape=True)
-
-        # Add custom filters
-        env.filters['ljust'] = customfilter_ljust
-        env.filters['rjust'] = customfilter_rjust
-        env.filters['bzify'] = customfilter_bzify
-
-        if email.subject:
-            template_subject = env.from_string(email.subject)
-        else:
-            template_subject = env.get_template('email_subject.tmpl')
-        headers['Subject'] = template_subject.render(ctx)
-
-        msg = MIMEMultipart('alternative')
-        for key, value in headers.items():
-            if isinstance(value, (tuple, list)):
-                value = ','.join(value)
-            msg.add_header(key, value)
-
-        template_text = env.get_template('email_text.tmpl')
-        template_html = env.get_template('email_html.tmpl')
-
-        text = template_text.render(ctx)
-        html = template_html.render(ctx)
-
-        msg.attach(MIMEText(text, 'plain'))
-        msg.attach(MIMEText(html, 'html'))
-
-        message = msg.as_string()
+        emails = self.make_emails(ctx)
 
         server = None
         try:
             server = smtplib.SMTP(MAIL_HOST)
-            server.sendmail(headers['From'], headers['To'], message)
-            LOG.info("Sent!")
+            for email in emails:
+                server.sendmail(email.headers['From'], email.headers['To'],
+                                email.body)
+                LOG.info("Sent!")
         except Exception, e:
             LOG.error("Sendmail failed: %s", e)
         finally:

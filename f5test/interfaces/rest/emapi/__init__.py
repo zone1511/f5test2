@@ -10,40 +10,8 @@ import urlparse
 import logging
 
 LOG = logging.getLogger(__name__)
-
-# XXX: Monkey patch workaround for BZ410289
-import restkit.util
-from restkit.util import encode
-import urllib
-
-def url_encode(obj, charset="utf8", encode_keys=False):
-    items = []
-    if isinstance(obj, dict):
-        for k, v in list(obj.items()):
-            items.append((k, v))
-    else:
-        items = list(items)
-
-    tmp = []
-    for k, v in items:
-        if encode_keys:
-            k = encode(k, charset)
-
-        if not isinstance(v, (tuple, list)):
-            v = [v]
-
-        for v1 in v:
-            if v1 is None:
-                v1 = ''
-            elif callable(v1):
-                v1 = encode(v1(), charset)
-            else:
-                v1 = encode(v1, charset)
-            tmp.append('%s=%s' % (urllib.quote(k, safe='/$'), urllib.quote_plus(v1)))
-    return '&'.join(tmp)
-restkit.util.url_encode = url_encode
-# END.
-
+STDOUT = logging.getLogger('stdout')
+CURL_LOG = "curl -sk -u {username}:{password} -X {method} -d '{payload}' '{url}'"
 CONTENT_JSON = {'Content-Type': 'application/json'}
 LOCALHOST_URL_PREFIX = 'http://localhost:8100'
 
@@ -85,7 +53,7 @@ class EmapiResourceError(ResourceError):
 
 class EmapiRestResource(RestResource):
     api_version = 1
-    trailing_slash = False
+    verbose = False
 
     def patch(self, path=None, payload=None, headers=None,
               params_dict=None, **params):
@@ -113,8 +81,11 @@ class EmapiRestResource(RestResource):
         :param params: Optionnal parameterss added to the request
         """
 
-        if payload and headers is None:
-            headers = CONTENT_JSON
+        if headers is None:
+            headers = {}
+
+        if payload and not headers:
+            headers.update(CONTENT_JSON)
 
         if odata_dict:
             dollar_keys = dict(('$%s' % x, y) for x, y in odata_dict.iteritems())
@@ -122,21 +93,30 @@ class EmapiRestResource(RestResource):
                 params_dict = {}
             params_dict.update(dollar_keys)
 
+        # Strip the schema and hostname part.
         path = urlparse.urlparse(path).path
-        LOG.debug("%s %s", method, path)
-        if payload:
-            LOG.debug(">>> %s", payload)
         try:
-            response = super(EmapiRestResource, self).request(method, path=path,
+            wrapped_response = super(EmapiRestResource, self).request(method, path=path,
                                                               payload=payload,
                                                               headers=headers,
                                                               params_dict=params_dict,
                                                               **params)
+            response = wrapped_response.response
         except ResourceError, e:
+            wrapped_response = None
+            response = e.response
             raise EmapiResourceError(e)
+        finally:
+            credentials = self.client.filters[0].credentials
+            log = STDOUT if self.verbose else LOG
+            log.debug(CURL_LOG.format(method=method, uri=self.uri, path=path,
+                                      url=response.final_url,
+                                      username=credentials[0], password=credentials[1],
+                                      payload=(response.request.body or '').replace("'", "\\'")))
+            if wrapped_response:
+                log.debug(wrapped_response.body)
 
-        LOG.debug("<<< %s", response.body)
-        return response.data
+        return wrapped_response.data
 
 
 class EmapiInterface(RestInterface):

@@ -2,7 +2,7 @@ from .base import SSHCommand
 from .ssh import get_version
 from ..base import CachedCommand
 from ...base import Options
-from ...utils.parsers.tmsh import tmsh_to_dict
+from ...utils.parsers import tmsh
 import logging
 
 LOG = logging.getLogger(__name__)
@@ -27,17 +27,18 @@ class List(SSHCommand):
     @param command: the arguments for tmsh
     @type command: str
     """
-    def __init__(self, command, *args, **kwargs):
+    def __init__(self, command, recursive=False, folder='/Common', *args, **kwargs):
 
         super(List, self).__init__(*args, **kwargs)
-        self.command = command
+        # tmsh doesn't support working with folders when called from shell
+        self.command = 'echo "cd %s; list %s %s" | tmsh | cat' % (folder,
+                                                                  command,
+                                                                  recursive and 'recursive' or '')
 
     def setup(self):
-        LOG.info('tmsh %s on %s...', self.command, self.api)
-
-        ret = self.api.run('tmsh list %s' % self.command)
+        ret = self.api.run(self.command)
         if not ret.status:
-            return Options(tmsh_to_dict(ret.stdout))
+            return tmsh.parser(ret.stdout)
         else:
             LOG.error(ret)
             raise SSHCommandError(ret)
@@ -60,7 +61,7 @@ class ListSoftware(CachedCommand, SSHCommand):
         ret = self.api.run('tmsh list sys software')
 
         if not ret.status:
-            return tmsh_to_dict(ret.stdout)
+            return tmsh.parser(ret.stdout)
         else:
             LOG.error(ret)
             raise SSHCommandError(ret)
@@ -84,12 +85,12 @@ class GetProvision(SSHCommand):
         ret = self.api.run('tmsh list sys provision')
 
         if not ret.status:
-            ret = Options(tmsh_to_dict(ret.stdout))
+            ret = tmsh.parser(ret.stdout)
             if v.product.is_bigip and v < 'bigip 10.0.2':
-                modules = ret.provision
+                modules = dict([(k.split(' ')[-1], v) for k, v in ret.glob('provision*').items()])
             else:
-                modules = ret.sys.provision
-            return modules
+                modules = dict([(k.split(' ')[-1], v) for k, v in ret.glob('sys provision*').items()])
+            return Options(modules)
         else:
             LOG.error(ret)
             raise SSHCommandError(ret)

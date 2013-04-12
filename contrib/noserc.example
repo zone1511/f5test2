@@ -1,10 +1,10 @@
 [nosetests]
-log-config=__BUILDOUT__/logging.conf
-tc-file=__BUILDOUT__/suite.yaml
 verbose=1
+verbosity=2
 nocapture=1
-tc-format=yaml
 all-modules=1
 exe=1
+;log-config=__BUILDOUT__/logging.conf
+;tc-file=__BUILDOUT__/config/suite_devel.yaml
 ;with-progressive=1
 ;progressive-advisories=1

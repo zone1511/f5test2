@@ -82,16 +82,14 @@ class TestTime(Plugin):
     def startTest(self, test):
         """Initializes a timer before starting a test."""
         self.start = time.time()
-        adr = test.id()
-        LOG.info('* Run * %s', adr)
+        adr = nose_selector(test)
+        LOG.debug('* Run * %s', adr)
 
     def stopTest(self, test):
         """Initializes a timer before starting a test."""
         now = time.time()
-        #_, module, method = test.address()
-        #adr = "%s:%s" % (module, method)
-        adr = test.id()
-        LOG.info('* Time * %s: %.3fs', adr, now - self.start)
+        adr = nose_selector(test)
+        LOG.debug('* Time * %s: %.3fs', adr, now - self.start)
 
     def begin(self):
         """Set the testrun start time.

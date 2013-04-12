@@ -16,6 +16,10 @@ class WaitTimedOut(Exception):
     pass
 
 
+class StopWait(StopIteration):
+    pass
+
+
 class Wait(object):
     timeout_message = "Criteria not met after {0} seconds."
     progress_message = None
@@ -44,6 +48,7 @@ class Wait(object):
 
         while time.time() < end:
             success = False
+            last_exc = None
             try:
                 result = self.function(*args, **kwargs)
                 success = self.test_result(result)
@@ -52,6 +57,7 @@ class Wait(object):
                 #    LOG.warning('Unexpected result: %s', result)
             except:
                 err = sys.exc_info()
+                last_exc = err[0]
                 tb = ''.join(traceback.format_exception(*err))
                 success = self.test_error(*err)
                 LOG.debug("Exception occured during wait():\n%s", tb)
@@ -75,6 +81,9 @@ class Wait(object):
 
                     if stable >= self.stabilize:
                         break
+
+                if last_exc and last_exc is StopWait:
+                    raise
 
                 last_success = success
                 last_time = time.time()
@@ -133,7 +142,8 @@ class CallableWait(Wait):
     def progress(self, result):
         if self._progress_cb:
             ret = self._progress_cb(result)
-            LOG.info(ret)
+            if ret:
+                LOG.info(ret)
         else:
             super(CallableWait, self).progress(result)
 

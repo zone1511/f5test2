@@ -10,13 +10,14 @@ from ..utils.wait import CallableWait
 from ..interfaces.config import ConfigInterface, ConfigNotLoaded
 import logging
 
-LOG = logging.getLogger(__name__) 
+LOG = logging.getLogger(__name__)
 LOCALCONFIG = AttrDict()
 
 
 class CommandError(Exception):
     """Base exception for all exceptions raised in module config."""
     pass
+
 
 class CommandTimedOut(CommandError):
     """The Command timed out."""
@@ -28,16 +29,16 @@ class CommandTimedOut(CommandError):
 class Command(object):
 
     __metaclass__ = Aliasificator
-    
+
     def __init__(self, version=None):
         if version and not isinstance(version, Version):
             self.version = Version(version)
         else:
             self.version = version
-    
+
     def __repr__(self):
         return "%s.%s" % (self.__module__, self.__class__.__name__)
-    
+
     def prep(self):
         """Preparation"""
         pass
@@ -73,9 +74,9 @@ class Command(object):
 
 class CachedCommand(Command):
     """Base class for cached Commands.
-    
+
     The result of a cached command will be retrieved from the cache.
-    The optional flag '_no_cache' can be set to signal that the result cache 
+    The optional flag '_no_cache' can be set to signal that the result cache
     for this command should be cleared.
 
     @param _no_cache: if set the result of the command will always be stored in
@@ -85,9 +86,9 @@ class CachedCommand(Command):
     def __init__(self, _no_cache=False, *args, **kwargs):
         super(CachedCommand, self).__init__(*args, **kwargs)
         self._no_cache = _no_cache
-        
+
     def run(self, *args, **kwargs):
-        
+
         LOG.debug('CachedCommand KEY: %s', self)
         key = hashlib.md5(str(self)).hexdigest()
 
@@ -95,7 +96,7 @@ class CachedCommand(Command):
             config = ConfigInterface().open()
         except ConfigNotLoaded:
             config = LOCALCONFIG
-        
+
         if not config._cache:
             config._cache = {}
 
@@ -104,16 +105,16 @@ class CachedCommand(Command):
             ret = None
         else:
             ret = config._cache.get(key)
-        
+
         if ret:
             LOG.debug("CachedCommand hit: %s", ret)
             return ret
         else:
             ret = super(CachedCommand, self).run(*args, **kwargs)
-            
-            config._cache.update({key:ret})
-            
-            #LOG.debug("cache miss :( (%s:%s)", self._key, ret)
+
+            config._cache.update({key: ret})
+
+            # LOG.debug("cache miss :( (%s:%s)", self._key, ret)
             return ret
 
     def _hash(self):
@@ -125,7 +126,7 @@ class CommandWait(CallableWait):
     def __init__(self, command, *args, **kwargs):
         self._command = command
         return super(CommandWait, self).__init__(None, *args, **kwargs)
-    
+
     def function(self, *args, **kwargs):
         self._command.prep()
         return self._command.setup(*args, **kwargs)
@@ -143,7 +144,7 @@ class WaitableCommand(Command):
     """Helper class for Commands that provides a run_wait method. This method
     won't return unless the condition is met. The Command's prep, revert and
     cleanup methods will still be executed accordingly.
-    
+
     @param condition: a function that takes a command return value as parameter
                       and returns a boolean. True means condition is satisfied
                       False means keep looping.

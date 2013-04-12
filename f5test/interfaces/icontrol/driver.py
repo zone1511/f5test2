@@ -38,41 +38,51 @@ import socket
 import SOAPpy
 import logging
 import urllib
-LOG = logging.getLogger(__name__) 
+LOG = logging.getLogger(__name__)
 
 ICONTROL_URL = "%(proto)s://%(username)s:%(password)s@%(hostname)s:%(port)s/iControl/iControlPortal.cgi"
 ICONTROL_NS = "urn:iControl"
 
 
 class IControlFault(Exception):
-    def __init__(self, *args, **kwargs):
-        e = args[0]
+    def __init__(self, e, *args, **kwargs):
         self.faultcode = e.faultcode
         self.faultstring = e.faultstring
         super(IControlFault, self).__init__(*args, **kwargs)
 
+    def __str__(self):
+        return "(%s) %s" % (self.faultcode, self.faultstring)
+    __repr__ = __str__
+
+
 class UnknownMethod(IControlFault):
     pass
 
+
 class IControlTransportError(Exception):
-    def __init__(self, *args, **kwargs):
-        e = args[0]
+    def __init__(self, e, *args, **kwargs):
         self.faultcode = e.code
         self.faultstring = e.msg
         super(IControlTransportError, self).__init__(*args, **kwargs)
 
+    def __str__(self):
+        return "(%s) %s" % (self.faultcode, self.faultstring)
+    __repr__ = __str__
+
+
 class AuthFailed(IControlTransportError):
     pass
+
 
 class Icontrol(object):
     """
     Yet another SOAPpy wrapper for iControl aware devices.
-    
+
     >>> from pycontrol3 import Icontrol
     >>> ic = Icontrol('172.27.58.103', 'admin', 'admin', debug=0)
     >>> print ic.System.Cluster.get_member_ha_state(cluster_names=['default'], slot_ids=[[1,2,3,4]])
     [['HA_STATE_ACTIVE', 'HA_STATE_ACTIVE', 'HA_STATE_ACTIVE', 'HA_STATE_ACTIVE']]
-    >>> 
+    >>>
 
     """
 
@@ -93,14 +103,14 @@ class Icontrol(object):
         self._cache = {}
 
     class __Method(object):
-        
+
         def __init__(self, name, parent=None):
             self._name = name
             self._parent = parent
 
         def __call__(self, *args, **kw):
             if self._name == "_":
-                if self.__name in ["__repr__","__str__"]:
+                if self.__name in ["__repr__", "__str__"]:
                     return self.__repr__()
             else:
                 chain = []
@@ -124,7 +134,7 @@ class Icontrol(object):
                         sess_t._setMustUnderstand(0)
                         sess_t._setAttr('xmlns:myns1', parent._icontrol_ns)
                         headers._addItem('myns1:session', sess_t)
-                        ic = SOAPpy.SOAPProxy(url, ns, header=headers, 
+                        ic = SOAPpy.SOAPProxy(url, ns, header=headers,
                                               timeout=p.timeout)
                     else:
                         ic = SOAPpy.SOAPProxy(url, ns, timeout=p.timeout)
@@ -155,27 +165,28 @@ class Icontrol(object):
 
         def __getattr__(self, name):
             if name == '__del__':
-                raise AttributeError, name
+                raise AttributeError(name)
             if name[0] != "_":
                 return self.__class__(name, self)
 
     def __getattr__(self, name):
-        if name in ( '__del__', '__getinitargs__', '__getnewargs__',
+        if name in ('__del__', '__getinitargs__', '__getnewargs__',
            '__getstate__', '__setstate__', '__reduce__', '__reduce_ex__'):
-            raise AttributeError, name
+            raise AttributeError(name)
         return self.__Method(name, self)
+
 
 def main():
     import sys
     if len(sys.argv) < 4:
-        print "Usage: %s <hostname> <username> <password>"% sys.argv[0]
+        print "Usage: %s <hostname> <username> <password>" % sys.argv[0]
         sys.exit()
 
     a = sys.argv[1:]
     b = Icontrol(
-            hostname = a[0],
-            username = a[1],
-            password = a[2])
+            hostname=a[0],
+            username=a[1],
+            password=a[2])
 
     pools = b.LocalLB.Pool.get_list()
     version = b.LocalLB.Pool.get_version()
@@ -183,6 +194,6 @@ def main():
     print "Pools:"
     for x in pools:
         print "\t%s" % x
-    
+
 if __name__ == '__main__':
     main()

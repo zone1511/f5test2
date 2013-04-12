@@ -126,7 +126,8 @@ class FailoverMacro(Macro):
                 # In 11.2.0 the device cannot be renamed while it's in the Trust
                 v = icifc.version
                 if v.product.is_bigip and v >= 'bigip 11.2.0' or \
-                   v.product.is_em and v >= 'em 3.0.0':
+                   v.product.is_em and v >= 'em 3.0.0' or \
+                   v.product.is_bigiq:
                     device_name = ic.Management.Device.get_local_device()
                 else:
                     device_name = uuid.uuid4().hex
@@ -157,7 +158,8 @@ class FailoverMacro(Macro):
 
                 v = icifc.version
                 if v.product.is_bigip and v >= 'bigip 11.2.0' or \
-                   v.product.is_em and v >= 'em 3.0.0':
+                   v.product.is_em and v >= 'em 3.0.0' or \
+                   v.product.is_bigiq:
                     continue
 
                 #if icifc.version.product.is_bigip and icifc.version < 'bigip 11.2':

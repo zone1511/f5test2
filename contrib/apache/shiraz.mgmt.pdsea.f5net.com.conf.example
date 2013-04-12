@@ -1,0 +1,45 @@
+<VirtualHost *:80>
+	ServerName shiraz.mgmt.pdsea.f5net.com
+	DocumentRoot "/var/www/shiraz.mgmt.pdsea.f5net.com/htdocs"
+
+	# Error handlers
+	ErrorDocument 500 /errordocs/500.html
+
+	# Serve bottle pages
+    <Location "/">
+        <Limit GET POST PUT DELETE HEAD OPTIONS>
+           Order allow,deny
+            # You might want something a little more secure here, this is a dev setup
+            Allow from all
+        </Limit>
+	</Location>
+    
+    WSGIPassAuthorization On
+    WSGIScriptAlias / /var/www/shiraz.mgmt.pdsea.f5net.com/conf/shiraz.wsgi
+    <Directory /var/www/shiraz.mgmt.pdsea.f5net.com/conf>
+        Order allow,deny
+        Allow from all
+    </Directory>
+
+	# Serve static media without running it through mod_wsgi
+	# (overrides the above)
+	<Location "/media">
+		SetHandler None
+	</Location>
+	
+    <Location "/errordocs">
+		SetHandler None
+	</Location>
+
+	<Directory "/var/www/shiraz.mgmt.pdsea.f5net.com/htdocs">
+        AllowOverride All
+        Order allow,deny
+        Allow from all
+	</Directory>
+
+	# Alias static media requests to filesystem
+	Alias /media "/var/www/shiraz.mgmt.pdsea.f5net.com/htdocs/media"
+	Alias /errordocs "/var/www/shiraz.mgmt.pdsea.f5net.com/htdocs/errordocs"
+</VirtualHost>
+
+# vim: ts=4 filetype=apache

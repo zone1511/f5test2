@@ -296,7 +296,7 @@ class Testopia(Plugin):
         t = self.testopia_ifc.open()
 
         LOG.debug('Creating a new build (if needed)...')
-        version = self.ICMD.system.get_version(build=True)
+        version = self.ICMD.system.get_version()
         v_str = "%s %s" % (version.version, version.build)
         ret = self.TCMD.build.create_build(v_str, c.product)
         c._build = ret['build_id']
