@@ -4,7 +4,7 @@ Created on Feb 9, 2012
 @author: jono
 '''
 from __future__ import absolute_import
-from f5test.macros.confgen import ConfigGenerator
+from f5test.macros.tmosconf.placer import ConfigPlacer
 from f5test.macros.keyswap import KeySwap
 from f5test.macros.ha import FailoverMacro
 from f5test.interfaces.testopia import TestopiaInterface
@@ -426,7 +426,7 @@ class InstallSoftwareStage(Stage, InstallSoftware):
             self._context.get_interface(SSHInterface, device=device)
 
 
-class ConfigGeneratorStage(Stage, ConfigGenerator):
+class ConfigStage(Stage, ConfigPlacer):
     """
     This stage makes sure the devices are configured with the 'stock' settings.
     Its functionally is similar to the f5.configurator CLI utility.
@@ -440,13 +440,9 @@ class ConfigGeneratorStage(Stage, ConfigGenerator):
         self._context = specs.get('_context')
 
         options = Options(device=device,
-                          config=specs.get('config file'),
-                          peer_device=specs.get('peer'),
-                          unitid=specs.get('unitid'),
                           license=specs.get('license'),
                           timezone=specs.get('timezone'),
                           timeout=specs.get('timeout'),
-                          selfip_floating=specs.get('floating ip'),
                           selfip_internal=specs.get('selfip internal'),
                           selfip_external=specs.get('selfip external'),
                           vlan_internal=specs.get('vlan internal'),
@@ -467,10 +463,10 @@ class ConfigGeneratorStage(Stage, ConfigGenerator):
             options.irack_username = config.irack.username
             options.irack_apikey = config.irack.apikey
 
-        super(ConfigGeneratorStage, self).__init__(options, *args, **kwargs)
+        super(ConfigStage, self).__init__(options, *args, **kwargs)
 
     def setup(self):
-        ret = super(ConfigGeneratorStage, self).setup()
+        ret = super(ConfigStage, self).setup()
         LOG.debug('Locking device %s...', self.options.device)
         ICMD.system.SetPassword(device=self.options.device).run_wait(timeout=60)
         self.options.device.specs._x_tmm_bug = True
@@ -478,9 +474,9 @@ class ConfigGeneratorStage(Stage, ConfigGenerator):
         return ret
 
     def revert(self):
-        super(ConfigGeneratorStage, self).revert()
+        super(ConfigStage, self).revert()
         if self._context:
-            LOG.debug('In ConfigGeneratorStage.revert()')
+            LOG.debug('In ConfigStage.revert()')
             device = self.options.device
             # If the installation has failed before rebooting then no password
             # change is needed.

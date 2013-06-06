@@ -76,6 +76,7 @@ class Product(object):
     def is_none(self):
         return self.product == ''
 
+    @property
     def to_tmos(self):
         if self.product == Product.EM:
             return 'EM'

@@ -44,7 +44,7 @@
 	                            <div>
 					                <button type="button" class="btn btn-mini" data-bind="toggle: inputs.product() == 'bigiq', click: function(){ inputs.product('bigiq'); inputs.version('bigiq-mgmt') }">BIG-IQ</button>
 					                <button type="button" class="btn btn-mini" data-bind="toggle: inputs.product() == 'em', click: function(){ inputs.product('em'); inputs.version('3.1.1') }">EM</button>
-					                <button type="button" class="btn btn-mini" data-bind="toggle: inputs.product() == 'bigip', click: function(){ inputs.product('bigip'); inputs.version('corona-bugs') }">BIG-IP</button>
+					                <button type="button" class="btn btn-mini" data-bind="toggle: inputs.product() == 'bigip', click: function(){ inputs.product('bigip'); inputs.version('11.4.0') }">BIG-IP</button>
 	                            </div>                            
                             </td>
                             <td><span class="muted">Product to be installed</span></td>

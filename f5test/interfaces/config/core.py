@@ -5,10 +5,11 @@ Created on Mar 16, 2013
 '''
 from ...base import Interface, Options
 from ...defaults import ADMIN_PASSWORD, ADMIN_USERNAME, ROOT_PASSWORD, \
-    ROOT_USERNAME, DEFAULT_PORTS, KIND_TMOS
+    ROOT_USERNAME, DEFAULT_PORTS, KIND_TMOS, KIND_ANY, KIND_SEP
 from ...compat import _bool
 from ...utils import net
 import copy
+from fnmatch import fnmatch
 import logging
 import os
 import time
@@ -42,15 +43,15 @@ class DeviceDoesNotExist(ConfigError):
     pass
 
 
-def expand_devices(specs, section='devices'):
-    devices = []
+def expand_devices(specs, section='devices', kind=KIND_TMOS):
+    devices = set([])
     cfgifc = ConfigInterface()
+    all_devices = tuple(cfgifc.get_all_devices(kind=kind))
     for device in specs.get(section) or []:
-        if device == '^all':
-            devices += list(cfgifc.get_all_devices())
-        else:
-            devices.append(cfgifc.get_device(device))
-    return set(devices)
+        if device == '^all':  # Backward compatibility
+            device = '*'
+        devices.update([x for x in all_devices if fnmatch(x.alias, device)])
+    return devices
 
 
 class DeviceCredential(object):
@@ -78,6 +79,7 @@ class DeviceAccess(object):
         self.specs = specs or Options()
         self.tags = set([])
         self.groups = set([])
+        #self.instances = expand_devices(specs, 'instances')
         self.hostname = self.specs.get('address')
         self.discover_address = self.specs.get('discover address')
         self.set_tags(self.specs.get('tags'))
@@ -89,6 +91,10 @@ class DeviceAccess(object):
 
     def __repr__(self):
         return "%s:%s" % (self.alias, self.address)
+
+    @property
+    def instances(self):
+        return expand_devices(self.specs, 'instances', kind=KIND_ANY)
 
     def is_default(self):
         return _bool(self.specs.get('default'))
@@ -270,10 +276,16 @@ class ConfigInterface(Interface):
         return device_access.address
 
     def get_all_devices(self, kind=KIND_TMOS):
+        kind = kind.split(KIND_SEP) if kind else []
         for device in self.config.devices:
             device = self.get_device(device)
-            if device.kind.startswith(kind):
+            device_kind = device.kind.split(KIND_SEP)
+            if device_kind[:len(kind)] == kind:
                 yield device
+
+    @staticmethod
+    def get_devices_instances(devices):
+        return reduce(set.union, map(lambda x: x.instances, devices))
 
     def get_selenium_head(self, head=None):
         if head is None:

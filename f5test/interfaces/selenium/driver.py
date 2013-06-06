@@ -5,7 +5,7 @@ from selenium.webdriver.remote.command import Command
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys  # @UnusedImport
 from selenium.common.exceptions import (NoSuchElementException,
-    StaleElementReferenceException, NoSuchWindowException)
+    StaleElementReferenceException, NoSuchWindowException, NoSuchFrameException)
 from ...utils.wait import Wait, wait
 from ...base import Options
 import copy
@@ -84,15 +84,16 @@ class ElementWait(Wait):
         self._frame = b.get_current_frame()
 
         if not value:
-            return self._element
-        return parent.find_element(by=by, value=value)
+            self._result = self._element
+            return
+        self._result = parent.find_element(by=by, value=value)
 
-    def test_result(self, result):
+    def test_result(self):
         ret = None
         if self._it == Is.PRESENT:
             ret = True
         else:
-            ret = getattr(result, self._it)()
+            ret = getattr(self._result, self._it)()
 
         return bool(ret) ^ self.negated
 

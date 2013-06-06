@@ -40,6 +40,10 @@ class RawString(unicode):
     pass
 
 
+class RawDict(dict):
+    pass
+
+
 class GlobDict(collections.OrderedDict):
 
     def __setitem__(self, key, value):
@@ -64,9 +68,9 @@ class GlobDict(collections.OrderedDict):
 def parser(text):
     cvtTuple = lambda toks: tuple(toks.asList())
     cvtRaw = lambda toks: RawString(' '.join(map(str, toks.asList())))
-    cvtDict = lambda toks: dict(toks.asList())
+    #cvtDict = lambda toks: dict(toks.asList())
     cvtGlobDict = lambda toks: GlobDict(toks.asList())
-    #cvtDict = cvtGlobDict
+    cvtDict = cvtGlobDict
     extractText = lambda s, l, t: RawString(s[t._original_start:t._original_end])
 
     def pythonize(toks):
@@ -299,7 +303,8 @@ def _make_iterencode(markers, _default, _encoder, _indent, _floatstr,
                 raise ValueError("Circular reference detected")
             markers[markerid] = dct
         if _current_indent_level >= 0:
-            yield '{'
+            if not isinstance(dct, RawDict):
+                yield '{'
         if _indent is not None:
             _current_indent_level += 1
             newline_indent = '\n' + (' ' * (_indent * _current_indent_level))
@@ -338,7 +343,8 @@ def _make_iterencode(markers, _default, _encoder, _indent, _floatstr,
             else:
                 yield item_separator
             yield _encoder(key)
-            yield _key_separator
+            if not value is None:
+                yield _key_separator
             if isinstance(value, basestring):
                 yield _encoder(value)
             elif value is None:
@@ -364,7 +370,8 @@ def _make_iterencode(markers, _default, _encoder, _indent, _floatstr,
             _current_indent_level -= 1
             yield '\n' + (' ' * (_indent * _current_indent_level))
         if _current_indent_level >= 0:
-            yield '}'
+            if not isinstance(dct, RawDict):
+                yield '}'
         if markers is not None:
             del markers[markerid]
 

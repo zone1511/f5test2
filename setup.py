@@ -16,7 +16,7 @@ addl_args = dict(
     entry_points={
         'console_scripts': [
             'f5.install = f5test.macros.install:main',
-            'f5.configurator = f5test.macros.confgen:main',
+            'f5.configurator = f5test.macros.tmosconf.placer:main',
             'f5.keyswap = f5test.macros.keyswap:main',
             'f5.seleniumrc = f5test.macros.seleniumrc:main',
             'f5.irack = f5test.macros.irackprofile:main',
@@ -24,7 +24,6 @@ addl_args = dict(
             'f5.cloner = f5test.macros.cloner:main',
             'f5.ictester = f5test.macros.ictester:main',
             'f5.empytester = f5test.macros.empytester:main',
-#            'f5.trafficgen = f5test.macros.trafficgen:main',
             'f5.trafficgen = f5test.macros.trafficgen2:main',
             'f5.webcert = f5test.macros.webcert:main',
             'f5.licensegen = f5test.macros.licensegen:main',
@@ -63,7 +62,6 @@ setup(
         'paramiko',
         'SOAPpy',
 #        'pycurl',
-        'python-graph-core',
         'pyOpenSSL',
         'PyYAML',
         'pyparsing<2.0.0',  # 2.0 is not compatible with 2.X anymore.

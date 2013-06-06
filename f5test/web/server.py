@@ -42,14 +42,15 @@ NOSETESTS_ARGS = ['',
 ]
 
 
-def get_harness():
+def get_harness(pool):
     mc = get_best_memcache(CONFIG.memcache)
+    key = CONFIG.web._MC_KEY + pool
     try:
-        i = mc.incr(CONFIG.web._MC_KEY)
+        i = mc.incr(key)
     except:
-        i = mc.set(CONFIG.web._MC_KEY, 0)
-    return os.path.join(config_dir,
-                        CONFIG.web.harnesses[i % len(CONFIG.web.harnesses)])
+        i = mc.set(key, 0)
+    harnesses = CONFIG.web.harnesses[pool]
+    return os.path.join(config_dir, harnesses[i % len(harnesses)])
 
 
 @app.get('/add')
@@ -166,7 +167,7 @@ def bvt_basic_post():
 #        config_dir = os.path.dirname(CONFIG_WEB_FILE)
 #        harness_files = [os.path.join(config_dir, x) for x in CONFIG.web.harnesses]
 #        our_config = RCMD.irack.pick_best_harness(harness_files, ifc=irack)
-    our_config = AttrDict(yaml.load(open(get_harness()).read()))
+    our_config = AttrDict(yaml.load(open(get_harness('em')).read()))
 
     # Prepare placeholders in our config
     our_config.update({'stages': {'main': {'setup': {'stage01-install-bigip-1': {'parameters': {}}}}}})
@@ -222,9 +223,14 @@ def bvt_deviso_post():
     """Handles requests from Dev team for user builds ISOs.
     """
     #BVTINFO_PROJECT_PATTERN = '(\D+)?(\d+\.\d+\.\d+)-?(hf\d+)?'
-    SUITE_BVT = 'tests/bigiq/bvt/'
-    SUITE_SMOKE = 'tests/solar/bvt/integration/filesystem/'
+    DEFAULT_SUITE = 'bvt'
+    SUITES = {'bvt': 'tests/bigtime/bvt/',
+              'dev': 'tests/bigtime/bvt/integration/filesystem/devtest_wrapper.py'
+              }
     CONFIG_FILE = 'config/suite_deviso_request.yaml'
+    BIGIP_VERSION = '11.4.0'
+    BIGIP_HOTFIX = None
+    BIGIP_BUILD = None
 
     # For people who don't like to set the application/json header.
     data = json.load(bottle.request.body)
@@ -238,7 +244,7 @@ def bvt_deviso_post():
 #        config_dir = os.path.dirname(CONFIG_FILE)
 #        harness_files = [os.path.join(config_dir, x) for x in CONFIG.web.harnesses]
 #        our_config = RCMD.irack.pick_best_harness(harness_files, ifc=irack)
-    our_config = AttrDict(yaml.load(open(get_harness()).read()))
+    our_config = AttrDict(yaml.load(open(get_harness('bigiq')).read()))
 
     # Prepare placeholders in our config
     our_config.update({'stages': {'main': {'setup': {'stage01-install-em': {'parameters': {}}}}}})
@@ -253,22 +259,26 @@ def bvt_deviso_post():
     params = our_config.stages.main.setup['stage01-install-em'].parameters
     params['custom iso'] = data['iso']
 
+    our_config.update({'stages': {'main': {'setup': {'stage01-install-bigip-1': {'parameters': {}}}}}})
+    params = our_config.stages.main.setup['stage01-install-bigip-1'].parameters
+    params.version = BIGIP_VERSION
+    params.hotfix = BIGIP_HOTFIX
+    params.build = BIGIP_BUILD
+
     args = []
     args[:] = NOSETESTS_ARGS
 
     args.append('--tc-file={VENV}/%s' % CONFIG_FILE)
-    if data.get('debug'):
-        args.append('--tc=stages._enabled:1')
-        args.append('--no-email')
-        tests = [os.path.join('{VENV}', x)
-                for x in re.split('\s+', (data.get('tests') or SUITE_SMOKE).strip())]
-        args.extend(tests)
-    else:
-        args.append('--tc=stages._enabled:1')
-        args.append('--attr=status=CONFIRMED,priority=1')
-        #args.append('--with-bvtinfo')
-        args.append('--with-irack')
-        args.append('{VENV}/%s' % SUITE_BVT)
+
+    # Default is our BVT suite.
+    suite = SUITES.get(data.get('suite'), DEFAULT_SUITE)
+    args.append('--tc=stages._enabled:1')
+    # XXX: No quotes around the long argument value!
+    if suite == DEFAULT_SUITE:
+        args.append('--eval-attr=status is not "DISABLED" and priority is 1')
+    #args.append('--with-bvtinfo')
+    args.append('--with-irack')
+    args.append('{VENV}/%s' % suite)
 
     result = nosetests.delay(our_config, args, data)  # @UndefinedVariable
     link = app.router.build('status', task_id=result.id)
@@ -306,7 +316,7 @@ def install_post():
     options = AttrDict()
     options.admin_password = data.admin_password
     options.root_password = data.root_password
-    options.product = 'em' if data.product == 'bigiq' else data.product
+    options.product = data.product
     options.pversion = data.version
     options.pbuild = data.build or None
     options.phf = data.hotfix

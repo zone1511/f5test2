@@ -5,23 +5,46 @@ Created on Feb 25, 2013
 '''
 from ..base import SeleniumCommand
 from ....interfaces.config import ConfigInterface, DeviceAccess
-from ....interfaces.selenium import By, Is
-#from ....interfaces.selenium.driver import NoSuchElementException, ElementWait
-#from ....base import AttrDict
-#from ...base import WaitableCommand, CommandError
-#import os
+# from ....interfaces.selenium import By
+# from ....interfaces.selenium.driver import (NoSuchFrameException,
+#                                             NoSuchElementException, ElementWait)
+# from .. import common
 import logging
-#import re
-#import codecs
-UI_CLOUD = 0
-UI_SECURITY = 1
-UI_TMOS = 2
+# import urlparse
 
 LOG = logging.getLogger(__name__)
 
 
+# class LicenseExpiredWait(ElementWait):
+#
+#     def __init__(self, interface, url, *args, **kwargs):
+#         self._interface = interface
+#         # Find the base URL.
+#         # https://1.2.3.4:443/ui/login.jsp -> https://1.2.3.4:443
+#         o = urlparse.urlsplit(url)
+#         self.url = urlparse.urlunparse((o.scheme, o.netloc, '', '', '', ''))
+#         return super(LicenseExpiredWait, self).__init__(interface.api, *args, **kwargs)
+#
+#     def test_error(self, exc_type, exc_value, exc_traceback):
+#         b = self._interface.api
+#         try:
+#             b.switch_to_frame('contentframe')
+#             reactivate_button = b.find_element_by_id('exit_button')
+#             LOG.warning('License is about to expire. Attempting to reactivate.')
+#             next_button = reactivate_button.click().wait('next')
+#             next_button.click()
+#             common.wait_for_loading(ifc=self._interface)
+#             # Overriding the original result, which is probably None at this point
+#             self._result = b.get(self.url).wait('loginDiv')
+#             return True
+#         except (NoSuchFrameException, NoSuchElementException) as e:
+#             LOG.debug('LicenseExpiredWait: %s', e)
+#         finally:
+#             b.switch_to_default_content()
+
+
 login = None
-class Login(SeleniumCommand): #@IgnorePep8
+class Login(SeleniumCommand):  # @IgnorePep8
     """Log in command.
 
     @param device: The device.
@@ -34,12 +57,11 @@ class Login(SeleniumCommand): #@IgnorePep8
     @type password: str
     """
     def __init__(self, device=None, address=None, username=None, password=None,
-                 port=None, proto='https', timeout=120, ui=UI_SECURITY, *args, **kwargs):
+                 port=None, proto='https', timeout=10, *args, **kwargs):
         super(Login, self).__init__(*args, **kwargs)
         self.timeout = timeout
         self.proto = proto
         self.path = '/tmui/login.jsp'
-        self.ui = ui
         if device or not address:
             self.device = device if isinstance(device, DeviceAccess) \
                         else ConfigInterface().get_device(device)
@@ -74,23 +96,5 @@ class Login(SeleniumCommand): #@IgnorePep8
 
         e = b.find_element_by_id("passwd")
         e.send_keys(self.password)
-        # XXX: This needs to go when they fix the UI
-        product_picker = e.submit().wait('loginDiv')
-
-        xpaths = {UI_SECURITY: 'a[div="BIG-IQ Security"]',
-                  UI_CLOUD: 'a[div="BIG-IQ Cloud"]',
-                  UI_TMOS: 'a[div="TMOS"]'
-        }
-
-        link = product_picker.find_element_by_xpath(xpaths.get(self.ui))
-        link.click()
-
-        if self.ui == UI_SECURITY:
-            b.wait('.modal-dialog', negated=True, by=By.CSS_SELECTOR)
-        elif self.ui == UI_CLOUD:
-            b.wait('pageModal', negated=True)
-        elif self.ui == UI_TMOS:
-            b.wait('#navbar > #trail span', by=By.CSS_SELECTOR, timeout=30)
-        else:
-            raise ValueError("Unsupported product")
+        e.submit().wait('setup')
         b.maximize_window()

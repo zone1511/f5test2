@@ -106,7 +106,7 @@ class InstallSoftware(IcontrolCommand):
             s = self.volume
 
         v = self.desired_version
-        p = v.product.to_tmos()
+        p = v.product.to_tmos
         #print s, v, p
         ic.System.SoftwareManagement.install_software_image(install_volume=s,
                                                             product=p,

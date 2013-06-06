@@ -114,7 +114,7 @@ class AttrDict(dict):
 
                 if isinstance(v, AttrDict):
                     d[k] = v
-                elif isinstance(v, dict):
+                elif type(v) is dict:
                     if not isinstance(d[k], dict):
                         d[k] = AttrDict()
                     combine(d[k], v)

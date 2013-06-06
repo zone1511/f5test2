@@ -5,7 +5,7 @@ Created on Jan 30, 2013
 '''
 from ....base import enum, AttrDict
 from ....utils.wait import wait
-#import yaml
+# import yaml
 import json
 import os
 
@@ -46,7 +46,7 @@ class ReferenceList(list):
     def append(self, other):
         if not isinstance(other, Reference):
             other = Reference(other)
-        self.append(other)
+        super(ReferenceList, self).append(other)
 
 
 class Port(AttrDict):
@@ -82,7 +82,7 @@ class Task(AttrDict):
         if len(ret.subtasks) != sum(x.status in ('COMPLETE', 'COMPLETED') for x in ret.subtasks):
             msg = json.dumps(ret.subtasks, sort_keys=True, indent=4,
                              ensure_ascii=False)
-            #msg = yaml.dump(ret.subtasks, default_flow_style=False,
+            # msg = yaml.dump(ret.subtasks, default_flow_style=False,
             #                indent=4, width=999)
             raise TaskError("At least one subtask is not completed:\n%s" % msg)
         return ret
@@ -284,15 +284,30 @@ class Connector(SharedObject):
             self.setdefault('deviceReferences', [])
             self.setdefault('parameters', [])
 
-
 class Tenant(SharedObject):
     URI = '/mgmt/cm/cloud/tenants'
+    userReferenceURI = '/mgmt/shared/authz/users'
 
     def __init__(self, *args, **kwargs):
         super(Tenant, self).__init__(*args, **kwargs)
         self.setdefault('name', 'tenant')
         self.setdefault('description', 'Tenant description.')
-        self.setdefault('username', 'admin')
+#        self.setdefault('username', 'admin')
+        self.setdefault('classType', 'enterprise')
+        self.setdefault('addressContact', '123 Foo Bar Ave.')
+        self.setdefault('phone', '(234)-900-1009')
+        self.setdefault('email', 'tenant@enterprise.net')
+        self.setdefault('userReference', ReferenceList())
+        self.setdefault('cloudConnectorReferences', [])
+
+class JimmyTenant(SharedObject):
+    URI = '/mgmt/cm/cloud/tenants'
+
+    def __init__(self, *args, **kwargs):
+        super(JimmyTenant, self).__init__(*args, **kwargs)
+        self.setdefault('name', 'tenant')
+        self.setdefault('description', 'Tenant description.')
+        self.setdefault('userReference', AttrDict(link=''))
         self.setdefault('classType', 'enterprise')
         self.setdefault('addressContact', '123 Foo Bar Ave.')
         self.setdefault('phone', '(234)-900-1009')
@@ -331,9 +346,22 @@ class TenantServiceSrvPoolSrv113(AttrDict):
 
 class TenantService(SharedObject):
     URI = Tenant.URI + '/%s/services/iapp'
+    TenantTemplateReferenceURI = '/mgmt/cm/cloud/tenant/templates/iapp'
 
     def __init__(self, *args, **kwargs):
         super(TenantService, self).__init__(*args, **kwargs)
+        self.setdefault('name', 'tenant-service')
+        self.setdefault('tenantTemplateReference', AttrDict(link=''))
+        self.setdefault('tenantReference', ReferenceList())
+        self.setdefault('properties', [])
+        self.setdefault('vars', [])
+        self.setdefault('tables', [])
+
+class JimmyTenantService(SharedObject):
+    URI = Tenant.URI + '/%s/services/iapp'
+
+    def __init__(self, *args, **kwargs):
+        super(JimmyTenantService, self).__init__(*args, **kwargs)
         self.setdefault('name', 'tenant-service')
         self.setdefault('tenantTemplateReference', AttrDict(link=''))
         self.setdefault('properties', [])
@@ -382,8 +410,39 @@ class ConnectorObjects(AttrDict):
         self.setdefault('displayName', '')
         self.setdefault('isRequired', 'true')
         self.setdefault('value', '')
-        
+
 class Link(AttrDict):
     def __init__(self, *args, **kwargs):
         super(Link, self).__init__(*args, **kwargs)
         self.setdefault('link', '')
+
+
+class UserCredentialData(SharedObject):
+    URI = '/mgmt/shared/authz/users'
+    ITEM_URI = '/mgmt/shared/authz/users/%s'
+
+    def __init__(self, *args, **kwargs):
+        super(UserCredentialData, self).__init__(*args, **kwargs)
+        self.setdefault('name', 'NewTenant')
+        self.setdefault('password', 'f5site02')
+
+class License(AttrDict):
+    LICENSE_KEY_URI = '/mgmt/cm/shared/activate-license'
+    URI = '/mgmt/cm/shared/license'
+
+    def __init__(self, *args, **kwargs):
+        super(License, self).__init__(*args, **kwargs)
+        self.setdefault('baseRegKey', '')
+        self.setdefault('addOnKeys', [])
+        self.setdefault('automaticActivation', 'true')
+        
+class EasySetup(SharedObject):
+    URI = '/mgmt/shared/system/easy-setup'
+    def __init__(self, *args, **kwargs):
+        super(EasySetup, self).__init__(*args, **kwargs)
+        self.setdefault('hostname', '')
+        self.setdefault('internalSelfIpAddresses', [])
+        self.setdefault('ntpServerAddresses', [])
+        self.setdefault('dnsServerAddresses', [])
+        self.setdefault('dnsSearchDomains', [])
+

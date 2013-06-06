@@ -14,6 +14,7 @@ $(function(){
     });
 
     $('#timezone').editable({
+        showbuttons: false,
         source: [
               {value: 'America/Los_Angeles', text: 'US West'},
               {value: 'America/New_York', text: 'US East'},

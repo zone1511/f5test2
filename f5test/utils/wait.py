@@ -30,6 +30,7 @@ class Wait(object):
         self.interval = interval
         self.stabilize = stabilize
         self.negated = negated
+        self._result = None
 
         if timeout_message:
             self.timeout_message = timeout_message
@@ -38,10 +39,10 @@ class Wait(object):
             self.progress_message = progress_message
 
     def function(self, *args, **kwargs):
-        return True
+        self._result = True
 
     def run(self, *args, **kwargs):
-        last_success = result = None
+        last_success = None
         stable = 0
         end = time.time() + self.timeout
         last_time = time.time()
@@ -50,9 +51,9 @@ class Wait(object):
             success = False
             last_exc = None
             try:
-                result = self.function(*args, **kwargs)
-                success = self.test_result(result)
-                self.progress(result)
+                self.function(*args, **kwargs)
+                success = self.test_result()
+                self.progress()
                 #if not success:
                 #    LOG.warning('Unexpected result: %s', result)
             except:
@@ -66,17 +67,17 @@ class Wait(object):
             finally:
                 self.cleanup()
                 if success:
-                    self.criteria_met(result)
+                    self.criteria_met()
                 else:
                     stable = 0
-                    self.criteria_not_met(result)
+                    self.criteria_not_met()
 
                 if success:
                     if stable == 0 or last_success == success:
-                        self.criteria_met_stable(result)
+                        self.criteria_met_stable()
                         stable += time.time() - last_time
                     else:
-                        self.criteria_met_not_stable(result)
+                        self.criteria_met_not_stable()
                         stable = 0
 
                     if stable >= self.stabilize:
@@ -89,33 +90,35 @@ class Wait(object):
                 last_time = time.time()
                 time.sleep(self.interval)
         else:
-            self.fail(result)
+            self.fail()
             raise WaitTimedOut(self.timeout_message.format(self.timeout))
 
-        return result
+        return self._result
 
-    def test_result(self, result):
+    def test_result(self):
+        result = self._result
         return bool(result) ^ self.negated
 
     def test_error(self, exc_type, exc_value, exc_traceback):
         return False ^ self.negated
 
-    def criteria_met(self, result):
+    def criteria_met(self):
         LOG.debug('Criteria met.')
 
-    def criteria_not_met(self, result):
+    def criteria_not_met(self):
         LOG.debug('Criteria not met.')
 
-    def fail(self, result):
+    def fail(self):
         LOG.debug('Giving up...')
 
-    def criteria_met_stable(self, result):
+    def criteria_met_stable(self):
         LOG.debug('Criteria met and stable.')
 
-    def criteria_met_not_stable(self, result):
+    def criteria_met_not_stable(self):
         LOG.debug('Criteria met but not stable. Timer reset.')
 
-    def progress(self, result):
+    def progress(self):
+        result = self._result
         if self.progress_message:
             LOG.info(self.progress_message.format(result))
 
@@ -132,20 +135,22 @@ class CallableWait(Wait):
         super(CallableWait, self).__init__(*args, **kwargs)
 
     def function(self, *args, **kwargs):
-        return self._func(*args, **kwargs)
+        self._result = self._func(*args, **kwargs)
 
-    def test_result(self, result):
+    def test_result(self):
+        result = self._result
         if self._condition:
             return self._condition(result)
-        return super(CallableWait, self).test_result(result)
+        return super(CallableWait, self).test_result()
 
-    def progress(self, result):
+    def progress(self):
+        result = self._result
         if self._progress_cb:
             ret = self._progress_cb(result)
             if ret:
                 LOG.info(ret)
         else:
-            super(CallableWait, self).progress(result)
+            super(CallableWait, self).progress()
 
 
 def wait_args(func, func_args=None, func_kwargs=None, *args, **kwargs):

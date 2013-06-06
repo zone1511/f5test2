@@ -1,6 +1,6 @@
 from .base import SSHCommand
 from .ssh import get_version
-from ..base import CachedCommand
+from ..base import CachedCommand, WaitableCommand
 from ...base import Options
 from ...utils.parsers import tmsh
 import logging
@@ -18,22 +18,35 @@ class SSHCommandError(Exception):
     pass
 
 
-list = None
-class List(SSHCommand):
-    """Run a generic one line bigpipe command.
+run = None
+class Run(WaitableCommand, SSHCommand):
+    """Run a generic one line tmsh command.
 
-    >>> bigpipe.generic('list')
+    >>> tmsh.run('sys mcp-state field-fmt', command='show')
 
-    @param command: the arguments for tmsh
+    @param arguments: the arguments for tmsh, including module
+    @type arguments: str
+    @param recursive: recurse to subfolders
+    @type recursive: bool
+    @param folder: the initial folder (default is /Common)
+    @type folder: str
+    @param command: the tmsh command (list, show, modify, create, etc.)
     @type command: str
     """
-    def __init__(self, command, recursive=False, folder='/Common', *args, **kwargs):
+    def __init__(self, arguments, recursive=False, folder=None, command='list',
+                 *args, **kwargs):
 
-        super(List, self).__init__(*args, **kwargs)
-        # tmsh doesn't support working with folders when called from shell
-        self.command = 'echo "cd %s; list %s %s" | tmsh | cat' % (folder,
-                                                                  command,
-                                                                  recursive and 'recursive' or '')
+        super(Run, self).__init__(*args, **kwargs)
+        self.command = "%s %s" % (command, arguments)
+
+        if recursive:
+            self.command += ' recursive'
+
+        if folder:
+            # XXX: in this case the return status will always be 0 (success)!!
+            self.command = 'echo "cd %s; %s" | tmsh | cat' % (folder, self.command)
+        else:
+            self.command = 'tmsh %s' % self.command
 
     def setup(self):
         ret = self.api.run(self.command)
@@ -42,6 +55,19 @@ class List(SSHCommand):
         else:
             LOG.error(ret)
             raise SSHCommandError(ret)
+
+
+list = None
+class List(Run):
+    """Run a one line tmsh list command.
+
+    >>> tmsh.list('sys db')
+
+    @param arguments: the arguments for tmsh list
+    @type arguments: str
+    """
+    def __init__(self, arguments, *args, **kwargs):
+        super(List, self).__init__(arguments, command='list', *args, **kwargs)
 
 
 list_software = None

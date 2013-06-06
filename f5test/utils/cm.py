@@ -45,7 +45,9 @@ from xml.etree.ElementTree import fromstring
 from .version import Version, Product
 from ..base import Options
 from ..interfaces.subprocess import ShellInterface
+import logging
 
+LOG = logging.getLogger(__name__)
 ROOT_PATH = '/build'
 BIGIP = Product.BIGIP
 PRODUCT_REGEX = '[\w+-]+'
@@ -190,10 +192,6 @@ def create_finder(identifier, build=None, hotfix=None, product=BIGIP, root=ROOT_
     if hotfix and hotfix.isdigit():
         hotfix = 'hf%s' % hotfix
 
-    # CM still uses 'em' product to store bigiq builds.
-    if product == Product.BIGIQ:
-        product = Product.EM
-
     common_kwargs = dict(identifier=identifier, build=build,
                          product=product, root=root)
 
@@ -286,11 +284,13 @@ class CMFileFinder(object):
 
         """
         for directory in ifilter(self._isdir, self.potential_locations()):
+            LOG.debug('Potential directory: %s', directory)
             for potential_file in self.files_for(directory):
                 if self.matches(potential_file):
                     # potential_file is only a relative path, but need to give
                     # the user the full path.
                     full_path = self._get_full_path(directory, potential_file)
+                    LOG.debug('File: %s', full_path)
                     return full_path
         else:
             self._raise_not_found_error()
@@ -379,8 +379,6 @@ class IsoFinder(CMFileFinder):
             else:
                 yield os.path.join(basepath, subdir, 'build%s' % self.build)
 
-        yield self.root
-
     def matches(self, filename):
         if self._regex.search(filename):
             return True
@@ -430,6 +428,11 @@ class ProjectFinder(IsoFinder):
 
 class HotfixFinder(IsoFinder):
     def __init__(self, identifier, hotfix='eng', *args, **kwargs):
+        self.is_eng = False
+        if hotfix.startswith('eng'):
+            if '-' in hotfix:
+                _, hotfix = hotfix.split('-')
+            self.is_eng = True
         self.hotfix = hotfix.lower()
         hf_identifier = self.create_actual_identifier(identifier, self.hotfix)
         self._original_identifier = identifier
@@ -437,24 +440,19 @@ class HotfixFinder(IsoFinder):
                                            *args, **kwargs)
 
     def create_actual_identifier(self, identifier, hotfix):
-        if hotfix.lower() == 'eng':
+        hotfix = hotfix.lower()
+        if hotfix == 'eng':
             return identifier
         return '-'.join([identifier, hotfix])
 
     def potential_locations(self):
         for location in super(HotfixFinder, self).potential_locations():
             yield location
-        # Old location. See EM 1.8.0 for example.
-        yield os.path.join(self.root,
-                           'hotfix',
-                           self._product,
-                           'v%s' % self._original_identifier,
-                           'test',
-                           '%s-%s-ENG' % (self.hotfix.upper(), self.build))
-        if self.hotfix == 'eng':
+
+        if self.is_eng:
             yield os.path.join(self.root,
                                self._product,
-                               'v%s' % self._original_identifier,
+                               'v%s' % self.identifier,
                                'hotfix',
                                'HF-%s-ENG' % self.build)
             yield os.path.join(self.root,
@@ -469,7 +467,13 @@ class HotfixFinder(IsoFinder):
                                'v%s' % self._original_identifier,
                                'test',
                                'HF-%s-ENG' % self.build)
-        else:
+            # Old location. See EM 1.8.0 for example.
+            yield os.path.join(self.root,
+                               'hotfix',
+                               self._product,
+                               'v%s' % self._original_identifier,
+                               'test',
+                               '%s-%s-ENG' % (self.hotfix.upper(), self.build))
             # Released eng hotfixes.
             yield os.path.join(self.root,
                                self._product,

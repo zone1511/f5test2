@@ -17,8 +17,8 @@ class TaskWait(ElementWait):
         self._interface = interface
         return super(TaskWait, self).__init__(interface.api, *args, **kwargs)
 
-    def test_result(self, result):
-        if result.text in ('Finished', 'Canceled'):
+    def test_result(self):
+        if self._result.text in ('Finished', 'Canceled'):
                 return True
         return False
 

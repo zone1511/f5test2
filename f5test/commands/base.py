@@ -129,7 +129,7 @@ class CommandWait(CallableWait):
 
     def function(self, *args, **kwargs):
         self._command.prep()
-        return self._command.setup(*args, **kwargs)
+        self._result = self._command.setup(*args, **kwargs)
 
     def test_error(self, exc_type, exc_value, exc_traceback):
         self._command.revert()

@@ -5,21 +5,12 @@ $(function(){
     $.fn.editable.defaults.emptytext = 'Click to edit';
 
     //editables
-    $('#debug').editable({
-        //value: [1],    
+    $('#suite').editable({
+        showbuttons: false,
         source: [
-              {value: 1, text: 'enabled'},
-        ],
-        display: function(value, sourceData) {
-             var colors = {"": "gray", 1: "green", 2: "blue"},
-                 elem = $.grep(sourceData, function(o){return o.value == value;});
-                 
-             if(elem.length) {    
-                 $(this).text(elem[0].text).css("color", colors[value]); 
-             } else {
-                 $(this).text('disabled').css("color", colors['']);
-             }
-        }
+              {value: 'bvt', text: "Test Team's BVT"},
+              {value: 'dev', text: "Dev's Functionals"}
+        ]
     });
 
     $('#user .editable').on('hidden', function(e, reason){
@@ -50,8 +41,7 @@ $(function(){
         inputs: ko.mapping.fromJS({
           iso: ko.observable().extend({ remote: { type: 'file' }, required: true }),
           email: ko.observable(),
-          debug: ko.observableArray([]),
-          tests: ko.observable("tests/_examples/test_icontrol.py"),
+          suite: ko.observable("bvt"),
         }),
 
         // Methods

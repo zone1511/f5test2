@@ -57,9 +57,10 @@ class Discover(RestCommand):
 
     @rtype: None
     """
-    def __init__(self, devices, *args, **kwargs):
+    def __init__(self, devices, refresh=False, *args, **kwargs):
         super(Discover, self).__init__(*args, **kwargs)
         self.devices = devices
+        self.refresh = refresh
         self.uri = ManagedDevice.URI
 
     def setup(self):
@@ -81,6 +82,9 @@ class Discover(RestCommand):
                ifc=self.ifc)
         for address in set(theirs) - set(ours):
             theirs.pop(address)
+
+        if self.refresh:
+            theirs = set()
 
         delay = DEFAULT_DISCOVERY_DELAY
         # Add any devices that are not already discovered.
@@ -139,7 +143,7 @@ class DiscoverCloud(RestCommand):
 
         # Delete any failed previous attempts
         resp = self.api.get(self.uri)
-        delete([x.selfLink for x in resp['items'] if x.state != 'ACTIVE'],
+        delete_cloud([x.selfLink for x in resp['items'] if x.state != 'ACTIVE'],
                ifc=self.ifc)
 
         # Make mapping of what's on the server and what's in our config
@@ -148,7 +152,7 @@ class DiscoverCloud(RestCommand):
         ours = dict([(x.get_discover_address(), x) for x in self.devices])
 
         # Delete anything that doesn't match our config
-        delete([theirs[x].selfLink for x in set(theirs) - set(ours)],
+        delete_cloud([theirs[x].selfLink for x in set(theirs) - set(ours)],
                ifc=self.ifc)
         for address in set(theirs) - set(ours):
             theirs.pop(address)

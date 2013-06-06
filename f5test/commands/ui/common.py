@@ -22,7 +22,8 @@ class LoadingBannerWait(ElementWait):
         self._css = kwargs.pop('css')
         return super(LoadingBannerWait, self).__init__(*args, **kwargs)
 
-    def test_result(self, result):
+    def test_result(self):
+        result = self._result
         is_visible = result.is_displayed()
         css = result.get_attribute('class')
         if not self._css is None:

@@ -22,16 +22,11 @@
                             <td><a href="#" id="email" data-bind="editable: inputs.email" data-type="text" data-original-title="Enter an email"></a></td>
                             <td><span class="muted">Email recipient to receive test report</span></td>
                         </tr>
-                        <tr>         
-                            <td>Debug</td>
-                            <td><a href="#" id="debug" data-bind="editable: inputs.debug" data-type="checklist" data-value="1" data-original-title="Enable debug?"></a></td>
-                            <td><span class="muted">Run in debug mode</span></td>
+                        <tr>
+                            <td>Suite</td>
+                            <td><a href="#" id="suite" data-bind="editable: inputs.suite" data-type="select" data-original-title="Which test suite?"></a></td>
+                            <td><span class="muted">Select the test suite to be run</span></td>
                         </tr>  
-                        <tr data-bind="visible: inputs.debug().length">
-                            <td>Tests</td>
-                            <td><a href="#" id="tests" data-bind="editable: inputs.tests" data-type="textarea" data-inputclass="input-xxlarge" data-original-title="Enter test files or directories, one per line"></a></td>
-                            <td><span class="muted">The path(s) to the test files</span></td>
-                        </tr>
 
                     </tbody>
                 </table>

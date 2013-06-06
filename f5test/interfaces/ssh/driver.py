@@ -182,6 +182,10 @@ class Connection(paramiko.SSHClient):
             self._sftp = paramiko.SFTPClient.from_transport(self._transport)
             self._sftp_live = True
 
+    def sftp(self):
+        self._sftp_connect()
+        return self._sftp
+    
     def get(self, remotepath, localpath=None, move=False):
         """Download a remote file or multiple matching a glob pattern.
         get('/var/log/file.out', '/tmp')

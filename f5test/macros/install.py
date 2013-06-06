@@ -329,7 +329,7 @@ class InstallSoftware(Macro):
         #=======================================================================
         images = ICMD.software.get_software_image(ifc=icifc)
         haz_it = any(filter(lambda x: x['verified'] and
-                               x['product'] == iso_version.product.to_tmos() and
+                               x['product'] == iso_version.product.to_tmos and
                                x['version'] == iso_version.version and
                                x['build'] == iso_version.build, images))
 
@@ -362,7 +362,7 @@ class InstallSoftware(Macro):
         if hfiso:
             images = ICMD.software.get_software_image(ifc=icifc, is_hf=True)
             haz_it = any(filter(lambda x: x['verified'] and
-                                   x['product'] == hfiso_version.product.to_tmos() and
+                                   x['product'] == hfiso_version.product.to_tmos and
                                    x['version'] == hfiso_version.version and
                                    x['build'] == hfiso_version.build, images))
 

@@ -3,7 +3,6 @@ Created on Jun 16, 2012
 
 @author: jono
 '''
-#from billiard import current_process
 import celery
 from celery.result import AsyncResult
 from celery.signals import after_setup_task_logger
@@ -12,7 +11,7 @@ from f5test.interfaces.config.driver import Signals
 from f5test.base import AttrDict
 from f5test.utils.dicts import merge
 from f5test.macros.install import InstallSoftware
-from f5test.macros.confgen import ConfigGenerator
+from f5test.macros.tmosconf import ConfigPlacer
 from f5test.macros.ictester import Ictester
 import inspect
 import logging.config
@@ -192,7 +191,7 @@ def nosetests(data, args, user_input=None):
 @celery.task(base=DebugTask)
 def confgen(address, options, user_input=None):
     confgen.save_meta(user_input=user_input)
-    return ConfigGenerator(options, address=address).run()
+    return ConfigPlacer(options, address=address).run()
 
 
 @celery.task(base=DebugTask)

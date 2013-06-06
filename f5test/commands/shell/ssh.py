@@ -649,3 +649,14 @@ class ParseVersionFile(SSHCommand): #@IgnorePep8
 
     def setup(self):
         return parse_keyvalue_file('/VERSION', mode=KV_COLONS, ifc=self.ifc)
+
+
+is_cluster = None
+class IsCluster(SSHCommand): #@IgnorePep8
+    """Check to see if the platfom we're running on is a cluster."""
+
+    def setup(self):
+        v = self.ifc.version
+        if v.product.is_bigip and v > 'bigip 10.0.0':
+            return self.api.run('getdb clustered.environment').stdout.strip() == 'true'
+        return False

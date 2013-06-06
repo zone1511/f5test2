@@ -6,6 +6,10 @@ from ...base import Interface
 from ...defaults import ROOT_USERNAME, ROOT_PASSWORD, DEFAULT_PORTS
 
 
+class SSHInterfaceError(Exception):
+    pass
+
+
 class SSHInterface(Interface):
 
     def __init__(self, device=None, address=None, username=None, password=None,
@@ -30,6 +34,11 @@ class SSHInterface(Interface):
         self.port = port or DEFAULT_PORTS['ssh']
         self.timeout = timeout
         self.key_filename = key_filename
+
+    def __call__(self, command):
+        if not self.is_opened():
+            raise SSHInterfaceError('Operation not permitted on a closed interface.')
+        return self.api.run(command)
 
     def is_opened(self):
         return self.api and self.api.is_connected()

@@ -73,14 +73,15 @@ class TrafficGen(Macro):
 
         def run(client, url):
             qs = url.request_uri
-            while True:
-                try:
-                    response = client.get(qs)
-                    break
-                except Exception, e:
-                    LOG.debug("Connect %s: %s", url, e)
-                    gevent.sleep(0.1)
-                    continue
+            with gevent.Timeout(o.timeout):
+                while True:
+                    try:
+                        response = client.get(qs)
+                        break
+                    except Exception, e:
+                        LOG.debug("Connect %s: %s", url, e)
+                        gevent.sleep(0.1)
+                        continue
             #response.read()
             #assert response.status_code == 200
 
@@ -111,7 +112,7 @@ class TrafficGen(Macro):
                 group.spawn(run, client, URL(url))
                 if i + 1 == o.requests:
                     break
-            group.join()
+            group.join(timeout=o.limit)
 
         LOG.info('Running...')
         # Create individual Pools for each URL
@@ -126,8 +127,8 @@ class TrafficGen(Macro):
             supergroup.spawn(superrun, url, groups[url])
 
         try:
-            with gevent.Timeout(o.timeout):
-                supergroup.join()
+            supergroup.join(timeout=o.limit, raise_error=True)
+            supergroup.kill()
         except KeyboardInterrupt:
             supergroup.kill()
 
@@ -180,8 +181,10 @@ def main():
 #    p.add_option("-p", "--pattern", metavar="STRING",
 #                 default="0:10", type="string",
 #                 help="[Threads delta:Sleep]... (default: 1:300:-1:300)")
-    p.add_option("-t", "--timeout", metavar="SECONDS", type="int", default=30,
-                 help="Timeout (default: 30)")
+    p.add_option("-t", "--timeout", metavar="SECONDS", type="int", default=3,
+                 help="Timeout (default: 3)")
+    p.add_option("-l", "--limit", metavar="SECONDS", type="int", default=30,
+                 help="Run limit (default: 30)")
 
     options, args = p.parse_args()
 

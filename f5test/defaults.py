@@ -31,4 +31,7 @@ KIND_CLOUD = 'cloud'
 KIND_CLOUD_VSM = 'cloud:vsm'
 KIND_CLOUD_VCD = 'cloud:vcd'
 KIND_CLOUD_EC2 = 'cloud:ec2'
+KIND_CLOUD_EC2AMI = 'cloud:ec2-ami'
 KIND_OTHER = 'other'
+
+KIND_SEP = ':'
