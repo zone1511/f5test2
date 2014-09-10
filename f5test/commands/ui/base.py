@@ -1,5 +1,6 @@
 from .. import base
 
+
 class SeleniumCommand(base.Command):
 
     def __init__(self, ifc, *args, **kwargs):
@@ -17,4 +18,3 @@ class SeleniumCommand(base.Command):
         opt['session_id'] = self.api.session_id
         opt['url'] = self.api.command_executor._url
         return parent + "(url=%(url)s session_id=%(session_id)s)" % opt
-    

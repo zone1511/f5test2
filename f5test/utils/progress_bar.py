@@ -43,12 +43,12 @@ class ProgressBar:
             self.prog_bar += '  %d/%s' % (elapsed_secs, self.duration)
 
     def __update_amount(self, new_amount):
-        self.percent_done = int(round((new_amount / 100.0) * 100.0))
+        self.percent_done = round((new_amount / 100.0) * 100.0, 1)
         all_full = self.width - 2
         num_hashes = int(round((self.percent_done / 100.0) * all_full))
         self.prog_bar = '[' + self.fill_char * num_hashes + ' ' * (all_full - num_hashes) + ']'
         pct_place = (len(self.prog_bar) / 2) - len(str(self.percent_done))
-        pct_string = '%d%%' % self.percent_done
+        pct_string = '%.1f%%' % self.percent_done
         self.prog_bar = self.prog_bar[0:pct_place] + \
             (pct_string + self.prog_bar[pct_place + len(pct_string):])
 

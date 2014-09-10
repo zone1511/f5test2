@@ -3,14 +3,16 @@ try:
 except ImportError:
     import unittest
 
-import sys
-import re
+from collections import OrderedDict
 import copy
 import optparse
+import re
+import sys
 
 
 def enum(*args, **kwargs):
-    enums = dict(zip(args, range(len(args))), **kwargs)
+    #enums = dict(zip(args, range(len(args))), **kwargs)
+    enums = dict(zip(args, args), **kwargs)
     return type('Enum', (), enums)
 
 
@@ -114,12 +116,14 @@ class AttrDict(dict):
 
                 if isinstance(v, AttrDict):
                     d[k] = v
-                elif type(v) is dict:
+                #elif isinstance(v, dict) and type(v) != type(self):
+                # This will convert any dict or OrderedDict instance into AttrDict
+                elif type(v) in (dict, OrderedDict):
                     if not isinstance(d[k], dict):
                         d[k] = AttrDict()
                     combine(d[k], v)
                 elif isinstance(v, list):
-                    d[k] = v[:]
+                    d[k] = type(v)(v)
                     for i, item in enumerate(v):
                         if isinstance(item, dict):
                             d[k][i] = AttrDict(item)
@@ -131,9 +135,7 @@ class AttrDict(dict):
                 combine(self, arg)
         combine(self, kwargs)
 
-
-class Options(AttrDict):
-    pass
+Options = AttrDict
 
 # Convince yaml that AttrDict is actually a dict.
 try:

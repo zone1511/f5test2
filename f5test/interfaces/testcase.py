@@ -4,7 +4,13 @@ from .selenium import SeleniumInterface, DEFAULT_SELENIUM
 from .ssh import SSHInterface
 from .icontrol import IcontrolInterface, EMInterface
 from .rest import RestInterface
+from .rest.emapi import EmapiInterface
+from .snmp import SnmpInterface
+from .aws import AwsInterface
 import logging
+import os
+from unittest.case import _AssertRaisesContext
+
 
 INTERFACES_CONTAINER = 'interfaces'
 # This container is used by logcollect plugin to copy extra files needed for
@@ -15,7 +21,26 @@ INTERFACES_CONTAINER = 'interfaces'
 # <filename>: <local_file_path>
 # To copy from the local file system.
 LOGCOLLECT_CONTAINER = 'logcollect'
+DEFAULT_CONTAINER = '__main__'
 LOG = logging.getLogger(__name__)
+
+
+class FakeAssertionError(object):
+
+    def __init__(self, msg):
+        self.msg = msg
+
+    def __call__(self, *args, **kwargs):
+        return AssertionError(self.msg)
+
+
+class AssertRaisesContext(_AssertRaisesContext):
+    """A context manager used to implement TestCase.assertRaises* methods."""
+
+    def __init__(self, expected, test_case, expected_regexp=None, msg=None):
+        super(AssertRaisesContext, self).__init__(expected, test_case, expected_regexp)
+        if msg:
+            self.failureException = FakeAssertionError(msg)
 
 
 class InterfaceHelper(object):
@@ -220,10 +245,19 @@ class InterfaceHelper(object):
     def get_rest(self, *args, **kwargs):
         return self.get_interface(RestInterface, *args, **kwargs)
 
+    def get_icontrol_rest(self, *args, **kwargs):
+        return self.get_interface(EmapiInterface, *args, **kwargs)
+
+    def get_snmp(self, *args, **kwargs):
+        return self.get_interface(SnmpInterface, *args, **kwargs)
+
+    def get_aws(self, *args, **kwargs):
+        return self.get_interface(AwsInterface, *args, **kwargs)
+
 
 class ContextHelper(InterfaceHelper):
 
-    def __init__(self, name):
+    def __init__(self, name=DEFAULT_CONTAINER):
         self._setup(name)
 
     def teardown(self):
@@ -256,3 +290,41 @@ class InterfaceTestCase(InterfaceHelper, TestCase):
         self._teardown()
 
         super(TestCase, self).tearDown(*args, **kwargs)
+
+    def assertRaises(self, excClass, callableObj=None, *args, **kwargs):
+        """Add the msg argument. This will mask any 'msg' argument that is
+        passed to the callableObj, in that case the workaround is to use the
+        context form:
+
+        with self.assertRaises(SomeException, msg='yay!'):
+            do_something(msg='some msg')
+
+        """
+        msg = kwargs.pop('msg', None)
+        context = AssertRaisesContext(excClass, self, msg=msg)
+        if callableObj is None:
+            return context
+        with context:
+            callableObj(*args, **kwargs)
+
+    def assertRaisesRegexp(self, expected_exception, expected_regexp,
+                           callable_obj=None, *args, **kwargs):
+        """Add the msg argument"""
+        msg = kwargs.pop('msg', None)
+        context = AssertRaisesContext(expected_exception, self, expected_regexp,
+                                      msg)
+        if callable_obj is None:
+            return context
+        with context:
+            callable_obj(*args, **kwargs)
+
+    def session_file(self, name, mode='w'):
+        cfgifc = self.get_config()
+        path = os.path.join(cfgifc.get_session().path, self.id())
+
+        if path and not os.path.exists(path):
+            oldumask = os.umask(0)
+            os.makedirs(path)
+            os.umask(oldumask)
+
+        return open(os.path.join(path, name), mode)

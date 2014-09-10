@@ -11,11 +11,11 @@
         <title>{% block title %}{% endblock %} :: Shiraz</title>
     
         <link href="/media/bootstrap/css/bootstrap.css" rel="stylesheet">
-        <script src="/media/jquery/jquery-1.9.1.min.js"></script>
+        <script src="/media/jquery/jquery-1.11.0.min.js"></script>
         <script src="/media/bootstrap/js/bootstrap.min.js"></script>
         <script src="/media/spinjs/spin.min.js"></script>
 
-        <script src="/media/knockoutjs/knockout-2.2.1.js"></script>
+        <script src="/media/knockoutjs/knockout-3.0.0.js"></script>
         <script src="/media/knockoutjs/knockout.x-editable.js"></script>
         <script src="/media/knockoutjs/knockout.validation.min.js"></script>
         <script src="/media/knockoutjs/knockout.app.min.js"></script>
@@ -47,8 +47,9 @@
 		                  <b class="caret"></b>
 		              </a>
 		              <ul class="dropdown-menu">
-		                  <li class=""><a href="/bvt/basic">Basic</a></li>
-		                  <li class=""><a href="/bvt/deviso">Buddy build</a></li>
+		                  <li class=""><a href="/bvt/basic">BIG-IP: EM Request</a></li>
+		                  <li class=""><a href="/bvt/bigiq">BIG-IP: BIG-IQ Request</a></li>
+		                  <li class=""><a href="/bvt/deviso">BIG-IQ User Build Request</a></li>
 		                  <li class="disabled"><a href="#">Advanced</a></li>
 		              </ul>
 		          </li>
@@ -64,7 +65,7 @@
             </header>
 	
             <div id="success" class="alert alert-success fade in hide"><button type="button" class="close" data-dismiss="alert">×</button><span></span></div>
-            <div id="failure" class="alert alert-error fade in hide"><button type="button" class="close" data-dismiss="alert">×</button><span></span></div>
+            <div id="info" class="alert alert-info fade in hide"><button type="button" class="close" data-dismiss="alert">×</button><span></span></div>
             <div id="validation" class="alert alert-error fade in hide"><button type="button" class="close" data-dismiss="alert">×</button><span></span></div>
 
             {% block content %}
@@ -99,11 +100,13 @@
             </div>
             {% endblock %}
 
-            <footer class="footer" style="clear: both; padding-top: 10px">
-	            <hr>
-	            <p class="copyright"><a href="#">Home</a> &copy; 2013 F5 Networks, Inc. All rights reserved.</p> 
-            </footer>
         </div>
+        <footer class="footer" style="clear: both; padding-top: 10px">
+            <div class="container">
+	            <p><a href="#">Home</a> &copy; 2013 F5 Networks, Inc. All rights reserved.</p> 
+	            <p><small>Contact: <a href="mailto:i.turturica@f5.com?subject=Shiraz question">Ionut Turturica</a></small></p>
+            </div> 
+        </footer>
         
         <script src="/media/app.base.js"></script>
         {% block js %}{% endblock %}

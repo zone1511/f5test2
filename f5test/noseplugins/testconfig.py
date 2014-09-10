@@ -3,9 +3,6 @@ from nose.util import tolist
 from ..interfaces.config import ConfigLoader, ConfigInterface
 import ast
 import os
-#import logging
-
-#LOG = logging.getLogger(__name__)
 
 
 class TestConfig(Plugin):
@@ -88,6 +85,6 @@ class TestConfig(Plugin):
 
     def begin(self):
         from ..interfaces.testcase import ContextHelper
-        context = ContextHelper('__main__')
+        context = ContextHelper()
         context._clear()
         context.set_container()

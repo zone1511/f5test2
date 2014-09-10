@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 from OpenSSL import crypto
 from f5test.macros.base import Macro
+import f5test.commands.shell as SCMD
 from f5test.interfaces.config import ConfigInterface
 from f5test.interfaces.icontrol import IcontrolInterface
 from f5test.interfaces.ssh import SSHInterface
@@ -73,17 +74,17 @@ z8hiS4Tqr8Pqlw==
 if sys.version_info < (3, 0):
     def b(s):
         return s
-    bytes = str #@ReservedAssignment
+    bytes = str  # @ReservedAssignment
 else:
     def b(s):
         return s.encode("charmap")
-    bytes = bytes #@ReservedAssignment
+    bytes = bytes  # @ReservedAssignment
 
 
 class WebCert(Macro):
     def __init__(self, options, address=None):
         self.options = Options(options)
-        
+
         self.address = ConfigInterface().get_device_address(options.device) \
                        if self.options.device else address
 
@@ -96,7 +97,7 @@ class WebCert(Macro):
     def create_key_pair(ktype, bits):
         """
         Create a public/private key pair.
-    
+
         Arguments: type - Key type, must be one of TYPE_RSA and TYPE_DSA
                    bits - Number of bits to use in the key
         Returns:   The public/private key pair in a PKey object
@@ -104,12 +105,12 @@ class WebCert(Macro):
         pkey = crypto.PKey()
         pkey.generate_key(ktype, bits)
         return pkey
-    
+
     @staticmethod
     def create_cert_request(pkey, digest="md5", **name):
         """
         Create a certificate request.
-    
+
         Arguments: pkey   - The key to associate with the request
                    digest - Digestion method to use for signing, default is md5
                    **name - The name of the subject of the request, possible
@@ -125,20 +126,20 @@ class WebCert(Macro):
         """
         req = crypto.X509Req()
         subj = req.get_subject()
-    
-        for (key,value) in name.items():
+
+        for (key, value) in name.items():
             setattr(subj, key, value)
-    
+
         req.set_pubkey(pkey)
         req.sign(pkey, digest)
         return req
-    
+
     @staticmethod
-    def create_certificate(req, (issuer_key, issuer_cert), serial, 
+    def create_certificate(req, (issuer_key, issuer_cert), serial,
                            (not_before, not_after), digest="sha1", extensions=None):
         """
         Generate a certificate given a certificate request.
-    
+
         Arguments: req        - Certificate reqeust to use
                    issuerCert - The certificate of the issuer
                    issuerKey  - The private key of the issuer
@@ -178,37 +179,39 @@ class WebCert(Macro):
             capair = (
                 crypto.load_privatekey(crypto.FILETYPE_PEM, ROOTCA_KEY),
                 crypto.load_certificate(crypto.FILETYPE_PEM, ROOTCA_CRT))
-        
+
         pkey = WebCert.create_key_pair(crypto.TYPE_RSA, 1024)
         subject = F5TEST_SUBJECT
         subject.CN = cn
         req = WebCert.create_cert_request(pkey, **subject)
 
         serial = random.randint(0, MAXINT)
-        
+
         extensions = []
         if alt_names:
-            tmp = ','.join(['DNS:%s' % name for name in alt_names])
-            extensions.append(crypto.X509Extension(b('subjectAltName'), False, b(tmp)))
-        
+            tmp = ','.join(['DNS:%s' % name for name in alt_names
+                                            if name and name != cn])
+            if tmp:
+                extensions.append(crypto.X509Extension(b('subjectAltName'), False, b(tmp)))
+
         # Stick some nifty extensions- just for fun.
-        extensions.append(crypto.X509Extension(b('basicConstraints'), False, 
+        extensions.append(crypto.X509Extension(b('basicConstraints'), False,
                                                b('CA:FALSE')))
-        extensions.append(crypto.X509Extension(b('keyUsage'), False, 
+        extensions.append(crypto.X509Extension(b('keyUsage'), False,
                                                b('digitalSignature,keyEncipherment')))
-        extensions.append(crypto.X509Extension(b('extendedKeyUsage'), False, 
+        extensions.append(crypto.X509Extension(b('extendedKeyUsage'), False,
                                                b('serverAuth,clientAuth')))
-        extensions.append(crypto.X509Extension(b('authorityInfoAccess'), False, 
+        extensions.append(crypto.X509Extension(b('authorityInfoAccess'), False,
                                                b('caIssuers;email:emtest@f5.com')))
-        extensions.append(crypto.X509Extension(b('crlDistributionPoints'), False, 
+        extensions.append(crypto.X509Extension(b('crlDistributionPoints'), False,
                                                b('URI:http://172.27.58.1/rootca.crl')))
 
         return (pkey, WebCert.create_certificate(req, capair, serial,
-                                                 (-60*60*24*1, 60*60*24*365*10),  # -1 .. 10 years
+                                                 (-60 * 60 * 24 * 1, 60 * 60 * 24 * 365 * 10),  # -1 .. 10 years
                                                  extensions=extensions))
 
     def push_certificate(self, pkey, cert):
-        
+
         icifc = IcontrolInterface(device=self.options.device,
                                   address=self.address,
                                   username=self.options.admin_username,
@@ -218,7 +221,7 @@ class WebCert(Macro):
         ic = icifc.open()
         key_pem = crypto.dump_privatekey(crypto.FILETYPE_PEM, pkey)
         cert_pem = crypto.dump_certificate(crypto.FILETYPE_PEM, cert)
-        
+
         try:
             ic.Management.KeyCertificate.certificate_delete(
                 mode='MANAGEMENT_MODE_WEBSERVER', cert_ids=['server'])
@@ -228,35 +231,41 @@ class WebCert(Macro):
             LOG.warning('Exception occurred while deleting cert/key')
 
         ic.Management.KeyCertificate.certificate_import_from_pem(
-                mode='MANAGEMENT_MODE_WEBSERVER', cert_ids=['server'], 
+                mode='MANAGEMENT_MODE_WEBSERVER', cert_ids=['server'],
                 pem_data=[cert_pem], overwrite=1)
 
         ic.Management.KeyCertificate.key_import_from_pem(
-                mode='MANAGEMENT_MODE_WEBSERVER', key_ids=['server'], 
+                mode='MANAGEMENT_MODE_WEBSERVER', key_ids=['server'],
                 pem_data=[key_pem], overwrite=1)
-        
+
         icifc.close()
-        
+
         # XXX: Unfortunately we can't reinit httpd through iControl. It's a KI
         # http://devcentral.f5.com/Default.aspx?tabid=53&forumid=1&postid=1170498&view=topic
         #
-        #action = pc.System.Services.typefactory.\
+        # action = pc.System.Services.typefactory.\
         #        create('System.Services.ServiceAction').\
         #        SERVICE_ACTION_REINIT
-        #service = pc.System.Services.typefactory.\
+        # service = pc.System.Services.typefactory.\
         #        create('System.Services.ServiceType').\
         #        SERVICE_HTTPD
-        #pc.System.Services.set_service(services = [service], \
+        # pc.System.Services.set_service(services = [service], \
         #                               service_action = action)
-        #pc.System.Services.get_service_status([service])
+        # pc.System.Services.get_service_status([service])
 
         with SSHInterface(device=self.options.device,
                           address=self.address,
                           username=self.options.root_username,
                           password=self.options.root_password,
-                          port=self.options.ssh_port) as ssh:
-            ssh.api.run('bigstart reinit httpd')
-        
+                          port=self.options.ssh_port) as sshifc:
+            version = SCMD.ssh.get_version(ifc=sshifc)
+            if version >= 'bigiq 4.4':
+                sshifc.api.run('bigstart reinit webd')
+            elif version >= 'bigiq 4.3' and version < 'bigiq 4.4':
+                sshifc.api.run('bigstart reinit nginx')
+            else:
+                sshifc.api.run('bigstart reinit httpd')
+
         return True
 
     def setup(self):
@@ -264,9 +273,9 @@ class WebCert(Macro):
         fqdn, _, ip_list = socket.gethostbyname_ex(self.address)
         aliases = set([x for x in self.options.alias + ip_list + [fqdn]])
         pkey, cert = self.gen_certificate(self.address, alt_names=aliases)
-        
+
         # Sometimes it fails due to voodoo race conditions. That's why we wait()!
-        wait(lambda: self.push_certificate(pkey, cert), 
+        wait(lambda: self.push_certificate(pkey, cert),
              timeout=self.options.timeout)
         LOG.info('Done.')
 
@@ -276,7 +285,7 @@ def main():
 
     usage = """%prog [options] <address>"""
 
-    formatter = optparse.TitledHelpFormatter(indent_increment=2, 
+    formatter = optparse.TitledHelpFormatter(indent_increment=2,
                                              max_help_position=60)
     p = optparse.OptionParser(usage=usage, formatter=formatter,
                             version="Web certificate updater v%s" % __version__
@@ -293,7 +302,7 @@ def main():
                  "subjectAltName certificate extension.")
     p.add_option("-v", "--verbose", action="store_true",
                  help="Debug messages.")
-    
+
     p.add_option("", "--ssl-port", metavar="INTEGER", type="int", default=443,
                  help="SSL Port. (default: 443)")
     p.add_option("", "--ssh-port", metavar="INTEGER", type="int", default=22,
@@ -330,12 +339,12 @@ def main():
 
     LOG.setLevel(level)
     logging.basicConfig(level=level)
-    
+
     if not args:
         p.print_version()
         p.print_help()
         sys.exit(2)
-    
+
     cs = WebCert(options=options, address=args[0])
     cs.run()
 

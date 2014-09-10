@@ -14,7 +14,7 @@ class MacroError(Exception):
 
 
 class Macro(object):
-    
+
     __metaclass__ = Aliasificator
 
     def __init__(self, *args, **kwargs):
@@ -67,7 +67,7 @@ class MacroThread(threading.Thread):
         self.queue = queue
         self.config = config
         super(MacroThread, self).__init__(*args, **kwargs)
-    
+
     def run(self):
         # Share the same config blob across all child threads.
         ConfigInterface(self.config).set_global_config()
@@ -75,12 +75,3 @@ class MacroThread(threading.Thread):
             return self.macro.run()
         except:
             self.queue.put({self: sys.exc_info()})
-
-
-class StageError(Exception):
-    pass
-
-
-class Stage(object):
-    name = None
-    parallelizable = True

@@ -4,14 +4,15 @@ A command is set of interactions with an entity through a single interface.
 A command cannot call other commands; macros can.
 """
 import hashlib
-from ..base import Aliasificator, AttrDict
+from ..base import Aliasificator
 from ..utils.version import Version
 from ..utils.wait import CallableWait
-from ..interfaces.config import ConfigInterface, ConfigNotLoaded
+from ..interfaces.config import ConfigInterface
+from ..interfaces.testcase import ContextHelper
 import logging
+import threading
 
 LOG = logging.getLogger(__name__)
-LOCALCONFIG = AttrDict()
 
 
 class CommandError(Exception):
@@ -26,7 +27,7 @@ class CommandTimedOut(CommandError):
         super(CommandTimedOut, self).__init__(message)
 
 
-class Command(object):
+class Command(threading.Thread):
 
     __metaclass__ = Aliasificator
 
@@ -35,30 +36,37 @@ class Command(object):
             self.version = Version(version)
         else:
             self.version = version
+        self.result = None
+        super(Command, self).__init__()
 
     def __repr__(self):
         return "%s.%s" % (self.__module__, self.__class__.__name__)
 
     def prep(self):
         """Preparation"""
-        pass
+        self.context = ContextHelper(__file__)
 
     def setup(self):
         """Core steps"""
-        pass
+        self.context.teardown()
 
     def run(self):
         """The main method of the Command"""
         LOG.debug("In command: %s", self)
         try:
             self.prep()
-            return self.setup()
-        except:
+            self.result = self.setup()
+            return self.result
+        except Exception, e:
             self.revert()
-            LOG.error("%s", self)
+            LOG.error("%s %r", self, e)
             raise
         finally:
             self.cleanup()
+
+    def join(self, *args, **kwargs):
+        super(Command, self).join(*args, **kwargs)
+        return self.result
 
     def run_wait(self, *args, **kwargs):
         raise NotImplementedError('Not a waitable command.')
@@ -92,10 +100,7 @@ class CachedCommand(Command):
         LOG.debug('CachedCommand KEY: %s', self)
         key = hashlib.md5(str(self)).hexdigest()
 
-        try:
-            config = ConfigInterface().open()
-        except ConfigNotLoaded:
-            config = LOCALCONFIG
+        config = ConfigInterface().open()
 
         if not config._cache:
             config._cache = {}
@@ -158,5 +163,6 @@ class WaitableCommand(Command):
     """
 
     def run_wait(self, *args, **kwargs):
+        LOG.debug("In command: %s", self)
         w = CommandWait(self, *args, **kwargs)
         return w.run()

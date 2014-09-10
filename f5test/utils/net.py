@@ -1,5 +1,6 @@
-from netaddr import IPNetwork
+from netaddr import IPNetwork, IPAddress
 import socket
+from unittest.case import SkipTest
 
 BASE_IPV6 = 'FD32:00F5:0000::/64'
 
@@ -21,6 +22,15 @@ def get_local_ip(peer):
     return ip
 
 
+def get_open_port():
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(("", 0))
+    #s.listen(1)
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
 def ip4to6(ipv4, prefix=None, base=BASE_IPV6):
     """
     Convert an IPv4 to IPv6 by splitting the network part of the ip and shifting
@@ -38,3 +48,17 @@ def ip4to6(ipv4, prefix=None, base=BASE_IPV6):
     ipv6.value += (ipv4.value >> (32 - ipv4.prefixlen)) << 64
     ipv6.value += ipv4.value - ipv4.network.value
     return ipv6.ip if prefix else ipv6
+
+
+def dmz_check(cfgifc):
+    address = IPAddress(cfgifc.get_device().address)
+    good = False
+    if cfgifc.api.platform.dmz:
+        for x in cfgifc.api.platform.dmz:
+            if address in IPNetwork(x):
+                good = True
+                break
+    else:
+        good = True  # No dmz networks defined, we assume everyone can connect to us
+    if not good:
+        raise SkipTest('No connectivity between BIGIQ and this machine.')

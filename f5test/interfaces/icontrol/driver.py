@@ -89,8 +89,8 @@ class Icontrol(object):
     def __init__(self, hostname, username, password, port=443, timeout=90,
                  debug=0, proto='https', session=None):
         self.hostname = hostname
-        self.username = username
-        self.password = password
+        self.username = urllib.quote_plus(username)
+        self.password = urllib.quote_plus(password)
         self.port = port
         self.proto = proto
         self.timeout = timeout
@@ -139,7 +139,7 @@ class Icontrol(object):
                     else:
                         ic = SOAPpy.SOAPProxy(url, ns, timeout=p.timeout)
                     p._cache[ns] = ic
-                    ic.config.debug = p._debug
+                    #ic.config.debug = p._debug
                     ic.simplify_objects = 1
 
                 try:
@@ -148,7 +148,13 @@ class Icontrol(object):
                     # the SOAPProxy constructor.
                     before = socket.getdefaulttimeout()
                     socket.setdefaulttimeout(p.timeout)
-                    return getattr(ic, self._name)(*args, **kw)
+                    if p._debug:
+                        LOG.debug("%s -> %s.%s(%s)", url, '.'.join(chain), self._name,
+                                 ', '.join(['%s=%s' % (x, y) for x, y in kw.items()]))
+                    ret = getattr(ic, self._name)(*args, **kw)
+                    if p._debug:
+                        LOG.debug(ret)
+                    return ret
                 except SOAPpy.Types.faultType, e:
                     if 'Unknown method' in e.faultstring:
                         raise UnknownMethod(e)

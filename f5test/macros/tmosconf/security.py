@@ -5,6 +5,7 @@ Created on Apr 12, 2013
 '''
 from .scaffolding import Stamp
 from ...base import enum, AttrDict
+from ...utils.parsers.tmsh import RawEOL
 
 
 class AddressList(Stamp):
@@ -83,7 +84,7 @@ class RuleDestination(AttrDict):
     def _as_dict(self):
         for k, v in self.iteritems():
             if k in ('address-lists', 'port-lists', 'vlans'):
-                self[k] = dict((x.get(reference=True), None) for x in v)
+                self[k] = dict((x.get(reference=True), RawEOL) for x in v)
             else:
                 self[k] = dict((x, {}) for x in v)
         return self

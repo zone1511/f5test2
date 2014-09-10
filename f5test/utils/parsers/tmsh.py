@@ -34,6 +34,13 @@ import re
 import json
 import collections
 from fnmatch import fnmatch
+from ..decorators import synchronized_with
+from . import PYPARSING_LOCK
+#from f5test.utils.decorators import synchronized_with
+#from f5test.utils.parsers import PYPARSING_LOCK
+
+# This is to support legacy bigpipe output and it should remain disabled.
+OLD_STYLE_KEYS = False
 
 
 class RawString(unicode):
@@ -42,6 +49,13 @@ class RawString(unicode):
 
 class RawDict(dict):
     pass
+
+
+class RawEOL(object):
+    class Meta(type):
+        def __repr__(self):
+            return '<EOL>'
+    __metaclass__ = Meta
 
 
 class GlobDict(collections.OrderedDict):
@@ -65,6 +79,7 @@ class GlobDict(collections.OrderedDict):
         return [k.split(' ')[-1] for k  in self.keys() if fnmatch(k, match)]
 
 
+@synchronized_with(PYPARSING_LOCK)
 def parser(text):
     cvtTuple = lambda toks: tuple(toks.asList())
     cvtRaw = lambda toks: RawString(' '.join(map(str, toks.asList())))
@@ -79,6 +94,8 @@ def parser(text):
             return True
         elif s == 'false':
             return False
+        elif s == 'none':
+            return [None]
         elif s.isdigit():
             return int(s)
         elif re.match('(?i)^-?(\d+\.?e\d+|\d+\.\d*|\.\d+)$', s):
@@ -86,16 +103,12 @@ def parser(text):
         return toks[0]
 
     def noneDefault(s, loc, t):
-        return t if len(t) else [None]
-
-    def boo(t):
-        print t
-        return t
+        return t if len(t) else [RawEOL]
 
     # define punctuation as suppressed literals
     lbrace, rbrace = map(Suppress, "{}")
 
-    identifier = Word(printables, excludeChars='{}"\'').setParseAction(pythonize)
+    identifier = Word(printables, excludeChars='{}"\'')
     quotedStr = QuotedString('"', escChar='\\', multiline=True) | \
                 QuotedString('\'', escChar='\\', multiline=True)
     quotedIdentifier = QuotedString('"', escChar='\\', unquoteResults=False) | \
@@ -107,13 +120,18 @@ def parser(text):
     #anyIdentifier = identifier | quotedIdentifier
     oddIdentifier = identifier + quotedIdentifier
     dictKey = dictStr | quotedStr | \
-              Combine(oddIdentifier).setParseAction(cvtRaw) | \
-              Combine(identifier + ZeroOrMore(White(' ') + (identifier + ~FollowedBy(Optional(White(' ')) + LineEnd()))))
+              Combine(oddIdentifier).setParseAction(cvtRaw)
     dictKey.setParseAction(cvtRaw)
 
     dictValue = quotedStr | dictStr | setStr | \
-                Combine(oddIdentifier).setParseAction(cvtRaw) | \
-                identifier
+                Combine(oddIdentifier).setParseAction(cvtRaw)
+
+    if OLD_STYLE_KEYS:
+        dictKey |= Combine(identifier + ZeroOrMore(White(' ') + (identifier + ~FollowedBy(Optional(White(' ')) + LineEnd()))))
+        dictValue |= identifier.setParseAction(pythonize)
+    else:
+        dictKey |= identifier
+        dictValue |= delimitedList(identifier | quotedIdentifier, delim=White(' '), combine=True).setParseAction(pythonize)
 
     ParserElement.setDefaultWhitespaceChars(' \t')
     #dictEntry = Group(Combine(OneOrMore(identifier | quotedIdentifier)).setParseAction(cvtRaw) +
@@ -126,7 +144,7 @@ def parser(text):
     dictStr.setParseAction(cvtDict)
     ParserElement.setDefaultWhitespaceChars(' \t\r\n')
 
-    setEntry = identifier | quotedString.setParseAction(removeQuotes)
+    setEntry = identifier.setParseAction(pythonize) | quotedString.setParseAction(removeQuotes)
     setStr << (lbrace + delimitedList(setEntry, delim=White()) + rbrace)
     setStr.setParseAction(cvtTuple)
 
@@ -343,11 +361,13 @@ def _make_iterencode(markers, _default, _encoder, _indent, _floatstr,
             else:
                 yield item_separator
             yield _encoder(key)
-            if not value is None:
+            if not value is RawEOL:
                 yield _key_separator
             if isinstance(value, basestring):
                 yield _encoder(value)
             elif value is None:
+                yield 'none'
+            elif value is RawEOL:
                 yield ''
             elif value is True:
                 yield 'true'
@@ -432,7 +452,7 @@ if __name__ == '__main__':
         ipv4-mask 10.10.2.3/24
         ipv6 2002:89f5::1
         number-alpha 1a
-        one-line-set { a b c 1.1 2.3.4 600 }
+        one-line-set { a b c 1.1 2.3.4 600 none }
         ssl-ciphersuite ALL:!ADH:!EXPORT:!eNULL:!MD5:!DES:RC4+RSA:+HIGH:+MEDIUM:+LOW:+SSLv2
         subsub {
             boom blah

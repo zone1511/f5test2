@@ -19,7 +19,7 @@ DEFAULT_USER = os.environ.get('LOGNAME')
 
 BANNED_FEATURES = set(('Appliance Mode', 'TrustedIP Subscription',
                        'IP Intelligence Subscription', 'IPI Subscription',
-                       'App Mode', 'LTM, 1 Gbps - 3 Gbps Upgrade, VE'))
+                       'App Mode', '1 Gbps - 3 Gbps Upgrade'))
 
 MAP = Options()
 MAP.eval = {}
@@ -27,6 +27,7 @@ MAP.eval.bigip = {}
 MAP.eval.bigip['VE'] = 'F5-BIG-LTM-VE-1G-LIC'
 MAP.eval.bigip['VE3'] = 'F5-BIG-LTM-VE-3G-LIC'
 MAP.eval.bigip['AWS'] = 'F5-BIG-LTM-AWS-1G-LIC'
+#MAP.eval.bigip['POOL'] = 'F5-BIG-LTMPL2-1G-100-LIC'
 MAP.eval.bigip['1600'] = 'F5-BIG-LTM-1600-4G-LIC'
 MAP.eval.bigip['2000'] = 'F5-BIG-LTM-2000S-LIC'
 MAP.eval.bigip['2200'] = 'F5-BIG-LTM-2200S-LIC'
@@ -51,16 +52,15 @@ MAP.eval.em['VE'] = 'F5-EM-VE-LIC'
 MAP.eval.em['3000'] = 'F5-EM-3000-LIC'
 MAP.eval.em['4000'] = 'F5-EM-4000-LIC'
 MAP.eval.bigiq = {}
-MAP.eval.bigiq['VE-CLOUD'] = ''
-MAP.eval.bigiq['VE-AFM'] = ''
-MAP.eval.bigiq['4000-CLOUD'] = ''
-MAP.eval.bigiq['4000-AFM'] = ''
+MAP.eval.bigiq['VE'] = 'F5-BIQ-VE-ADV-LIC'
+MAP.eval.bigiq['7000'] = 'F5-BIQ-7000-ADV-LIC'
 
 MAP.dev = {}
 MAP.dev.bigip = {}
 MAP.dev.bigip['VE'] = 'F5-BIG-LTM-VE-1G-LIC-DEV'
 MAP.dev.bigip['VE3'] = 'F5-BIG-LTM-VE-3G-LIC-DEV'
 MAP.dev.bigip['AWS'] = 'F5-BIG-LTM-AWS-1G-LIC-DEV'
+MAP.dev.bigip['POOL'] = 'F5-BIG-LTMPL2-1G-100-LIC-DEV'
 MAP.dev.bigip['1600'] = 'F5-BIG-LTM-1600-4G-DEV'
 MAP.dev.bigip['2000'] = 'F5-BIG-LTM-2000S-LIC-DEV'
 MAP.dev.bigip['2200'] = 'F5-BIG-LTM-2200S-LIC-DEV'
@@ -85,10 +85,8 @@ MAP.dev.em['VE'] = 'F5-EM-VE-LIC-DEV'
 MAP.dev.em['3000'] = 'F5-EM-3000-LIC-DEV'
 MAP.dev.em['4000'] = 'F5-EM-4000-LIC-DEV'
 MAP.dev.bigiq = {}
-MAP.dev.bigiq['VE-CLOUD'] = 'F5-BIQ-CLD-VE-M-LIC-DEV'
-MAP.dev.bigiq['VE-AFM'] = 'F5-BIQ-AFM-VE-50-LIC-DEV'
-MAP.dev.bigiq['4000-CLOUD'] = 'F5-BIQ-CLD-4000-LIC-DEV'
-MAP.dev.bigiq['4000-AFM'] = 'F5-BIQ-AFM-4000-LIC-DEV'
+MAP.dev.bigiq['VE'] = 'F5-BIQ-VE-ADV-LIC-DEV'
+MAP.dev.bigiq['7000'] = 'F5-BIQ-7000-ADV-LIC-DEV'
 
 
 class LicenseGenerator(Macro):
@@ -245,7 +243,7 @@ def main():
     p.add_option("", "--em", metavar="PLATFORM",
                  type="string", help="The EM platform (e.g.: 4000, VE, etc)")
     p.add_option("", "--bigiq", metavar="PLATFORM",
-                 type="string", help="The BIGIP platform (e.g.: 4000-AFM, VE-CLOUD, etc)")
+                 type="string", help="The BIGIP platform (e.g.: 7000, VE)")
     p.add_option("", "--eval", action="store_true",
                  help="Generate Eval keys instead of Dev.")
 

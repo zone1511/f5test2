@@ -8,6 +8,7 @@ from ...defaults import ADMIN_PASSWORD, ADMIN_USERNAME, ROOT_PASSWORD, \
     ROOT_USERNAME, DEFAULT_PORTS, KIND_TMOS, KIND_ANY, KIND_SEP
 from ...compat import _bool
 from ...utils import net
+from ...utils.dicts import inverse
 import copy
 from fnmatch import fnmatch
 import logging
@@ -27,14 +28,12 @@ ADMIN_ROLE = 0
 ROOT_ROLE = 1
 DEFAULT_ROLE = 2
 
+CFG_DEVICES = 'devices'
+CFG_SELENIUM = 'selenium'
+
 
 class ConfigError(Exception):
     """Base exception for all exceptions raised in module config."""
-    pass
-
-
-class ConfigNotLoaded(ConfigError):
-    """The nose test-config plugin was not loaded."""
     pass
 
 
@@ -43,14 +42,22 @@ class DeviceDoesNotExist(ConfigError):
     pass
 
 
-def expand_devices(specs, section='devices', kind=KIND_TMOS):
-    devices = set([])
+def expand_devices(specs, section=CFG_DEVICES):
+    devices = []
     cfgifc = ConfigInterface()
-    all_devices = tuple(cfgifc.get_all_devices(kind=kind))
-    for device in specs.get(section) or []:
-        if device == '^all':  # Backward compatibility
-            device = '*'
-        devices.update([x for x in all_devices if fnmatch(x.alias, device)])
+    all_devices = sorted(cfgifc.get_all_devices(kind=KIND_ANY),
+                         key=lambda x: x.alias)
+    aliases = specs.get(section) if isinstance(specs, dict) else specs
+    aliases = [aliases] if isinstance(specs, basestring) else aliases
+    if aliases is None:
+        return
+    for device in aliases:
+        if device == '^all':  # Backward compatibility and deprecated
+            all_tmos = sorted(cfgifc.get_all_devices(kind=KIND_TMOS),
+                              key=lambda x: x.alias)
+            devices.extend(all_tmos)
+            break
+        devices.extend([x for x in all_devices if fnmatch(x.alias, device)])
     return devices
 
 
@@ -69,6 +76,12 @@ class DeviceCredential(object):
     def __repr__(self):
         return "%s:%s" % (self.username, self.password)
 
+    def __hash__(self):
+        return hash((self.username, self.password))
+
+    def __eq__(self, other):
+        return self.username == other.username and self.password == other.password
+
 
 class DeviceAccess(object):
 
@@ -79,7 +92,6 @@ class DeviceAccess(object):
         self.specs = specs or Options()
         self.tags = set([])
         self.groups = set([])
-        #self.instances = expand_devices(specs, 'instances')
         self.hostname = self.specs.get('address')
         self.discover_address = self.specs.get('discover address')
         self.set_tags(self.specs.get('tags'))
@@ -92,9 +104,12 @@ class DeviceAccess(object):
     def __repr__(self):
         return "%s:%s" % (self.alias, self.address)
 
+    def __cmp__(self, other):
+        return cmp(self.address, other.address)
+
     @property
     def instances(self):
-        return expand_devices(self.specs, 'instances', kind=KIND_ANY)
+        return expand_devices(self.specs, 'instances')
 
     def is_default(self):
         return _bool(self.specs.get('default'))
@@ -168,8 +183,6 @@ class Session(object):
         else:
             self.path = None
 
-        STDOUT.info('Session %s initialized.', self.name)
-
     def get_url(self, local_ip=None):
         # local_ip = net.get_local_ip(peer)
         if not local_ip:
@@ -191,9 +204,11 @@ class ConfigInterface(Interface):
             self.config = loader.load()
         else:
             self.config = getattr(CONFIG, 'data', None)
+            if self.config is None:
+                LOG.debug('No global test config found.')
+                self.config = Options()
+                setattr(CONFIG, 'data', self.config)
 
-        if not self.config:
-            raise ConfigNotLoaded("No global config found")
         super(ConfigInterface, self).__init__()
 
     def get_config(self):
@@ -211,7 +226,7 @@ class ConfigInterface(Interface):
     def get_default_key(self, collection):
         _ = list(filter(lambda x: _bool(x[1] and x[1].get('default')),
                         collection.items()))
-        return _[0][0]
+        return _[0][0] if _ else Options()
 
     def get_default_value(self, collection):
         return list(filter(lambda x: _bool(x.get('default')),
@@ -252,10 +267,11 @@ class ConfigInterface(Interface):
             return device
 
         if device is None:
-            device = self.get_default_key(self.config['devices'])
+            device = self.get_default_key(self.config[CFG_DEVICES])
+            assert device, "No default device found. Check your test configuration."
 
         try:
-            specs = self.config['devices'][device]
+            specs = self.config[CFG_DEVICES][device]
             if not specs:
                 return
         except KeyError:
@@ -277,21 +293,27 @@ class ConfigInterface(Interface):
 
     def get_all_devices(self, kind=KIND_TMOS):
         kind = kind.split(KIND_SEP) if kind else []
-        for device in self.config.devices:
+        for device in self.config[CFG_DEVICES]:
             device = self.get_device(device)
             device_kind = device.kind.split(KIND_SEP)
             if device_kind[:len(kind)] == kind:
                 yield device
+
+    def get_device_groups(self):
+        return inverse(dict((x, x.groups) for x in self.get_all_devices() if x.groups))
 
     @staticmethod
     def get_devices_instances(devices):
         return reduce(set.union, map(lambda x: x.instances, devices))
 
     def get_selenium_head(self, head=None):
-        if head is None:
-            head = self.get_default_key(self.config['selenium'])
+        if CFG_SELENIUM not in self.config:
+            return head, Options()
 
-        return head, self.config['selenium'][head]
+        if head is None:
+            head = self.get_default_key(self.config[CFG_SELENIUM])
+
+        return head, self.config[CFG_SELENIUM][head]
 
     def get_session(self):
         if not self.config._session:

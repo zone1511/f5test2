@@ -4,6 +4,10 @@ from .driver import Connection
 from ..config import ConfigInterface, DeviceAccess
 from ...base import Interface
 from ...defaults import ROOT_USERNAME, ROOT_PASSWORD, DEFAULT_PORTS
+from ...utils.decorators import synchronized
+import logging
+
+LOG = logging.getLogger(__name__)
 
 
 class SSHInterfaceError(Exception):
@@ -48,6 +52,9 @@ class SSHInterface(Interface):
         from ...commands.shell.ssh import get_version
         return get_version(ifc=self)
 
+    # paramiko has some concurrency issues when connecting in different
+    # threads at the same time.
+    @synchronized
     def open(self):  # @ReservedAssignment
         if self.is_opened():
             return self.api
@@ -60,6 +67,7 @@ class SSHInterface(Interface):
                          key_filename=self.key_filename)
         api.connect()
         self.api = api
+        LOG.debug(api._transport)
         return api
 
     def close(self, *args, **kwargs):

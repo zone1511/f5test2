@@ -1,11 +1,11 @@
 {% extends "base.tpl" %}
 {% block bvt_active %}active{% endblock %}
 
-{% block title %}BVT Buddy Build{% endblock %}
+{% block title %}BIG-IQ Request{% endblock %}
 
 {% block description %}
-     <h2>BVT Buddy Build</h2>
-     <p>This is intended for Devs who need to validate user builds (usually before doing a merge). Note that <code>ISO</code> parameter is required. Click on the dotted links to edit values. Check out the console tab for any log messages.</p>
+     <h2>BIG-IQ Request</h2>
+     <p>This is intended for Developers who need to validate BIG-IQ user builds. Note that if the <code>ISO</code> parameter is not specified, the latest build from <span class="label label-inverse">bigiq-mgmt</span> branch will be assumed. Click on the dotted links to edit values. Check out the console tab for any log messages.</p>
 {% endblock %}
 
 {% block options %}

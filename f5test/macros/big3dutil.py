@@ -50,6 +50,7 @@ class Big3dUtil(Macro):
             with EMInterface(**self.icparams) as emifc:
                 emapi = emifc.api
                 statuses = EMSQL.device.get_device_state(mgmtips, ifc=sshifc)
+                LOG.debug(statuses)
                 uids = []
                 for status in statuses:
                     if status.status in ('big3d_below_minimum', 'big3d_update_required') \

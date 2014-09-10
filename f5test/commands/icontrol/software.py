@@ -1,6 +1,7 @@
 from .base import IcontrolCommand
-from ..base import WaitableCommand
+from ..base import WaitableCommand, CommandError
 import time
+import fnmatch
 
 import logging
 LOG = logging.getLogger(__name__)
@@ -52,7 +53,7 @@ class DeleteSoftwareImage(WaitableCommand, IcontrolCommand):
     removed.
     """
 
-    def __init__(self, filename=None, is_hf=False, *args, **kwargs):
+    def __init__(self, filename='*', is_hf=False, *args, **kwargs):
         super(DeleteSoftwareImage, self).__init__(*args, **kwargs)
 
         self.filename = filename
@@ -60,16 +61,12 @@ class DeleteSoftwareImage(WaitableCommand, IcontrolCommand):
 
     def setup(self):
         ic = self.api
-        if self.filename:
-            if isinstance(self.filename, (list, tuple)):
-                images = self.filename
-            else:
-                images = [self.filename]
+        if self.is_hf:
+            images = [x['filename'] for x in ic.System.SoftwareManagement.get_software_hotfix_list()
+                      if fnmatch.fnmatch(x['filename'], self.filename)]
         else:
-            if self.is_hf:
-                images = [x['filename'] for x in ic.System.SoftwareManagement.get_software_hotfix_list()]
-            else:
-                images = [x['filename'] for x in ic.System.SoftwareManagement.get_software_image_list()]
+            images = [x['filename'] for x in ic.System.SoftwareManagement.get_software_image_list()
+                      if fnmatch.fnmatch(x['filename'], self.filename)]
 
         if images:
             return ic.System.SoftwareManagement.delete_software_image(image_filenames=images)
@@ -105,15 +102,26 @@ class InstallSoftware(IcontrolCommand):
         else:
             s = self.volume
 
-        v = self.desired_version
-        p = v.product.to_tmos
-        #print s, v, p
-        ic.System.SoftwareManagement.install_software_image(install_volume=s,
-                                                            product=p,
-                                                            version=v.version,
-                                                            build=v.build)
+        dv = self.desired_version
+        p = dv.product.to_tmos
 
-        LOG.debug('Sleeping after install asyc...')
+        v = self.ifc.version
+        if v.product.is_bigip and v >= 'bigip 11.2.0' or \
+           v.product.is_bigiq:
+            ic.System.SoftwareManagement.install_software_image_v2(volume=s,
+                                                                   product=p,
+                                                                   version=dv.version,
+                                                                   build=dv.build,
+                                                                   create_volume=0,
+                                                                   reboot=0,
+                                                                   retry=0)
+        else:
+            ic.System.SoftwareManagement.install_software_image(install_volume=s,
+                                                                product=p,
+                                                                version=dv.version,
+                                                                build=dv.build)
+
+        LOG.debug('Sleeping after install async...')
         time.sleep(10)
         return s
 
@@ -130,10 +138,21 @@ class ClearVolume(IcontrolCommand):
         ic = self.api
 
         s = self.volume
-        ic.System.SoftwareManagement.install_software_image(install_volume=s,
-                                                            product='',
-                                                            version='',
-                                                            build='')
+        v = self.ifc.version
+        if v.product.is_bigip and v >= 'bigip 11.2.0' or \
+           v.product.is_bigiq:
+            ic.System.SoftwareManagement.install_software_image_v2(volume=s,
+                                                                   product='',
+                                                                   version='',
+                                                                   build='',
+                                                                   create_volume=0,
+                                                                   reboot=0,
+                                                                   retry=0)
+        else:
+            ic.System.SoftwareManagement.install_software_image(install_volume=s,
+                                                                product='',
+                                                                version='',
+                                                                build='')
         time.sleep(5)
         return s
 
@@ -186,11 +205,39 @@ class GetActiveVolume(WaitableCommand, IcontrolCommand):
 
 get_inactive_volume = None
 class GetInactiveVolume(WaitableCommand, IcontrolCommand):
-    """Get the status of an installation."""
+    """Get or create a new LVM volume."""
 
     def setup(self):
         ic = self.api
+        slots = ic.System.SoftwareManagement.get_all_software_status()
+
+        # If there's only one slot (current) we're going to create a new one.
+        if len(slots) == 1:
+            disk, i = slots[0]['installation_id']['install_volume'].split('.')
+            try:
+                i = int(i)
+            except ValueError:
+                # The current only slot is named something like HD1.foo
+                i = 1
+            volume = '{0}.{1}'.format(disk, i + 1)
+
+            v = self.ifc.version
+            if v.product.is_bigip and v >= 'bigip 11.2.0' or \
+               v.product.is_bigiq:
+                LOG.warning('Creating new volume %s...', volume)
+                ic.System.SoftwareManagement.install_software_image_v2(volume=volume,
+                                                                       product='',
+                                                                       version='',
+                                                                       build='',
+                                                                       create_volume=1,
+                                                                       reboot=0,
+                                                                       retry=0)
+                time.sleep(5)
+            else:
+                raise CommandError('You need to manually create a second volume.')
+
         _ = list(filter(lambda x: not x['active'] and (x['status'] == 'complete' or
                                                        x['status'].startswith('failed')),
                         ic.System.SoftwareManagement.get_all_software_status()))
+        assert _, "BUG: No available slots found! Manual intervention is required."
         return _[0]['installation_id']['install_volume']

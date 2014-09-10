@@ -32,12 +32,10 @@ addl_args = dict(
         'nose.plugins.0.10': [
             'randomize = f5test.noseplugins.randomize:Randomize',
             'config = f5test.noseplugins.testconfig:TestConfig',
-            'logcollect = f5test.noseplugins.logcollect:LogCollect',
             'testopia = f5test.noseplugins.testopia:Testopia',
-            'email = f5test.noseplugins.email:Email',
-            'bvtinfo = f5test.noseplugins.bvtinfo:BVTInfo',
             'irack = f5test.noseplugins.irack:IrackCheckout',
-            'testtime = f5test.noseplugins.testtime:TestTime',
+            'repeat = f5test.noseplugins.repeat:Repeat',
+            'extender = f5test.noseplugins.extender:Extender',
             ]
     },
 )
@@ -55,7 +53,7 @@ setup(
     url='http://ionutdb01.mgmt.pdsea.f5net.com/dist',
     download_url='http://ionutdb01.mgmt.pdsea.f5net.com/dist/f5test-%s.tar.bz2' % VERSION,
     package_dir={'f5test.noseplugins': 'f5test/noseplugins'},
-    package_data={'f5test.noseplugins': ['templates/*.tmpl'],
+    package_data={'f5test.utils.stage': ['templates/*.tmpl'],
                   'f5test.macros': ['configs/*.yaml'],
                   'f5test.web': media_files + ['views/*.tpl']},
     install_requires=[
@@ -64,7 +62,7 @@ setup(
 #        'pycurl',
         'pyOpenSSL',
         'PyYAML',
-        'pyparsing<2.0.0',  # 2.0 is not compatible with 2.X anymore.
+        'pyparsing',
         'restkit',
         'selenium',
         'jinja2',
@@ -74,7 +72,14 @@ setup(
         'geventhttpclient',
         'pexpect',
         'blinker',
-        'loggerglue'
+        'loggerglue',
+        'pysnmp',
+        'xmltodict',
+        'boto',
+        # Openstack
+        'python-novaclient',
+        'python-glanceclient',
+        'python-neutronclient'
         ],
     classifiers=[
         'Development Status :: 4 - Beta',

@@ -1,0 +1,41 @@
+TestRun report
+==============
+
+Good:    {{ result.bars.good }}
+Bad:     {{ result.bars.bad }}
+Skipped: {{ result.bars.unknown }}
+
+{% if time %}Duration: {{ time.delta_str }}{% endif %}
+
+{% if not nose_config.options.no_logcollect -%}
+Session logs: {{ session_url }}
+{%- endif %}
+{%- if config.testopia._testrun %}
+Testopia run: {{ config.testopia.address }}/tr_show_run.cgi?run_id={{ config.testopia._testrun }}
+{%- endif %}
+
+DUTs info:
+==========
+{%- for dut in duts %}
+ - {{ dut.device.alias }} - {{ dut.device.address }}: {{ dut.platform }} {{ dut.version.version }} {{ dut.version.build }} {{ dut.project or '' }} {% if cores and cores.data[dut.device.alias] %}[CORED]{% endif %}
+{%- endfor %}
+
+Skipped:
+=========
+{% for result in result.skipped -%}
+* {{ result.0.test.id() }}
+Author: {{ result.0.test.author }} 
+{{ result.1.1.message|string|trim|indent(2, true)  }}
+{% endfor %}
+
+Bad:
+====
+{% for result in result.failures + result.errors -%}
+* {{ result.0.test.id() }}
+Author: {{ result.0.test.author }} 
+{{ result.1.1.message|string|trim|truncate(10000, true)|indent(2, true)  }}
+{% endfor %}
+
+Test Runner:
+============
+{{ test_runner_ip }} 

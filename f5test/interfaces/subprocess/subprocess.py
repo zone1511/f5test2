@@ -364,21 +364,22 @@ class CalledProcessError(SubprocessError):
     """
     def __init__(self, returncode, cmd, output=None):
         self.returncode = returncode
-        self.cmd = cmd
-        self.output = output
+        self.cmd = ' '.join(cmd) if isinstance(cmd, list) else cmd
+        self.output = output.strip()
 
     def __str__(self):
-        return u"Command '%s' returned non-zero exit status %d" % (self.cmd, self.returncode)
+        return u"Command '%s' '%s' returned non-zero exit status %d" % \
+               (self.cmd, self.output, self.returncode)
 
 
 class TimeoutExpired(SubprocessError):
     u"""This exception is raised when the timeout expires while waiting for a
     child process.
     """
-    def __init__(self, cmd, timeout, output=None):
-        self.cmd = cmd
+    def __init__(self, cmd, timeout, output=''):
+        self.cmd = ' '.join(cmd) if isinstance(cmd, list) else cmd
         self.timeout = timeout
-        self.output = output
+        self.output = output.strip()
 
     def __str__(self):
         return (u"Command '%s' '%s' timed out after %s seconds" %
@@ -551,8 +552,7 @@ def check_output(*popenargs, **kwargs):
         output, unused_err = process.communicate(timeout=timeout)
     except TimeoutExpired:
         process.kill()
-        output, unused_err = process.communicate()
-        raise TimeoutExpired(process.args, timeout, output=output)
+        raise
     retcode = process.poll()
     if retcode:
         raise CalledProcessError(retcode, process.args, output=output)
@@ -884,7 +884,13 @@ class Popen(object):
         if endtime is None:
             return
         if time.time() > endtime:
-            raise TimeoutExpired(self.args, orig_timeout)
+            stdout = stderr = []
+            if self.stdout:
+                stdout = self._fd2output[self.stdout.fileno()]
+            if self.stderr:
+                stderr = self._fd2output[self.stderr.fileno()]
+            raise TimeoutExpired(self.args, orig_timeout,
+                                 output=''.join(stdout + stderr))
 
     if mswindows:
         #

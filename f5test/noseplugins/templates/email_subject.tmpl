@@ -1,1 +1,0 @@
-{{ email.subject}}: {% if result.wasSuccessful() %}Passed{% else %}Failed{% endif %} / {{ dut.version.product|upper }} {{ dut.version.version }} {{ dut.version.build }} {% if data.cores %}[CORED]{% endif %}

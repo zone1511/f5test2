@@ -79,9 +79,9 @@ def main():
     usage = """%prog [options] <address> <API>.<method> [param]...""" \
     u"""
   Examples:
-  %prog 172.27.58.94 -pf5site02 SmtpConfig.smtpConfigGetNames
-  %prog 172.27.58.94 -pf5site02 SmtpConfig.smtpConfigSetName /Common/mail.f5net.com
-  %prog 172.27.58.94 -pf5site02 Discovery.discoverByAddress '' '' "[{'address':'172.27.58.130', 'username':'a', 'password':'a'}]"
+  %prog 172.27.58.94 SmtpConfig.smtpConfigGetNames
+  %prog 172.27.58.94 SmtpConfig.smtpConfigSetName /Common/mail.f5net.com
+  %prog 172.27.58.94 Discovery.discoverByAddress '' '' "[{'address':'172.27.58.130', 'username':'a', 'password':'a'}]"
     """
 
     formatter = optparse.TitledHelpFormatter(indent_increment=2,

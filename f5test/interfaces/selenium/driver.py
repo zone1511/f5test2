@@ -5,7 +5,7 @@ from selenium.webdriver.remote.command import Command
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys  # @UnusedImport
 from selenium.common.exceptions import (NoSuchElementException,
-    StaleElementReferenceException, NoSuchWindowException, NoSuchFrameException)
+    StaleElementReferenceException, NoSuchWindowException)
 from ...utils.wait import Wait, wait
 from ...base import Options
 import copy
@@ -26,6 +26,8 @@ class Is(object):
     SELECTED = "is_selected"
     ENABLED = "is_enabled"
     PRESENT = 0
+    TEXT_MATCH = 1
+    CUSTOM_MATCH = 2
 
 
 class NONEGIVEN:
@@ -37,13 +39,15 @@ class ElementWait(Wait):
     def __init__(self, element, *args, **kwargs):
         self._frame = None
         self._it = None
+        self._match = None
         self._element = element
         return super(ElementWait, self).__init__(*args, **kwargs)
 
-    def function(self, value=None, by=By.ID, frame=None, it=Is.DISPLAYED):
+    def function(self, value=None, by=By.ID, frame=None, it=Is.DISPLAYED, match=None):
         if not self._frame:
             self._frame = frame
         self._it = it
+        self._match = match
         # Start from an element (if specified) or the entire DOM.
         parent = self._element
 
@@ -60,6 +64,10 @@ class ElementWait(Wait):
             f.state = 'selected'
         elif it == Is.ENABLED:
             f.state = 'enabled'
+        elif it == Is.TEXT_MATCH:
+            f.state = 'text_match'
+        elif it == Is.CUSTOM_MATCH:
+            f.state = 'custom_match'
         else:
             f.state = 'present'
 
@@ -92,6 +100,11 @@ class ElementWait(Wait):
         ret = None
         if self._it == Is.PRESENT:
             ret = True
+        elif self._it == Is.TEXT_MATCH:
+            ret = self._match in self._result.text
+        elif self._it == Is.CUSTOM_MATCH:
+            assert callable(self._match), 'match argument must be a function'
+            ret = self._match(self._result)
         else:
             ret = getattr(self._result, self._it)()
 
@@ -118,6 +131,12 @@ class WebElementWrapper(WebElement):
     def click(self, *args, **kwargs):
         """condition wrapped"""
         super(WebElementWrapper, self).click(*args, **kwargs)
+        return self.parent
+
+    def jquery_click(self, *args, **kwargs):
+        """A click() method that works on invisible elements without hovering.
+        jQuery lib is required!"""
+        self.parent.execute_script("return arguments[0].click()", self)
         return self.parent
 
     def submit(self, *args, **kwargs):
@@ -257,6 +276,11 @@ class RemoteWrapper(RemoteWebDriver):
         self.switch_to_default_content()
         return self
 
+    def refresh(self, *args, **kwargs):
+        """Refreshes the current page and return self instance to help chaining methods."""
+        super(RemoteWrapper, self).refresh(*args, **kwargs)
+        return self
+
     def open_window(self, location='', name=None, tokens=''):
         """Opens up a new tab or window."""
         if name is None:
@@ -270,7 +294,8 @@ class RemoteWrapper(RemoteWebDriver):
         self.set_window_size(1366, 768)
 
     def wait(self, value=None, by=By.ID, frame=None, it=Is.DISPLAYED,
-             negated=False, timeout=10, interval=0.1, stabilize=0, element=None):
+             negated=False, timeout=10, interval=0.1, stabilize=0, element=None,
+             match=None):
         """Waits for an element to satisfy a certain condition.
 
         @param value: the locator
@@ -296,7 +321,7 @@ class RemoteWrapper(RemoteWebDriver):
         """
 
         w = ElementWait(element or self, timeout, interval, stabilize, negated)
-        return w.run(value=value, by=by, frame=frame, it=it)
+        return w.run(value, by, frame, it, match)
 
     def wait_ajax(self, timeout=10, interval=0.1, stabilize=0):
         """Waits for the number of jQuery Ajax calls to drop to 0."""

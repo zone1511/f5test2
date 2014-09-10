@@ -133,10 +133,11 @@ class SetPassword(WaitableCommand, IcontrolCommand):
         admin = config.get_device(alias).get_admin_creds(keyset=self.keyset)
         root = config.get_device(alias).get_root_creds(keyset=self.keyset)
 
-        for cred in access.get_admin_creds(keyset=KEYSET_ALL).values():
+        for cred in set(access.get_admin_creds(keyset=KEYSET_ALL).values()):
             ic = IcontrolInterface(address=access.address,
                                    username=cred.username,
-                                   password=cred.password).open()
+                                   password=cred.password,
+                                   port=self.ifc.port, proto=self.ifc.proto).open()
             try:
                 try:
                     ic.Management.Partition.set_active_partition(

@@ -5,6 +5,7 @@ Created on Mar 16, 2013
 '''
 from ...base import AttrDict
 from ...utils.dicts import merge
+from ...utils.net import get_local_ip
 from blinker import Signal
 import os
 import logging
@@ -14,6 +15,7 @@ import threading
 LOG = logging.getLogger(__name__)
 CONFIG = threading.local()
 EXTENDS_KEYWORD = '$extends'
+PEER_IP = '224.0.0.1'
 
 
 class Signals(object):
@@ -45,6 +47,7 @@ class ConfigLoader(object):
         config['_filename'] = self.filename
         config['_argv'] = ' '.join(sys.argv)
         config['_cwd'] = os.getcwd()
+        config['_local_ip'] = get_local_ip(PEER_IP)
 
         Signals.on_after_extend.send(self, config=config)
         return config
@@ -64,7 +67,8 @@ class ConfigLoader(object):
 
         for filename in reversed(bases):
             filename = os.path.join(cwd, filename)
-            base_config = self.extend(cwd, self.load_any(filename))
+            base_config = self.extend(os.path.dirname(filename),
+                                      self.load_any(filename))
             # Substitute {0[..]} tokens. Works only with strings.
             self.subst_variables(config, base_config)
             config = merge(base_config, config)

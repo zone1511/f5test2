@@ -1,6 +1,6 @@
 """Selenium interface"""
 
-from ..config import ConfigInterface, DeviceAccess, ConfigNotLoaded
+from ..config import ConfigInterface, DeviceAccess
 from ..icontrol import IcontrolInterface
 from .driver import RemoteWrapper, Keys
 from ...base import Interface
@@ -33,18 +33,15 @@ class SeleniumInterface(Interface):
                  options=None, *args, **kwargs):
         super(SeleniumInterface, self).__init__()
 
-        try:
-            head, headdict = ConfigInterface().get_selenium_head(head)
-            if executor is None:
-                executor = headdict.get('address')
-            if browser is None:
-                browser = headdict.get('browser')
-            if platform is None:
-                platform = headdict.get('platform', 'ANY')
-            if options is None:
-                options = headdict.get('options', AttrDict())
-        except ConfigNotLoaded:
-            LOG.debug('Config not loaded.')
+        head, headdict = ConfigInterface().get_selenium_head(head)
+        if executor is None:
+            executor = headdict.get('address')
+        if browser is None:
+            browser = headdict.get('browser')
+        if platform is None:
+            platform = headdict.get('platform', 'ANY')
+        if options is None:
+            options = headdict.get('options', AttrDict())
 
         self.head = head
         self.executor = executor
@@ -57,6 +54,11 @@ class SeleniumInterface(Interface):
         self.password = None
         self.credentials = AttrDict()
         self._priority = 1
+
+    def __repr__(self):
+        name = self.__class__.__name__
+        credentials = self.get_credentials()
+        return "<{0}: {1.username}:{1.password}@{1.address}:{1.port}>".format(name, credentials)
 
     @property
     def _current_window(self):
@@ -105,10 +107,11 @@ class SeleniumInterface(Interface):
 
         return self.credentials.pop(window, None)
 
-    def get_icontrol_interface(self, timeout=90, debug=False):
-        return IcontrolInterface(device=self.device, address=self.address,
-                                 username=self.username, password=self.password,
-                                 port=self.port, timeout=timeout, debug=debug)
+    def get_icontrol_interface(self, timeout=90, debug=False, window=None):
+        data = self.get_credentials(window)
+        return IcontrolInterface(device=data.device, address=data.address,
+                                 username=data.username, password=data.password,
+                                 port=data.port, timeout=timeout, debug=debug)
 
     @property
     def version(self):
@@ -146,8 +149,14 @@ class SeleniumInterface(Interface):
                                                            platform=platform
                                  ))
 
+        # Special casing htmlunit which doesn't like to execute JS before a page
+        # has been loaded.
+        if not self.api.name == 'htmlunit':
+            LOG.info("Browser: %s", self.useragent[0])
+            LOG.info("Selenium head: (%s) %s", self.head, self.executor)
+
         self.window = self.api.current_window_handle
-        self._disable_firefox_addon_bar()
+        #self._disable_firefox_addon_bar()
         return self.api
 
     def close(self, *args, **kwargs):

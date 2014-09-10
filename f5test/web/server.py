@@ -1,29 +1,51 @@
 from __future__ import absolute_import
 
+import json
+import os
+import re
+
+import yaml
+
+import bottle
+from celery.backends.cache import get_best_memcache
 from f5test.base import AttrDict
 from f5test.defaults import ADMIN_USERNAME
 from f5test.web.tasks import nosetests, add, confgen, install, ictester, MyAsyncResult
-from f5test.web.validators import validators
-from celery.backends.cache import get_best_memcache
-#from gevent import monkey; monkey.patch_all()
-import bottle
-import os
-import json
-import yaml
-import re
+from f5test.web.validators import validators, min_version_validator
 
+
+# from gevent import monkey; monkey.patch_all()
 app = bottle.Bottle()
 CONFIG = AttrDict()
-CONFIG_WEB_FILE = 'config/web.yaml'
+CONFIG_WEB_FILE = 'config/shared/web.yaml'
 VENV = os.environ.get('VIRTUAL_ENV', '../../../')  # When run from Eclipse.
 TEMPLATE_DIR = [os.path.join(os.path.dirname(os.path.abspath(__file__)), 'views')]
 DEBUG = True
 PORT = 8081
 
-
 # Setup config
 CONFIG_WEB_FILE = os.path.join(VENV, CONFIG_WEB_FILE)
-CONFIG.update(yaml.load(open(CONFIG_WEB_FILE).read()))
+
+
+def read_config():
+    CONFIG.update(yaml.load(open(CONFIG_WEB_FILE).read()))
+read_config()
+
+
+class ReloadConfigPlugin(object):
+    ''' This plugin reloads the web.yaml config before every POST. '''
+    name = 'reload'
+    api = 2
+
+    def apply(self, callback, route):
+        def wrapper(*a, **ka):
+            if bottle.request.method == 'POST':
+                read_config()
+            rv = callback(*a, **ka)
+            return rv
+
+        return wrapper
+app.install(ReloadConfigPlugin())
 
 # Replacing iRack reservation lookup with a round-robin.
 config_dir = os.path.dirname(CONFIG_WEB_FILE)
@@ -32,18 +54,17 @@ CONFIG.web._MC_KEY = 'MC-5d5f8cb6-2e8d-4462-a1e8-12f5d6c35334'
 
 # Set nosetests arguments
 NOSETESTS_ARGS = ['',
-    '--verbose',
-    '--verbosity=2',  # Print test names and result at the console
-    '--all-modules',  # Collect tests from all Python modules
-    '--exe',  # Look in files that have the executable bit set
-    '--nocapture',  # Don't capture stdout
-    '--nologcapture',  # We have our own logcollect which is better
-    '--console-redirect',  # Redirect console to a log file
-]
+                  '--verbose',
+                  '--verbosity=2',  # Print test names and result at the console
+                  '--all-modules',  # Collect tests from all Python modules
+                  '--exe',  # Look in files that have the executable bit set
+                  '--nocapture',  # Don't capture stdout
+                  '--console-redirect',  # Redirect console to a log file
+                  ]
 
 
 def get_harness(pool):
-    mc = get_best_memcache(CONFIG.memcache)
+    mc = get_best_memcache()[0](CONFIG.memcache)
     key = CONFIG.web._MC_KEY + pool
     try:
         i = mc.incr(key)
@@ -64,6 +85,11 @@ def add_view(task_id=None):
 def bvt_basic_view(task_id=None):
     return AttrDict(name='Hello world')
 
+
+@app.get('/bvt/bigiq')
+@bottle.jinja2_view('bvt_bigiq', template_lookup=TEMPLATE_DIR)
+def bvt_bigiq_view(task_id=None):
+    return AttrDict(name='Hello world')
 
 @app.get('/bvt/deviso')
 @bottle.jinja2_view('bvt_deviso', template_lookup=TEMPLATE_DIR)
@@ -116,7 +142,7 @@ def revoke_handler(task_id):
 
 @app.route('/status/<task_id>', name='status')
 def status_handler(task_id):
-    #status = nosetests.delay() #@UndefinedVariable
+    # status = nosetests.delay() #@UndefinedVariable
     task = MyAsyncResult(task_id)  # @UndefinedVariable
     result = task.load_meta()
     offset = bottle.request.query.get('s')
@@ -149,13 +175,13 @@ def bvt_basic_post():
     All the logic needed to translate the user input into what makes sense to
     us happens right here.
     """
-    BVTINFO_PROJECT_PATTERN = '(\D+)?(\d+\.\d+\.\d+)-?(hf\d+)?'
+    BVTINFO_PROJECT_PATTERN = '(\D+)?(\d+\.\d+\.\d+)-?(eng-?\w*|hf\d+|hf-\w+)?'
     TESTS_DEBUG = 'tests/solar/bvt/integration/filesystem/'
-    CONFIG_FILE = 'config/suite_bvt_request.yaml'
+    CONFIG_FILE = 'config/shared/web_bvt_request.yaml'
 
     # For people who don't like to set the application/json header.
     data = json.load(bottle.request.body)
-    #data = bottle.request.json
+    # data = bottle.request.json
 
     # BUG: The iRack reservation-based picker is flawed. It'll always select
     # the nearest available harness, stacking all workers on just one.
@@ -170,21 +196,22 @@ def bvt_basic_post():
     our_config = AttrDict(yaml.load(open(get_harness('em')).read()))
 
     # Prepare placeholders in our config
-    our_config.update({'stages': {'main': {'setup': {'stage01-install-bigip-1': {'parameters': {}}}}}})
-    our_config.update({'bvtinfo': {}})
-    our_config.update({'email': {'to': []}})
+    our_config.update({'stages': {'main': {'setup': {'install-bigips': {'parameters': {}}}}}})
+    our_config.update({'plugins': {'email': {'to': []}}})
+    our_config.update({'plugins': {'bvtinfo': {}}})
 
+    plugins = our_config.plugins
     # Set BVTInfo data
-    our_config.bvtinfo.project = data['project']
-    our_config.bvtinfo.build = data['build']
+    plugins.bvtinfo.project = data['project']
+    plugins.bvtinfo.build = data['build']
 
     # Append submitter's email to recipient list
     if data.get('submitted_by'):
-        our_config.email.to.append(data['submitted_by'])
-    our_config.email.to.extend(CONFIG.web.recipients)
+        plugins.email.to.append(data['submitted_by'])
+    plugins.email.to.extend(CONFIG.web.recipients)
 
     # Set version and build in the install stage
-    params = our_config.stages.main.setup['stage01-install-bigip-1'].parameters
+    params = our_config.stages.main.setup['install-bigips'].parameters
     match = re.match(BVTINFO_PROJECT_PATTERN, data['project'])
     if match:
         params['version'] = match.group(2)
@@ -193,22 +220,27 @@ def bvt_basic_post():
     else:
         params['version'] = data['project']
     params['build'] = data['build']
+    params.product = 'bigip'
+
+    if not min_version_validator(params.build, params.version, params.hotfix,
+                                 params.product, CONFIG.supported):
+        # raise ValueError('Requested version not supported')
+        bottle.response.status = 406
+        return dict(message='Requested version not supported')
 
     args = []
     args[:] = NOSETESTS_ARGS
 
     args.append('--tc-file={VENV}/%s' % CONFIG_FILE)
     if data.get('debug'):
-        args.append('--tc=stages._enabled:1')
-        args.append('--no-email')
+        args.append('--tc=stages.enabled:1')
         tests = [os.path.join('{VENV}', x)
-                for x in re.split('\s+', (data.get('tests') or TESTS_DEBUG).strip())]
-        #print tests
-        #return
+                 for x in re.split('\s+', (data.get('tests') or TESTS_DEBUG).strip())]
         args.extend(tests)
     else:
-        args.append('--tc=stages._enabled:1')
-        args.append('--attr=status=CONFIRMED,priority=1')
+        args.append('--tc=stages.enabled:1')
+        args.append('--eval-attr=rank > 0 and rank < 11')
+        args.append('--with-email')
         args.append('--with-bvtinfo')
         args.append('--with-irack')
         args.append('{VENV}/tests/solar/bvt/')
@@ -218,23 +250,97 @@ def bvt_basic_post():
     return dict(status=result.status, id=result.id, link=link)
 
 
+# Backward compatible with bvtinfo-style POST requests.
+@app.route('/bvt/bigiq', method='POST')
+@app.route('/bigip_bigiq_request', method='POST')
+def bvt_bigiq_post():
+    """Handles requests from BIGIP teams for BIGIQ BVT.
+
+    All the logic needed to translate the user input into what makes sense to
+    us happens right here.
+    """
+    BVTINFO_PROJECT_PATTERN = '(\D+)?(\d+\.\d+\.\d+)-?(eng-?\w*|hf\d+|hf-\w+)?'
+    CONFIG_FILE = 'config/shared/web_bvt_request_bigiq.yaml'
+
+    # For people who don't like to set the application/json header.
+    data = json.load(bottle.request.body)
+
+    our_config = AttrDict(yaml.load(open(get_harness('bigiq-tmos')).read()))
+
+    # Prepare placeholders in our config
+    our_config.update({'stages': {'main': {'setup': {'install-bigips': {'parameters': {}}}}}})
+    our_config.update({'plugins': {'email': {'to': []}}})
+    our_config.update({'plugins': {'bvtinfo': {'bigip': {}}}})
+
+    plugins = our_config.plugins
+    # Set BVTInfo data
+    plugins.bvtinfo.project = data['project']
+    plugins.bvtinfo.build = data['build']
+    plugins.bvtinfo.bigip.name = 'bigiq-bvt'
+
+    # Append submitter's email to recipient list
+    if data.get('submitted_by'):
+        plugins.email.to.append(data['submitted_by'])
+    plugins.email.to.extend(CONFIG.web.recipients)
+
+    # Set version and build in the install stage
+    params = our_config.stages.main.setup['install-bigips'].parameters
+    match = re.match(BVTINFO_PROJECT_PATTERN, data['project'])
+    if match:
+        params['version'] = match.group(2)
+        if match.group(3):
+            params['hotfix'] = match.group(3)
+    else:
+        params['version'] = data['project']
+    params['build'] = data['build']
+    params.product = 'bigip'
+
+    if not min_version_validator(params.build, params.version, params.hotfix,
+                                 params.product, CONFIG.supported):
+        # raise ValueError('Requested version not supported')
+        bottle.response.status = 406
+        return dict(message='Requested version not supported')
+
+    args = []
+    args[:] = NOSETESTS_ARGS
+
+    args.append('--tc-file={VENV}/%s' % CONFIG_FILE)
+    args.append('--tc=stages.enabled:1')
+    # For bigtime
+    # args.append('--attr=status=CONFIRMED,priority=1')
+    # args.append('--eval-attr=status is not "DISABLED"')
+    # For chuckanut++
+    args.append('--eval-attr=rank >= 5 and rank <= 10')
+    args.append('--with-email')
+    args.append('--with-bvtinfo')
+    args.append('--with-irack')
+    # args.append('{VENV}/%s' % TEST_ROOT_STABLE)
+    args.append('{VENV}/%s' % CONFIG.paths.tc)
+
+    # return dict(config=our_config, args=args)
+    result = nosetests.delay(our_config, args, data)  # @UndefinedVariable
+    link = app.router.build('status', task_id=result.id)
+    return dict(status=result.status, id=result.id, link=link)
+
+
 @app.route('/bvt/deviso', method='POST')
 def bvt_deviso_post():
     """Handles requests from Dev team for user builds ISOs.
     """
-    #BVTINFO_PROJECT_PATTERN = '(\D+)?(\d+\.\d+\.\d+)-?(hf\d+)?'
+    # BVTINFO_PROJECT_PATTERN = '(\D+)?(\d+\.\d+\.\d+)-?(hf\d+)?'
     DEFAULT_SUITE = 'bvt'
-    SUITES = {'bvt': 'tests/bigtime/bvt/',
-              'dev': 'tests/bigtime/bvt/integration/filesystem/devtest_wrapper.py'
+    SUITES = {'bvt': '%s/' % CONFIG.paths.current,
+              'dev': '%s/cloud/external/devtest_wrapper.py' % CONFIG.paths.current,
+              'dev-cloud': '%s/cloud/external/restservicebus.py' % CONFIG.paths.current
               }
-    CONFIG_FILE = 'config/suite_deviso_request.yaml'
-    BIGIP_VERSION = '11.4.0'
-    BIGIP_HOTFIX = None
-    BIGIP_BUILD = None
+    CONFIG_FILE = 'config/shared/web_deviso_request.yaml'
+    # BIGIP_VERSION = '11.5.0'
+    # BIGIP_HOTFIX = None
+    # BIGIP_BUILD = None
 
     # For people who don't like to set the application/json header.
     data = json.load(bottle.request.body)
-    #data = bottle.request.json
+    # data = bottle.request.json
 
 #    with IrackInterface(address=CONFIG.irack.address,
 #                        timeout=30,
@@ -247,23 +353,25 @@ def bvt_deviso_post():
     our_config = AttrDict(yaml.load(open(get_harness('bigiq')).read()))
 
     # Prepare placeholders in our config
-    our_config.update({'stages': {'main': {'setup': {'stage01-install-em': {'parameters': {}}}}}})
-    our_config.update({'email': {'to': []}})
+    our_config.update({'stages': {'main': {'setup': {'install': {'parameters': {}}}}}})
+    our_config.update({'stages': {'main': {'setup': {'install-bigips': {'parameters': {}}}}}})
+    our_config.update({'plugins': {'email': {'to': []}}})
 
+    plugins = our_config.plugins
     # Append submitter's email to recipient list
     if data.get('email'):
-        our_config.email.to.append(data['email'])
-    our_config.email.to.extend(CONFIG.web.recipients)
+        plugins.email.to.append(data['email'])
+    plugins.email.to.extend(CONFIG.web.recipients)
 
     # Set version and build in the install stage
-    params = our_config.stages.main.setup['stage01-install-em'].parameters
-    params['custom iso'] = data['iso']
+    if data['iso']:
+        params = our_config.stages.main.setup['install'].parameters
+        params['custom iso'] = data['iso']
 
-    our_config.update({'stages': {'main': {'setup': {'stage01-install-bigip-1': {'parameters': {}}}}}})
-    params = our_config.stages.main.setup['stage01-install-bigip-1'].parameters
-    params.version = BIGIP_VERSION
-    params.hotfix = BIGIP_HOTFIX
-    params.build = BIGIP_BUILD
+    # params = our_config.stages.main.setup['install-bigips'].parameters
+    # params.version = BIGIP_VERSION
+    # params.hotfix = BIGIP_HOTFIX
+    # params.build = BIGIP_BUILD
 
     args = []
     args[:] = NOSETESTS_ARGS
@@ -271,12 +379,13 @@ def bvt_deviso_post():
     args.append('--tc-file={VENV}/%s' % CONFIG_FILE)
 
     # Default is our BVT suite.
-    suite = SUITES.get(data.get('suite'), DEFAULT_SUITE)
-    args.append('--tc=stages._enabled:1')
+    suite = SUITES[data.get('suite', DEFAULT_SUITE)]
+    args.append('--tc=stages.enabled:1')
     # XXX: No quotes around the long argument value!
-    if suite == DEFAULT_SUITE:
-        args.append('--eval-attr=status is not "DISABLED" and priority is 1')
-    #args.append('--with-bvtinfo')
+    if data.get('suite') == DEFAULT_SUITE:
+        args.append('--eval-attr=rank > 0 and rank < 11')
+    args.append('--with-email')
+    # args.append('--with-bvtinfo')
     args.append('--with-irack')
     args.append('{VENV}/%s' % suite)
 
@@ -295,7 +404,7 @@ def config_post():
     options.irack_address = CONFIG.irack.address
     options.irack_username = CONFIG.irack.username
     options.irack_apikey = CONFIG.irack.apikey
-    #options.clean = True
+    # options.clean = True
     options.no_sshkey = True
     if options.clean:
         options.selfip_internal = None
@@ -303,7 +412,8 @@ def config_post():
         options.provision = None
         options.timezone = None
 
-    result = confgen.delay(address=data.address, options=options, user_input=data)  # @UndefinedVariable
+    result = confgen.delay(address=data.address.strip(), options=options,  # @UndefinedVariable
+                           user_input=data)
     link = app.router.build('status', task_id=result.id)
     return dict(status=result.status, id=result.id, link=link)
 
@@ -329,7 +439,8 @@ def install_post():
     if data.config == 'essential':
         options.essential_config = True
 
-    result = install.delay(address=data.address, options=options, user_input=data)  # @UndefinedVariable
+    result = install.delay(address=data.address.strip(), options=options,  # @UndefinedVariable
+                           user_input=data)
     link = app.router.build('status', task_id=result.id)
     return dict(status=result.status, id=result.id, link=link)
 
@@ -344,15 +455,15 @@ def tester_icontrol_post():
     options.password = data.password
     options.json = True
 
-    result = ictester.delay(address=data.address, method=data.method,   # @UndefinedVariable
+    result = ictester.delay(address=data.address.strip(), method=data.method,  # @UndefinedVariable
                             options=options,
                             params=data.arguments, user_input=data)
 
-    #print arguments
+    # print arguments
     link = app.router.build('status', task_id=result.id)
     return dict(status=result.status, id=result.id, link=link)
 
 
 if __name__ == '__main__':
-    #app.run(host='0.0.0.0', server='gevent', port=PORT, debug=DEBUG)
+    # app.run(host='0.0.0.0', server='gevent', port=PORT, debug=DEBUG)
     app.run(host='0.0.0.0', port=PORT, debug=DEBUG)

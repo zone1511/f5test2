@@ -171,7 +171,7 @@ $(function(){
                     /* ajax error */
                     console.log(textStatus);
                     var msg = response.status + ' ' + response.statusText;
-                    $('#failure.alert').html(msg).show();
+                    $('#validation.alert').html(msg).show();
                 }).always(function() {
                     $('.console').fadeIn();
                     //$('.console').slideDown();
@@ -242,7 +242,7 @@ $(function(){
                     self.stop_refresh(interval);
                 
                 if (self.pending_count <= 0) {
-                    $('#failure.alert').show().find("span").text("Task expired?");
+                    $('#info.alert').show().find("span").text("Task queued.");
                     self.stop_refresh(interval);
                 }
 

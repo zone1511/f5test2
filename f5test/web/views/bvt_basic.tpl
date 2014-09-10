@@ -1,11 +1,11 @@
 {% extends "base.tpl" %}
 {% block bvt_active %}active{% endblock %}
 
-{% block title %}BVT Basic{% endblock %}
+{% block title %}EM Request{% endblock %}
 
 {% block description %}
-     <h2>BVT Basic</h2>
-     <p>This is intended for non-EM people who need to validate their builds. Note that <code>Project</code> and <code>Build</code> parameters are required. Click on the dotted links to edit values. Check out the console tab for any log messages.</p>
+     <h2>EM Request</h2>
+     <p>This is intended for external teams who need to validate BIG-IP user builds, TCs, against Enterprise Manager. Note that <code>Project</code> and <code>Build</code> parameters are required. Click on the dotted links to edit values. Check out the console tab for any log messages.</p>
 {% endblock %}
 
 {% block options %}

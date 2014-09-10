@@ -9,7 +9,8 @@ $(function(){
         showbuttons: false,
         source: [
               {value: 'bvt', text: "Test Team's BVT"},
-              {value: 'dev', text: "Dev's Functionals"}
+              {value: 'dev', text: "Dev's Functionals"},
+              {value: 'dev-cloud', text: "Cloud Team Functionals"}
         ]
     });
 
@@ -39,7 +40,7 @@ $(function(){
         // Attributes
         task_uri: '/bvt/deviso',
         inputs: ko.mapping.fromJS({
-          iso: ko.observable().extend({ remote: { type: 'file' }, required: true }),
+          iso: ko.observable().extend({ remote: { type: 'file' }, required: false }),
           email: ko.observable(),
           suite: ko.observable("bvt"),
         }),

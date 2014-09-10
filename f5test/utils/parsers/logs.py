@@ -1,15 +1,18 @@
 '''
 Created on Jan 4, 2012
-Modified on: $DateTime: 2012/08/30 22:32:16 $
+Modified on: $DateTime: 2014/08/01 10:37:30 $
 
 @author: jono
 '''
+import re
 import logging
 from f5test.utils.wait import wait
 LOG = logging.getLogger(__name__)
 
 
 class LogTester(object):
+    """The generic LogTester class that lets you implement a callback function.
+    It also has an embedded wait which waits until the provided callback returns true."""
 
     def __init__(self, filename, testcb, ifc, timeout=0):
         self.filename = filename
@@ -18,10 +21,17 @@ class LogTester(object):
         self.ifc = ifc
 
     def __enter__(self):
-        ssh = self.ifc.api
-        self._pre_stats = ssh.stat(self.filename)
+        self.setup()
 
     def __exit__(self, type, value, traceback):  # @ReservedAssignment
+        self.teardown()
+
+    def setup(self):
+        ssh = self.ifc.api
+        self._pre_stats = ssh.stat(self.filename)
+        return self
+
+    def teardown(self):
         ssh = self.ifc.api
 
         def callback():
@@ -36,6 +46,23 @@ class LogTester(object):
             return self.testcb(ret.stdout, self._post_stats)
 
         if self.timeout:
-            wait(callback, timeout=self.timeout)
+            return wait(callback, timeout=self.timeout)
         else:
-            callback()
+            return callback()
+
+
+class GrepLogTester(LogTester):
+    """A more specific LogTester class that greps the log delta for a specific regex pattern"""
+
+    def __init__(self, filename, ifc, expr=r'.*'):
+        self.filename = filename
+        self.ifc = ifc
+        self.timeout = None
+
+        def testcb(stdout, stats):
+            lines = []
+            for line in stdout.splitlines():
+                if re.search(expr, line):
+                    lines.append(line)
+            return lines
+        self.testcb = testcb

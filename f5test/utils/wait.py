@@ -53,7 +53,6 @@ class Wait(object):
             try:
                 self.function(*args, **kwargs)
                 success = self.test_result()
-                self.progress()
                 #if not success:
                 #    LOG.warning('Unexpected result: %s', result)
             except:
@@ -61,7 +60,7 @@ class Wait(object):
                 last_exc = err[0]
                 tb = ''.join(traceback.format_exception(*err))
                 success = self.test_error(*err)
-                LOG.debug("Exception occured during wait():\n%s", tb)
+                LOG.debug("Exception occurred in wait():\n%s", tb)
                 #if not success:
                 #    LOG.warning('Unexpected error: %s', tb)
             finally:
@@ -71,6 +70,10 @@ class Wait(object):
                 else:
                     stable = 0
                     self.criteria_not_met()
+                    try:
+                        self.progress()
+                    except:
+                        LOG.warning("Exception occurred in progress()")
 
                 if success:
                     if stable == 0 or last_success == success:
@@ -91,7 +94,7 @@ class Wait(object):
                 time.sleep(self.interval)
         else:
             self.fail()
-            raise WaitTimedOut(self.timeout_message.format(self.timeout))
+            raise WaitTimedOut(self.timeout_message.format(self.timeout, self._result))
 
         return self._result
 

@@ -7,6 +7,8 @@ Created on May 31, 2011
 from f5test.macros.base import Macro
 from f5test.base import Options
 from f5test.interfaces.icontrol import IcontrolInterface
+from f5test.interfaces.rest.emapi import EmapiInterface
+from f5test.interfaces.rest.emapi.objects.bigip import SyncStatus
 import f5test.commands.icontrol as ICMD
 from f5test.interfaces.config import DeviceAccess, DeviceCredential, ADMIN_ROLE
 from f5test.defaults import DEFAULT_PORTS
@@ -33,6 +35,7 @@ class FailoverMacro(Macro):
         self.cas = []
         self.peers = []
         self.groups_specs = groups or []
+        self.sync_device = None  # Used only when do_config_all() is called.
 
         super(FailoverMacro, self).__init__()
 
@@ -252,6 +255,8 @@ class FailoverMacro(Macro):
                 LOG.info('Enabling failover on %s...', group_name)
                 ic.Management.DeviceGroup.set_network_failover_enabled_state(device_groups=[group_name],
                                                                                  states=['STATE_ENABLED'])
+                ic.Management.DeviceGroup.set_autosync_enabled_state(device_groups=[group_name],
+                                                                         states=['STATE_ENABLED'])
             elif group_type == 'DGT_SYNC_ONLY':
                 LOG.info('Enabling auto-sync on %s...', group_name)
                 ic.Management.DeviceGroup.set_autosync_enabled_state(device_groups=[group_name],
@@ -278,13 +283,57 @@ class FailoverMacro(Macro):
         active_devices = list(filter(lambda x: x[1] == 'HA_STATE_ACTIVE', trios))
         return active_devices
 
+    def do_wait_valid_state(self):
+        LOG.info('Waiting until BIG-IPs are not in Disconnected state...')
+
+        def get_sync_statuses():
+            ret = []
+            for device in self.cas + self.peers:
+                device_cred = device.get_admin_creds()
+                with EmapiInterface(username=device_cred.username,
+                                    password=device_cred.password,
+                                    port=device.ports['https'],
+                                    address=device.address) as rstifc:
+                    api = rstifc.api
+                    entries = api.get(SyncStatus.URI)['entries']
+                    x = [entries[entry].nestedStats.entries.status.description
+                         for entry in entries]
+                    ret.extend(x)
+
+            return ret
+
+        # Verify all BIG-IPs are at least 11.5.0
+        valid_bigips = True
+        for device in self.cas + self.peers:
+            device_cred = device.get_admin_creds()
+            with IcontrolInterface(address=device.address, username=device_cred.username,
+                                   password=device_cred.password,
+                                   port=device.ports['https']) as icifc:
+                v = icifc.version
+                if v.product.is_bigip and v < 'bigip 11.5.0':
+                    valid_bigips = False
+
+        if valid_bigips:
+            wait(get_sync_statuses,
+                 condition=lambda ret: not 'Disconnected' in ret,
+                 progress_cb=lambda ret: "Device sync-status: {0}".format(ret),
+                 timeout=10)
+        else:
+            LOG.info('There are BIG-IPs that are older than 11.5.0. Skipping wait...')
+
     def do_config_sync(self):
         groups = self.groups.keys()
 
-        # Wait for at least one Active device.
-        active_devices = wait(self.do_get_active, timeout=30, interval=2)
-        # Will initiate config sync only from the first Active device.
-        first_active_device = active_devices[0]
+        self.do_wait_valid_state()
+        # If so_config_all() is called, use cas[0] device, otherwise sync using
+        # first active device.
+        if self.sync_device:
+            first_active_device = self.sync_device
+        else:
+            # Wait for at least one Active device.
+            active_devices = wait(self.do_get_active, timeout=30, interval=2)
+            # Will initiate config sync only from the first Active device.
+            first_active_device = active_devices[0]
         LOG.info("Doing Config Sync to group %s...", groups)
 
         cred = first_active_device[0].get_admin_creds()
@@ -347,6 +396,11 @@ class FailoverMacro(Macro):
             return
 
         ca_cred = cas[0].get_admin_creds()
+
+        # There is a chance where the first cas device can come up as STANDBY. This
+        # ensures the sync will use the first cas device (cas[0]) to sync to group.
+        self.sync_device = [cas[0]]
+
         with IcontrolInterface(address=cas[0].address, username=ca_cred.username,
                                password=ca_cred.password,
                                port=cas[0].ports['https']) as caicifc:
@@ -425,11 +479,15 @@ class FailoverMacro(Macro):
                 ca_api.Networking.SelfIPV2.create(self_ips=['int_floating'],
                                                   vlan_names=['internal'],
                                                   addresses=[str(ip.ip)],
-                                                  netmasks=[str(ip.netmask())],
+                                                  netmasks=[str(ip.netmask)],
                                                   traffic_groups=[DEFAULT_TG],
                                                   floating_states=['STATE_ENABLED']
                                                   )
 
+                # Change Port Lockdown to Allow Default.
+                ca_api.Networking.SelfIPV2.add_allow_access_list(self_ips=['int_floating'],
+                    access_lists=[dict(mode='ALLOW_MODE_DEFAULTS', protocol_ports=[])]
+                    )
             # BUG: BZ364939 (workaround restart tmm on all peers)
             # 01/22: Appears to work sometimes in 11.2 955.0
             self.do_BZ364939()

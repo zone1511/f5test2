@@ -7,6 +7,7 @@ from .scaffolding import Stamp
 import itertools
 import netaddr
 from ...utils.parsers import tmsh
+from ...utils.parsers.tmsh import RawEOL
 
 
 class Node(Stamp):
@@ -156,7 +157,7 @@ class Pool(Stamp):
             value.clear()
             if self.pool_monitors:
                 value.update({tmsh.RawString('monitor all'): ' and '.join(self.pool_monitors)})
-            value.update({'members': None})
+            value.update({'members': RawEOL})
             for node, port, monitor in itertools.izip(self.nodes,
                                                       self.ports,
                                                       self.monitors):
@@ -164,7 +165,7 @@ class Pool(Stamp):
                 sep = self.get_separator(address)
                 member = '%s%s%s' % (address, sep, port)
 
-                value[member] = None
+                value[member] = RawEOL
                 self.set_monitor(value, monitor)
             return key, obj
 

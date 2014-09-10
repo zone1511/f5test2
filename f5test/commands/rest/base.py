@@ -1,5 +1,6 @@
 from .. import base
 from ...interfaces.rest import RestInterface
+from ...interfaces.rest.emapi import EmapiInterface
 import logging
 
 LOG = logging.getLogger(__name__)
@@ -19,12 +20,14 @@ class RestCommand(base.Command):
     @param password: the admin password
     @type password: str
     """
+    ifc_class = RestInterface
+
     def __init__(self, device=None, ifc=None, address=None, username=None,
                  password=None, proto='https', port=None, timeout=90,
                  *args, **kwargs):
         if ifc is None:
-            self.ifc = RestInterface(device, address, username, password,
-                                     proto=proto, port=port, timeout=timeout)
+            self.ifc = self.ifc_class(device, address, username, password,
+                                      proto=proto, port=port, timeout=timeout)
             self.api = self.ifc.open()
             self._keep_alive = False
         else:
@@ -44,6 +47,7 @@ class RestCommand(base.Command):
                         "password=%(password)s)" % opt
 
     def prep(self):
+        super(RestCommand, self).prep()
         if not self.ifc.is_opened():
             self.ifc.open()
             #self.api.connect()
@@ -52,3 +56,8 @@ class RestCommand(base.Command):
     def cleanup(self):
         if not self._keep_alive:
             self.ifc.close()
+        return super(RestCommand, self).cleanup()
+
+
+class IcontrolRestCommand(RestCommand):
+    ifc_class = EmapiInterface

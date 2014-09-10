@@ -2,11 +2,13 @@
 
 from .base import SSHCommand, CommandNotSupported, SSHCommandError
 from ..base import CachedCommand, WaitableCommand, CommandError
-from ...base import Options
+from ...base import Options, AttrDict
 from ...interfaces.subprocess import ShellInterface
+from ...interfaces.ssh import SSHInterface
 from ...utils.parsers.version_file import colon_pairs_dict, equals_pairs_dict
 from ...utils.parsers.audit import audit_parse
 from ...utils.version import Version
+from paramiko import RSAKey
 import logging
 import time
 import os
@@ -81,7 +83,7 @@ class ScpPut(SSHCommand): #@IgnorePep8
         scpargs = ['-p',  # Preserves modification times, access times, and modes from the original file.
                    '-o StrictHostKeyChecking=no',  # Don't look in  ~/.ssh/known_hosts.
                    '-o UserKnownHostsFile=/dev/null',  # Throw away the new identity
-                   '-c arcfour256',  # High performance cipher.
+                   #'-c arcfour256',  # High performance cipher.
                    '-P %d' % self.ifc.port]
         destdir = os.path.dirname(self.destination)
         self.api.run('mkdir -p %s' % destdir)
@@ -466,16 +468,20 @@ class CollectLogs(SSHCommand): #@IgnorePep8
     @param last: how many lines to tail
     @type last: int
     """
-    def __init__(self, dir, last=100, *args, **kwargs):  # @ReservedAssignment
+    LINE_COUNT = 100
+
+    def __init__(self, dir, *args, **kwargs):  # @ReservedAssignment
         super(CollectLogs, self).__init__(*args, **kwargs)
         self.dir = dir
-        self.last = last
 
     def setup(self):
         # Common
-        files = ['/var/log/ltm', '/var/log/messages',
-                '/var/log/httpd/httpd_errors']
+        files = ['/var/log/ltm', '/var/log/messages']
         v = abs(self.version)
+
+        # httpd removed in bigiq 4.3
+        if not (v.product.is_bigiq and v > 'bigiq 4.2'):
+            files.append('/var/log/httpd/httpd_errors')
 
         # EM specific
         if v.product.is_em:
@@ -486,9 +492,16 @@ class CollectLogs(SSHCommand): #@IgnorePep8
         if v.product.is_bigip and v > 'bigip 10.0' \
         or v.product.is_em and v > 'em 2.0' \
         or v.product.is_bigiq:
-            files.append('/var/log/tomcat/catalina.out')
             files.append('/var/log/liveinstall.log')
-            files.append('/var/log/webui.log')
+            if not v > 'bigiq 4.0':
+                files.append('/var/log/tomcat/catalina.out')
+                files.append('/var/log/webui.log')
+            if v >= 'bigiq 4.2':
+                files.append('/var/log/guiserver.out')
+            if v >= 'bigiq 4.3' and v <= 'bigiq 4.4':
+                files.append('/var/log/nginx_errors.log')
+            if v >= 'bigiq 4.5':
+                files.append('/var/log/nginx/errors.log*')
         else:
             files.append('/var/log/tomcat4/catalina.out')
 
@@ -498,9 +511,13 @@ class CollectLogs(SSHCommand): #@IgnorePep8
         or v.product.is_bigiq:
             files.append('/var/log/restjavad.0.log')
 
+        if v.product.is_bigiq and v >= 'bigiq 4.4':
+            files.append('/var/log/restjavad*.0.log')
+
         for filename in files:
-            ret = self.api.run('tail -n %d %s' % (self.last, filename))
+            ret = self.api.run('tail -n %d %s' % (self.LINE_COUNT, filename))
             local_file = os.path.join(self.dir, os.path.basename(filename))
+            local_file = local_file.replace('*', '_')
             with open(local_file, "wt") as f:
                 f.write(ret.stdout)
 
@@ -652,7 +669,7 @@ class ParseVersionFile(SSHCommand): #@IgnorePep8
 
 
 is_cluster = None
-class IsCluster(SSHCommand): #@IgnorePep8
+class IsCluster(CachedCommand, SSHCommand): #@IgnorePep8
     """Check to see if the platfom we're running on is a cluster."""
 
     def setup(self):
@@ -660,3 +677,111 @@ class IsCluster(SSHCommand): #@IgnorePep8
         if v.product.is_bigip and v > 'bigip 10.0.0':
             return self.api.run('getdb clustered.environment').stdout.strip() == 'true'
         return False
+
+
+key_exchange = None
+class KeyExchange(SSHCommand): #@IgnorePep8
+    """Exchange SSH key between two remote devices."""
+    AUTHORIZED_KEYS = '.ssh/authorized_keys'
+    IDENTITY_SSH1 = '.ssh/identity'
+
+    def __init__(self, device, address=None, *args, **kwargs):
+        super(KeyExchange, self).__init__(*args, **kwargs)
+        self.device = device
+        self.address = address if address else self.device.address
+
+    def setup(self):
+        LOG.debug('Doing key exchange between %s and %s', self.api.address,
+                  self.device.get_address())
+        sftp = self.api.sftp()
+
+        # Currently works only with RSA keys (v1)
+        f = sftp.open(KeyExchange.IDENTITY_SSH1)
+        pk = RSAKey.from_private_key(f)
+        with SSHInterface(device=self.device) as sshifc:
+            sshifc.api.exchange_key(key=pk, name=self.api.address)
+
+        # Make sure known_hosts is updated
+        self.api.run('ssh-keygen -R %s' % self.address)
+        self.api.run('ssh -n -o StrictHostKeyChecking=no root@%s /bin/true' %
+                     self.address)
+
+
+audit_port = None
+class AuditPort(SSHCommand):  # @IgnorePep8
+    """Checks if a port is opened.
+    for string result use: str(@return.stdout)
+    @return: SSHResult
+    """
+
+    def __init__(self, port, *args, **kwargs):
+        super(AuditPort, self).__init__(*args, **kwargs)
+        self.port = port
+
+    def setup(self):
+        return self.api.run("netstat -anp |grep {0}".format(self.port))
+
+
+get_current_micros = None
+class GetCurrentMicros(SSHCommand):  # @IgnorePep8
+    """Returns the number of seconds + X no of current nanoseconds since the epoch
+    @return: string
+    """
+
+    def __init__(self, n=None, *args, **kwargs):
+        super(GetCurrentMicros, self).__init__(*args, **kwargs)
+        if not n:
+            n = 6
+        self.n = n
+
+    def setup(self):
+        return (str(self.api.run('date +"%s%{0}N"'.format(self.n)).stdout)).rstrip()
+
+get_system_stats = None
+class GetSystemStats(SSHCommand): # @IgnorePep8
+    """ Returns values for current disk usage, current cpu usage,
+    and memory usage.
+    @return: dict
+    """
+    def __init__(self, partition=None, *args, **kwargs):
+        super(GetSystemStats, self).__init__(*args, **kwargs)
+        if not partition:
+            partition = '/'
+        self.partition = partition
+
+    def setup(self):
+        self.usage_stats = AttrDict()
+        cpuUse = str(self.ifc.api.run("mpstat -P ALL | awk '{print $10}'").
+                    stdout).strip().split('\n')[1:]  # skip header line
+        self.usage_stats.CPU = cpuUse[0]
+        self.usage_stats.CPUPERCORE = cpuUse[1:]  # get all but cpu average
+        self.usage_stats.DISK = (str(self.ifc.api.run("df %s | tail -1 | awk '{print $4+0}'" % self.partition).stdout)).rstrip()
+        self.usage_stats.MEM = (str(self.ifc.api.run("free -m | grep Mem | awk '{print $3/$2 * 100.0}'").stdout)).rstrip()
+        self.usage_stats.CPUFORMATTED = "%.2f%%" % (
+                        100 - float(self.usage_stats.CPU))
+        self.usage_stats.CPUFORMATTEDPERCORE = []
+        for cpu in self.usage_stats.CPUPERCORE:
+            self.usage_stats.CPUFORMATTEDPERCORE.append("%.2f%%" % (
+                        100 - float(cpu)))
+        return self.usage_stats
+
+
+get_running_processes = None
+class GetRunningProcesses(SSHCommand): # @IgnorePep8
+    """
+    Retrieves the processes by CPU usage as a list
+    If no count is passed, all procs are returned. 
+    Otherwise it will retrieve <count> off the top
+    e.g. count=10 would be the top 10 processes
+    @return: list
+    """
+    def __init__(self, count=None, *args, **kwargs):
+        super(GetRunningProcesses, self).__init__(*args, **kwargs)
+        self.count = count
+       
+    def setup(self):
+        if self.count:
+            self.top_procs = self.ifc.api.run("ps axo %%cpu,%%mem,args | sort -rb | head -n %s" % self.count).stdout.strip().split('\n')
+        else:
+            self.top_procs = self.ifc.api.run("ps axo %%pu,%%mem,args | sort -rb" % self.count).stdout.strip().split('\n')
+        return self.top_procs

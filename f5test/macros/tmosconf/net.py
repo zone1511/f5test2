@@ -4,7 +4,7 @@ Created on Apr 12, 2013
 @author: jono
 '''
 from .scaffolding import Stamp
-from ...utils.parsers.tmsh import RawDict
+from ...utils.parsers.tmsh import RawDict, RawEOL
 from netaddr import IPNetwork
 
 
@@ -50,10 +50,14 @@ class SelfIP(Stamp):
         super(SelfIP, self).__init__()
 
     def tmsh(self, obj):
+        # We don't want to use tmsh to set selfIPs on BIGIQ because of reasons.
+        v = self.folder.context.version
+        if v.product.is_bigiq and v >= 'bigiq 4.2.0':
+            return None, None
         key = self.folder.SEPARATOR.join((self.folder.key(), self.name))
         value = obj.rename_key('net self %(key)s', key=key)
-        value['allow-service'] = dict((x, None) for x in self.allow)
-        #value['fw-rules'] = dict((x, None) for x in self.rules)
+        value['allow-service'] = dict((x, RawEOL) for x in self.allow)
+        #value['fw-rules'] = dict((x, RawEOL) for x in self.rules)
         if self.rules:
             value['fw-rules'].clear()
             map(lambda x: value['fw-rules'].update(x.get_for_firewall()),
@@ -121,7 +125,7 @@ class Trunk(Stamp):
             value = obj.rename_key('net trunk %(name)s', name=self.name)
             if self.interfaces:
                 value['interfaces'].clear()
-                value['interfaces'].update(dict((x, None) for x in self.interfaces))
+                value['interfaces'].update(dict((x, RawEOL) for x in self.interfaces))
             else:
                 value.pop('interfaces')
             if self.lacp:
@@ -146,14 +150,8 @@ class Vlan(Stamp):
     """
     BIGPIPE = """
         vlan %(name)s {
-#           tag 4094
            interfaces {
-              1.1
-              1.3
-           }
-           interfaces tagged {
-              1.2
-              1.4
+               1.1
            }
         }
     """
@@ -193,17 +191,14 @@ class Vlan(Stamp):
         value = obj.rename_key('vlan %(name)s', name=self.name)
         if self.untagged:
             value['interfaces'] = D()
-            #value['interfaces'].clear()
-            value['interfaces'].update(D((x, None) for x in self.untagged))
+            value['interfaces'].update(D((x, RawEOL) for x in self.untagged))
         else:
             value.pop('interfaces')
 
         if self.tagged:
             value['tag'] = self.tag
             value['interfaces tagged'] = D()
-            value['interfaces tagged'].update(D((x, None) for x in self.tagged))
-        else:
-            value.pop('interfaces tagged')
+            value['interfaces tagged'].update(D((x, RawEOL) for x in self.tagged))
 
         return key, obj
 
@@ -254,7 +249,7 @@ class RouteDomain(Stamp):
             value['partition'] = partition
             if self.vlans:
                 value['vlans'].clear()
-                value['vlans'].update(dict((x.get(reference=True), None) for x in self.vlans))
+                value['vlans'].update(dict((x.get(reference=True), RawEOL) for x in self.vlans))
             else:
                 value.pop('vlans')
             if self.parent:

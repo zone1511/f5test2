@@ -9,6 +9,7 @@ import logging
 import itertools
 from ...utils.parsers import tmsh
 
+
 PARTITION_COMMON = 'Common'
 LOG = logging.getLogger(__name__)
 
@@ -21,7 +22,7 @@ def make_partitions(name='Partition{0}', count=0, context=None):
     return root
 
 
-def enumerate_stamps(folder, klass, pred=None, include_common=True, cycle=True):
+def enumerate_stamps(folder, klass, pred=None, include_common=True, cycle=False):
     if not callable(pred):
         pred = lambda x: True
 
@@ -129,7 +130,7 @@ class Folder(dict):
 
 class Stamp(object):
     built_in = False
-    cache = {}
+    _cache = {}
 
     def __init__(self):
         self.folder = None
@@ -140,11 +141,11 @@ class Stamp(object):
     def template(self, name):
         klass = type(self)
         key = "_%s_%s" % (klass.__name__, name)
-        template = Stamp.cache.get(key)
+        template = Stamp._cache.get(key)
         if template is None:
             template_text = getattr(klass, name, '')
             template = tmsh.parser(template_text)
-            Stamp.cache[key] = template
+            Stamp._cache[key] = template
         return template
 
     def from_template(self, name):
@@ -270,11 +271,18 @@ class Literal(Stamp):
 
 
 class Mirror(Stamp):
+    """Main purpose of this stamp is to turn the output of tmsh list into a
+    Stamp object.
 
-    def __init__(self, obj, key=None):
-        self.obj = obj
+    Example:
+    for key, val in SCMD.tmsh.list('net trunk', ifc=self.sshifc):
+        print Mirror(key, val).compile()
+    """
+    def __init__(self, key, obj):
         self.key = key
+        self.obj = obj
+        self.name = self.key.split(' ')[-1]
         super(Mirror, self).__init__()
 
     def compile(self):
-        return self.key, self.obj
+        return self.name, {self.key: self.obj}

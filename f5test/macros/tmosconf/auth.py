@@ -4,7 +4,7 @@ Created on Apr 15, 2013
 @author: jono
 '''
 from .scaffolding import Stamp
-import crypt
+import crypt  # @UnresolvedImport
 #import itertools
 #import netaddr
 from ...utils.parsers import tmsh
@@ -13,16 +13,20 @@ from ...utils.parsers import tmsh
 class User(Stamp):
     TMSH = """
         auth user %(name)s {
-           encrypted-password "$1$f5site02$lULDkZ4/wBvcXq1Ek6y0l/"
            description "created by confgen"
            shell none
-           role admin
-           partition-access all
+           #role admin
+           #partition-access all
+
+           #partition-access {
+           #  all-partitions {
+           #    role admin
+           # }
+          }
         }
     """
     BIGPIPE = """
         user %(name)s {
-           password crypt "$1$f5site02$lULDkZ4/wBvcXq1Ek6y0l/"
            description "a"
            shell "/bin/false"
 #           role administrator in all
@@ -43,10 +47,15 @@ class User(Stamp):
         super(User, self).__init__()
 
     def tmsh(self, obj):
+        ctx = self.folder.context
         key = self.folder.SEPARATOR.join((self.folder.key(), self.name))
         value = obj.rename_key('auth user %(name)s', name=self.name)
         value['encrypted-password'] = crypt.crypt(self.password, self.salt)
-        value['role'] = self.role
+        if ctx.version >= 'bigip 11.6':
+            value['partition-access'] = {'all-partitions': {'role': self.role}}
+        else:
+            value['role'] = self.role
+            value['partition-access'] = 'all'
         value['description'] = "User %s/%s" % (self.name, self.password)
         return key, obj
 

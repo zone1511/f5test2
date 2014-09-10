@@ -7,8 +7,11 @@ http://pyparsing.wikispaces.com/file/view/parsePythonValue.py/31712649/parsePyth
 @author: jono
 '''
 from pyparsing import *
+from ..decorators import synchronized_with
+from . import PYPARSING_LOCK
 
 
+@synchronized_with(PYPARSING_LOCK)
 def parser(text):
     cvtInt = lambda toks: int(toks[0])
     cvtReal = lambda toks: float(toks[0])

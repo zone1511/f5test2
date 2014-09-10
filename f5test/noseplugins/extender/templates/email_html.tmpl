@@ -1,0 +1,49 @@
+<html>
+<head>
+	<meta http-equiv="Content-Type" content="text/html; charset=us-ascii">
+	<title>Test report</title>
+</head>
+
+<body>
+<pre>
+Good:    {{ result.bars.good }}
+Bad:     {{ result.bars.bad }}
+Skipped: {{ result.bars.unknown }}
+
+{% if time %}Duration: {{ time.delta_str }}{% endif %}
+
+{% if not nose_config.options.no_logcollect -%}
+Session logs: {{ session_url }}
+{%- endif %}
+{%- if config.testopia._testrun %}
+Testopia run: {{ config.testopia.address }}/tr_show_run.cgi?run_id={{ config.testopia._testrun }}
+{%- endif %}
+
+DUTs info:
+==========
+{%- for dut in duts %}
+ - {{ dut.device.alias|ljust(10) }} - {{ dut.device.address|ljust(16) }} <a href="https://{{ dut.device.address }}:{{ dut.device.ports['https'] }}">HTTPS</a> <a href="ssh://root@{{ dut.device.address }}:{{ dut.device.ports['ssh'] }}">SSH</a>: {{ dut.platform|ljust(4) }} {{ dut.version.product.to_tmos|rjust(7) }} {{ dut.version.version }} {{ dut.version.build }} {{ dut.project or '' }} {% if cores and cores.data[dut.device.alias] %}[CORED]{% endif %}
+{%- endfor %}
+
+Skipped:
+========
+{% for result in result.skipped -%}
+<b>*</b> {{ result.0.test.id() }}
+Author: {{ result.0.test.author }} 
+{{ result.1.1.message|string|trim|indent(2, true)|bzify  }}
+{% endfor %}
+
+Bad:
+====
+{% for result in result.failures + result.errors -%}
+<b>*</b> {{ result.0.test.id() }}
+Author: {{ result.0.test.author }} 
+{{ result.1.1.message|string|trim|truncate(10000, true)|indent(2, true)|bzify  }}
+{% endfor %}
+
+Test Runner:
+============
+<b>{{ test_runner_ip }}</b> 
+</pre>
+</body>
+</html>

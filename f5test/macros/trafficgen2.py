@@ -17,7 +17,8 @@ import logging
 import time
 import urlparse
 
-
+DEFAULT_TIMEOUT = 3
+DEFAULT_LIMIT = 90
 LOG = logging.getLogger(__name__)
 __version__ = '0.3'
 
@@ -31,6 +32,8 @@ def partition(size, n):
 class TrafficGen(Macro):
 
     def __init__(self, options, urls):
+        options.setdefault('timeout', DEFAULT_TIMEOUT)
+        options.setdefault('limit', DEFAULT_LIMIT)
         self.options = Options(options)
         self.urls = urls
 
@@ -140,7 +143,7 @@ class TrafficGen(Macro):
     def cleanup(self):
         """Shutdown gevent as it seems to be leaking some globals."""
         super(TrafficGen, self).cleanup()
-        gevent.shutdown()
+        gevent.get_hub().destroy()
 
 
 def main():
@@ -181,10 +184,10 @@ def main():
 #    p.add_option("-p", "--pattern", metavar="STRING",
 #                 default="0:10", type="string",
 #                 help="[Threads delta:Sleep]... (default: 1:300:-1:300)")
-    p.add_option("-t", "--timeout", metavar="SECONDS", type="int", default=3,
-                 help="Timeout (default: 3)")
-    p.add_option("-l", "--limit", metavar="SECONDS", type="int", default=30,
-                 help="Run limit (default: 30)")
+    p.add_option("-t", "--timeout", metavar="SECONDS", type="int",
+                 default=DEFAULT_TIMEOUT, help="Timeout (default: %d)" % DEFAULT_TIMEOUT)
+    p.add_option("-l", "--limit", metavar="SECONDS", type="int",
+                 default=DEFAULT_LIMIT, help="Run limit (default: %d)" % DEFAULT_LIMIT)
 
     options, args = p.parse_args()
 

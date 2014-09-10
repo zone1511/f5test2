@@ -3,13 +3,12 @@ Created on Jan 30, 2013
 
 @author: jono
 '''
-from .base import RestCommand
-from ..base import CommandError
+from .base import IcontrolRestCommand
 from ...base import Options
 
 
 create_firewall = None
-class CreateFirewall(RestCommand):
+class CreateFirewall(IcontrolRestCommand):  # @IgnorePep8
     """Creates a new firewall instance on a BIGIQ.
 
     @rtype: dict

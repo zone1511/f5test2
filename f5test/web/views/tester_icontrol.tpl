@@ -8,7 +8,7 @@
      <p>Test any iControl method quick and easy. Click on the dotted links to edit values.
      Arguments: may be passed one per line (in Python syntax), strings with no whitespace don't need quotes.
      </p>
-     <p>For more information about iControl API visit the <a href="http://172.27.32.101/iControl-11.4.0/sdk/api_reference/iControl.html" target="_blank">online SDK</a>.</p>
+     <p>For more information about iControl API visit the <a href="http://172.27.32.101/tier2/iControl-11.6.0/sdk/api_reference/iControl.html" target="_blank">online SDK</a>.</p>
 {% endblock %}
 
 {% macro options() %}

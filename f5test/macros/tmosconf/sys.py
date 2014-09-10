@@ -7,6 +7,7 @@ from .scaffolding import Stamp, Literal
 import logging
 from ...base import enum
 from ...utils.parsers import tmsh
+from ...utils.parsers.tmsh import RawEOL
 
 LOG = logging.getLogger(__name__)
 
@@ -68,12 +69,20 @@ class Defaults(Literal):
     """
     BIGPIPE = """
         stp {
-           config name none
+        # config name none
         }
         self allow {
-           default tcp domain udp 1026 tcp ssh tcp snmp proto ospf tcp 4353 udp domain tcp https udp efs udp 4353 udp snmp
+        #   default tcp domain udp 1026 tcp ssh tcp snmp proto ospf tcp 4353 udp domain tcp https udp efs udp 4353 udp snmp
         }
     """
+
+    def bigpipe(self, obj):
+        value = obj.rename_key('stp')
+        value['config name'] = 'none'
+
+        value = obj.rename_key('self allow')
+        value['default tcp domain udp 1026 tcp ssh tcp snmp proto ospf tcp 4353 udp domain tcp https udp efs udp 4353 udp snmp'] = None
+        return None, obj
 
 
 class Platform(Stamp):
@@ -99,7 +108,6 @@ class Platform(Stamp):
            gateway none
         }
         system {
-           gui setup disable
            hostname bigip1
         }
     """
@@ -167,11 +175,11 @@ class DNS(Stamp):
     def bigpipe(self, obj):
         value = obj['dns']
         value.clear()
-        value.update({'nameservers': None})
-        value.update(dict((x, None) for x in self.servers))
+        value.update({'nameservers': RawEOL})
+        value.update(dict((x, tmsh.RawEOL) for x in self.servers))
         if self.suffixes:
-            value.update({'search': None})
-            value.update(dict((x, None) for x in self.suffixes))
+            value.update({'search': RawEOL})
+            value.update(dict((x, tmsh.RawEOL) for x in self.suffixes))
         return None, obj
 
 

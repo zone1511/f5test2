@@ -499,27 +499,39 @@ class HotfixFinder(IsoFinder):
         return basepath
 
     def _make_regex(self):
-        build = r'\d+\.\d+'
+        build = r'\d+\.\d+(\.\d+)*'
+        regexes = []
+        if re.match('hf-\w+', self.hotfix):
+            module = self.hotfix.split('-')[-1]
+            self.hotfix = 'HF\d+'
 
+            # After 11.5.0-hf-tmos (3/11/2014)
+            # Hotfix-BIGIP-tmos-11.5.0.1.0.283-HF1.iso
+            hotfix_115_regex = re.compile(r'hotfix-%s-%s-'
+                                          '%s.%s-%s\.(iso|im)$'
+                                          % (PRODUCT_REGEX, module,
+                                             self._original_identifier, build, self.hotfix),
+                                          re.IGNORECASE)
+            regexes.append(hotfix_115_regex)
+
+        # Matches:
+        # Hotfix-BIGIP-11.4.1-637.0-HF3.iso
+        # Hotfix-BIGIP-11.5.0.1.0.224-HF1.iso
         hotfix_regex = re.compile(r'hotfix-%s-'
-                                  '%s-%s-%s\.(iso|im)$'
+                                  '%s[\-\.]%s-%s\.(iso|im)$'
                                   % (PRODUCT_REGEX, self._original_identifier,
                                      build, self.hotfix), re.IGNORECASE)
-        eng_hotfix_regex = re.compile(r'hotfix-%s-'
-                                      '%s-%s-%s-eng\.(iso|im)$'
-                                      % (PRODUCT_REGEX,
-                                         self._original_identifier,
-                                         self.hotfix, build), re.IGNORECASE)
-        # Sometimes with an identifier of 'hf1-random', the iso will
-        # only have the 'hf1' part, so we check this "partial" match as well.
-        partial_hotfix_refex = re.compile(r'hotfix-%s-'
-                                          '%s-%s-%s\.(iso|im)$' %
-                                          (PRODUCT_REGEX,
-                                           self._original_identifier,
-                                           build,
-                                           self.hotfix.split('-')[0]),
-                                          re.IGNORECASE)
-        return [hotfix_regex, eng_hotfix_regex, partial_hotfix_refex]
+        regexes.append(hotfix_regex)
+
+        if self.is_eng:
+            # Hotfix-BIGIP-11.4.1-608.49-ENG.iso
+            eng_hotfix_regex = re.compile(r'hotfix-%s-'
+                                          '%s-%s-%s-eng\.(iso|im)$'
+                                          % (PRODUCT_REGEX,
+                                             self._original_identifier,
+                                             self.hotfix, build), re.IGNORECASE)
+            regexes.append(eng_hotfix_regex)
+        return regexes
 
 
 class ReleasedHotfixFinder(HotfixFinder):

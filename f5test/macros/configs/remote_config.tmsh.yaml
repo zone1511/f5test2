@@ -303,25 +303,11 @@ system:
            hostname %(system.hostname)s
            mgmt-dhcp disabled
         }
-#        auth user root {
-#           description "created by confgen"
-#           encrypted-password "$1$f5site02$sGndAUM76pW9LJkJ1a8Kn/"
-#           shell bash
-#        }
-
-#default users:
-#    admin: \$1\$f5site02\$sGndAUM76pW9LJkJ1a8Kn/
-#    root:  \$1\$f5site02\$sGndAUM76pW9LJkJ1a8Kn/
-
-# Supposed to be used only on 9.3.1's as param for f5passwd
-#legacy users:
-#    admin: f5site02
-#    root: f5site02
 
 users:
     administrator: |
         auth user a {
-           encrypted-password "$1$f5site02$lULDkZ4/wBvcXq1Ek6y0l/"
+           encrypted-password "$1$vRQcqYwb$NDINoZ.vWFzZGNKz7U1OH1"
            description "created by confgen"
            shell none
            role admin

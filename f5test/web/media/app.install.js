@@ -36,9 +36,11 @@ $(function(){
 
     $('#config').editable({
         display: function(value, sourceData) {
+             if(value == null)
+             	return;
              var colors = {'': "gray", 'essential': "green"},
                  elem = $.grep(sourceData, function(o){return o.value == value;});
-                 
+
              if(elem.length) {    
                  $(this).text(elem[0].text).css("color", colors[value]); 
              } else {
@@ -58,6 +60,8 @@ $(function(){
             {value: 'partitions', text: 'partitions'}
         ],
         display: function(value, sourceData) {
+             if(value == null)
+             	return;
              var colors = {"": "gray", 1: "green", 2: "blue"},
                  elem = $.grep(sourceData, function(o){return o.value == value;});
 

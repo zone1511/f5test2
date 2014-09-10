@@ -148,7 +148,10 @@ class InstallSoftware(Macro):
             LOG.info('running on %s', version)
 
             if version > 'bigip 9.6.0':
-                ret = SCMD.tmsh.list('sys cluster', ifc=sshifc)
+                try:
+                    ret = SCMD.tmsh.list('sys cluster', ifc=sshifc)
+                except:
+                    ret = None
                 if ret:
                     raise NotImplementedError('Due to potential complications image2disk '
                                               'installations on clustered '
@@ -160,11 +163,18 @@ class InstallSoftware(Macro):
                 LOG.warning('Enforcing --esential-config')
                 essential = True
 
+            if essential:
+                lines = ssh.run('ls ' + SHARED_IMAGES).stdout.split()
+                images = [x for x in lines if '.iso' in x]
+
+                hfbase = os.path.basename(hfiso) if hfiso else None
+                for image in images:
+                    if base != image and hfbase != image:
+                        LOG.info('Deleting image: %s' % image)
+                        ssh.run('rm -rf %s/%s' % (SHARED_IMAGES, image))
+
             #XXX: Image checksum is not verified!!
             if (not base in ssh.run('ls ' + SHARED_IMAGES).stdout.split()):
-                LOG.info('Deleting all images...')
-                ssh.run('rm -rf %s/*' % SHARED_IMAGES)
-
                 LOG.info('Importing iso %s', filename)
                 SCMD.ssh.scp_put(ifc=sshifc, source=filename, nokex=False)
 
@@ -191,8 +201,12 @@ class InstallSoftware(Macro):
                     if line and not line.startswith('info: '):
                         LOG.debug(line)
 
-            audit = SCMD.ssh.audit_software(version=version, ifc=sshifc)
-            volume = get_inactive_volume(audit)
+            try:
+                audit = SCMD.ssh.audit_software(version=version, ifc=sshifc)
+                volume = get_inactive_volume(audit)
+            except:
+                volume = 'HD1.1'
+                LOG.warning('Assuming destination slot %s', volume)
             LOG.info('Installing %s on %s...', iso_version, volume)
             SCMD.ssh.install_software(version=version, ifc=sshifc,
                                       repository=filename, format=fmt,
@@ -344,10 +358,31 @@ class InstallSoftware(Macro):
         is_clustered = ic.System.Cluster.is_clustered_environment()
 
         LOG.info('Timeout: %d', timeout)
-        if not haz_it:
-            LOG.info('Deleting all images...')
-            ICMD.software.delete_software_image(ifc=icifc)
 
+        if essential:
+            with SSHInterface(address=self.address,
+              username=self.options.root_username,
+              password=self.options.root_password,
+              timeout=timeout, port=self.options.ssh_port) as sshifc:
+                ssh = sshifc.api
+                lines = ssh.run('ls ' + SHARED_IMAGES).stdout.split()
+                images = [x for x in lines if '.iso' in x]
+
+            hfbase = os.path.basename(hfiso) if hfiso else None
+            for image in images:
+                if base != image and hfbase != image:
+                    # If the image is a hotfix image
+                    if 'hotfix' in image.lower():
+                        LOG.info('Deleting hotfix image: %s' % image)
+                        ICMD.software.delete_software_image(image, is_hf=True,
+                                                            ifc=icifc)
+
+                    # Otherwise assume it is a base image
+                    else:
+                        LOG.info('Deleting base image: %s' % image)
+                        ICMD.software.delete_software_image(image, ifc=icifc)
+
+        if not haz_it:
             LOG.info('Importing base iso %s', base)
             SCMD.ssh.scp_put(address=self.address,
                             username=self.options.root_username,
@@ -367,9 +402,6 @@ class InstallSoftware(Macro):
                                    x['build'] == hfiso_version.build, images))
 
             if not haz_it:
-                LOG.info('Deleting all hotfix images...')
-                ICMD.software.delete_software_image(is_hf=True, ifc=icifc)
-
                 hfbase = os.path.basename(hfiso)
                 LOG.info('Importing hotfix iso %s', hfiso)
                 SCMD.ssh.scp_put(address=self.address,
@@ -389,6 +421,7 @@ class InstallSoftware(Macro):
         def is_still_installing(items):
             return not any(filter(lambda x: x['status'].startswith('installing') or \
                                         x['status'].startswith('waiting') or \
+                                        x['status'].startswith('testing') or \
                                         x['status'] in ('audited', 'auditing',
                                                         'upgrade needed'),
                                   items))
@@ -549,14 +582,13 @@ class InstallSoftware(Macro):
                                   product=self.options.product,
                                   root=self.options.build_path)
 
-        if self.options.phf:
-            if self.options.hfimage:
-                hfiso = self.options.hfimage
-            else:
-                hfiso = cm.isofile(identifier=identifier, build=build,
-                                   hotfix=self.options.phf,
-                                   product=self.options.product,
-                                   root=self.options.build_path)
+        if self.options.hfimage:
+            hfiso = self.options.hfimage
+        elif self.options.phf:
+            hfiso = cm.isofile(identifier=identifier, build=build,
+                               hotfix=self.options.phf,
+                               product=self.options.product,
+                               root=self.options.build_path)
         else:
             hfiso = None
 
@@ -653,14 +685,13 @@ class EMInstallSoftware(Macro):
             filename = cm.isofile(identifier=identifier, build=build,
                                   product=o.product, root=o.build_path)
 
-        if self.options.phf:
-            if self.options.hfimage:
-                hfiso = self.options.hfimage
-            else:
-                hfiso = cm.isofile(identifier=identifier, build=build,
-                                   hotfix=o.phf,
-                                   product=o.product,
-                                   root=o.build_path)
+        if self.options.hfimage:
+            hfiso = self.options.hfimage
+        elif self.options.phf:
+            hfiso = cm.isofile(identifier=identifier, build=build,
+                               hotfix=o.phf,
+                               product=o.product,
+                               root=o.build_path)
         else:
             hfiso = None
 
@@ -896,7 +927,7 @@ def main():
     LOG.setLevel(level)
     logging.basicConfig(level=level)
 
-    if not args:
+    if not (args and options.product and options.pversion):
         p.print_version()
         p.print_help()
         sys.exit(2)

@@ -8,7 +8,7 @@ from ...utils.net import ip4to6
 import logging
 import itertools as IT
 import netaddr
-from .scaffolding import make_partitions
+from .scaffolding import Stamp, make_partitions
 from .profile import BuiltinProfile, ClientSsl, ServerSsl
 from .ltm import Node, Pool, VirtualServer
 from .security import (AddressList, Rule, RuleList, PortList, RuleDestination,
@@ -157,14 +157,20 @@ class NetworkConfig(Macro):
         if self.trunks:
             LOG.info('Generating trunks...')
             for name, specs in self.trunks.iteritems():
-                t = Trunk(name, specs.interfaces, specs.lacp)
+                if isinstance(specs, Stamp):
+                    t = specs
+                else:
+                    t = Trunk(name, specs.interfaces, specs.lacp)
                 common.hook(t)
 
         LOG.info('Generating VLANs...')
         vlan_name_map = {}
         for name, specs in self.vlans.iteritems():
-            v = Vlan(name=name, untagged=specs.untagged, tagged=specs.tagged,
-                     tag=specs.tag)
+            if isinstance(specs, Stamp):
+                v = specs
+            else:
+                v = Vlan(name=name, untagged=specs.untagged, tagged=specs.tagged,
+                         tag=specs.tag)
             common.hook(v)
             vlan_name_map[name] = v
 
@@ -257,6 +263,8 @@ class LTMConfig(Macro):
                              (profile_clientssl, profile_serverssl, profile_http, profile_tcp)])
         # server_profiles = IT.cycle([])
         v4vips = count_ip(self.vip1)
+        if not self.vip1:
+            self.vips = 0
         for _ in range(self.vips):
             folder = all_folders.next()
             http_pool = http_pools[folder.partition().name].next()

@@ -225,6 +225,7 @@ class ScreenShot(SeleniumCommand): #@IgnorePep8
             # Prevent javascript from being executed when the saved page is loaded.
             src = re.sub('/xui/common/scripts/api.js', '', src)
             src = re.sub(re.escape('$(document).ready( startup );'), '', src)
+            src = re.sub('<script.*</script>', '', src, flags=re.IGNORECASE)
 
             # Save the page source encoded as UTF-8
             with codecs.open(filename, "w", 'utf-8-sig') as f:

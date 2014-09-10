@@ -16,7 +16,8 @@ F5EM_EXTERN_DB = 'f5em_extern'
 DEFAULT_PORTS = {
     'ssh': 22,
     'http': 80,
-    'https': 443
+    'https': 443,
+    'snmp': 161
 }
 
 # Kinds of devices that can be part of the test bed.
@@ -28,10 +29,15 @@ KIND_TMOS_BIGIP = 'tmos:bigip'
 KIND_LINUX = 'linux'
 KIND_LINUX_LOGIQ = 'linux:logiq'
 KIND_CLOUD = 'cloud'
+KIND_CLOUD_NSX = 'cloud:nsx'
+KIND_COULD_NSX_EDGE = 'cloud:nsx-edge'
 KIND_CLOUD_VSM = 'cloud:vsm'
 KIND_CLOUD_VCD = 'cloud:vcd'
 KIND_CLOUD_EC2 = 'cloud:ec2'
 KIND_CLOUD_EC2AMI = 'cloud:ec2-ami'
+KIND_CLOUD_NSXVM = 'cloud:nsx-vm'
+KIND_CLOUD_OPENSTACK = 'cloud:openstack'
+KIND_CLOUD_OPENSTACK_AMI = 'cloud:openstack-ami'
 KIND_OTHER = 'other'
 
 KIND_SEP = ':'

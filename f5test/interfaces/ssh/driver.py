@@ -8,6 +8,7 @@ import logging
 import time
 import glob
 #from  f5test.interfaces.ssh.paramikospawn import ParamikoSpawn
+from ...utils.net import get_local_ip
 
 LOG = logging.getLogger(__name__)
 SSH_DIR = os.path.join(os.path.expanduser('~'), '.ssh')
@@ -109,7 +110,9 @@ class Connection(paramiko.SSHClient):
 
     def run(self, command, bufsize=-1):
         """Execute a command remotely."""
-        assert self.is_connected(), "SSH channel not connected"
+        if not self.is_connected():
+            LOG.warning('SSH channel lost. Reconnecting...')
+            self.connect()
         chan = self._transport.open_session()
 
         LOG.debug('run: %s on %s...', command, self)
@@ -123,6 +126,8 @@ class Connection(paramiko.SSHClient):
             ret = SSHResult(-1, stdout.read(), stderr.read(), command)
             ret.status = chan.recv_exit_status()
             if ret.status != 0:
+                LOG.debug(ret.stdout)
+                LOG.debug(ret.stderr)
                 LOG.warning("Non zero status: %s", ret)
             return ret
         except socket.timeout:
@@ -310,16 +315,20 @@ class Connection(paramiko.SSHClient):
         LOG.debug('Host key for %s not found in known_hosts' % self.address)
         return False
 
-    def exchange_key(self, filename='.ssh/authorized_keys'):
+    def exchange_key(self, filename='.ssh/authorized_keys', key=None, name=None):
         """Places an ssh key in a remote authorized_keys file."""
         assert self.is_connected(), "SSH channel not connected"
-        key = self._load_or_create_key()
-        self._remove_host_key()
+        if key is None:
+            key = self._load_or_create_key()
+            self._remove_host_key()
+
+        if name is None:
+            name = get_local_ip(self.address)
 
         sftp = self._transport.open_sftp_client()
         if not '.ssh' in sftp.listdir():
             sftp.mkdir('.ssh')
-        
+
         hkey = key.get_base64()
         found = False
         try:
@@ -333,11 +342,10 @@ class Connection(paramiko.SSHClient):
             mode = 'a'
         except IOError:
             mode = 'w'
-        
+
         if not found:
-            myname = socket.gethostbyname(socket.gethostname())
             f = sftp.open(filename, mode)
-            f.write('\n%s %s %s' % (key.get_name(), hkey, myname))
+            f.write('\n%s %s %s' % (key.get_name(), hkey, name))
             f.close()
 
     def interactive(self):
