@@ -1,1 +1,1 @@
-from .core import RestInterface
+from .core import RestInterface, AUTH

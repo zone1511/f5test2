@@ -6,13 +6,14 @@ Created on Jul 25, 2013
 from ..base import SSHCommand
 from ...base import CommandError
 from ....interfaces.ssh import SSHInterface
-from ....utils.wait import wait, WaitTimedOut
+from ....utils.wait import wait, wait_args, WaitTimedOut
 from ....interfaces.rest.emapi.objects import FailoverState
 import logging
 import json
 import smtplib
 
 LOG = logging.getLogger(__name__)
+HA_WIPE_COMMAND = 'bigstart stop restnoded && bigstart stop restjavad && rm -rf /var/config/rest && bigstart start restjavad && sleep 2 && bigstart start restnoded'
 
 wait_ha_peer = None
 class WaitHaPeer(SSHCommand):  # @IgnorePep8
@@ -34,6 +35,7 @@ class WaitHaPeer(SSHCommand):  # @IgnorePep8
             return
 
         try:
+            LOG.debug(self.api.run(WaitHaPeer.COMMAND))
             wait(lambda: json.loads(self.api.run(WaitHaPeer.COMMAND).stdout),
                  condition=lambda ret: not set(ours).intersection(set([x['address'] for x in ret['items']])),
                  progress_cb=lambda ret: [x['address'] for x in ret['items']],
@@ -57,6 +59,21 @@ class WaitHa(SSHCommand):  # @IgnorePep8
         self.devices = devices
         self.timeout = timeout
 
+    def get_gossip(self, device):
+        """
+        To workaround BZ487785.
+        """
+        IGNORE_STR = 'Cannot allocate large pages, falling back to regular pages'
+        with SSHInterface(device=device) as sshifc:
+            ret = sshifc.api.run(WaitHa.COMMAND)
+
+        lines = ret.stdout.split('\n')
+        resp = str()
+        for line in lines:
+            if IGNORE_STR not in line:
+                resp += line
+        return json.loads(resp)
+
     def setup(self):
         if len(self.devices) == 1:
             LOG.info('Only 1 BIG-IQ in given in function so assuming HA is NOT setup.')
@@ -65,12 +82,11 @@ class WaitHa(SSHCommand):  # @IgnorePep8
         for device in self.devices:
             LOG.info('Waiting until {0} is finished PENDING...'.format(device))
 
-            with SSHInterface(device=device) as sshifc:
-                ret = wait(lambda: json.loads(sshifc.api.run(WaitHa.COMMAND).stdout),
-                           condition=lambda ret: not ret['status'] in FailoverState.PENDING_STATES,
-                           progress_cb=lambda ret: "{0}: {1}".format(device, ret['status']),
-                           timeout=self.timeout)
+            ret = wait_args(self.get_gossip, func_args=[device],
+                            condition=lambda ret: not ret['status'] in FailoverState.PENDING_STATES,
+                            progress_cb=lambda ret: "{0}: {1}".format(device, ret['status']),
+                            timeout=self.timeout, timeout_message='BZ492375')
 
-                if ret['status'] != 'ACTIVE':
-                    msg = json.dumps(ret['status'], sort_keys=True, indent=4, ensure_ascii=False)
-                    raise CommandError("{0} failed.\n{1}".format(device, msg))
+            if ret['status'] != 'ACTIVE':
+                msg = json.dumps(ret['status'], sort_keys=True, indent=4, ensure_ascii=False)
+                raise CommandError("{0} failed.\n{1}".format(device, msg))

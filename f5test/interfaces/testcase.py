@@ -82,7 +82,7 @@ class InterfaceHelper(object):
         if isinstance(self._config, dict):
             self._config.clear()
 
-    def set_data(self, key, data, container='default', overwrite=False):
+    def set_data(self, key, data=None, container='default', overwrite=False):
         """
         Sets a name=value for the current context, just like you'd do with a
         dictionary. Each context may have multiple containers. The default

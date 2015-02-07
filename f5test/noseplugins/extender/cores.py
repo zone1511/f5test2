@@ -16,6 +16,7 @@ from f5test.interfaces.subprocess.core import ShellInterface
 from f5test.interfaces.testcase import ContextHelper
 import f5test.commands.shell as SCMD
 from ...base import enum
+from ...macros.tmosconf.placer import SCF_FILENAME
 
 from . import ExtendedPlugin, PLUGIN_NAME
 
@@ -23,6 +24,7 @@ from . import ExtendedPlugin, PLUGIN_NAME
 LOG = logging.getLogger(__name__)
 QKVIEWS_DIR = 'qkviews'
 QKVIEW = enum('ALWAYS', 'ON_FAIL', 'NEVER')
+TIMEOUT = 300
 
 
 class CoreCollector(Thread):
@@ -40,7 +42,7 @@ class CoreCollector(Thread):
         d.data = {}
         d.checked = time.time()
 
-        with SSHInterface(device=self.device, timeout=300) as sshifc:
+        with SSHInterface(device=self.device, timeout=TIMEOUT) as sshifc:
             if SCMD.ssh.cores_exist(ifc=sshifc):
                 LOG.info('Cores found!')
                 cores_dir = os.path.join(self.session.path, 'cores',
@@ -77,6 +79,10 @@ class CoreCollector(Thread):
 
                     SCMD.ssh.scp_get(ifc=sshifc, source=name, destination=qk_dir,
                                      nokex=True)
+                    if sshifc.api.exists(SCF_FILENAME):
+                        SCMD.ssh.scp_get(ifc=sshifc, source=SCF_FILENAME,
+                                         destination=qk_dir, nokex=True)
+
                 except SSHTimeoutError:
                     LOG.warning('Could not complete qkview on %s', self.device)
 
@@ -104,6 +110,10 @@ class Cores(ExtendedPlugin):
 
     def finalize(self, result):
         pool = []
+        # This flag is set by atom plugin in begin()
+        if result.failfast:
+            return
+
         for dut in self.data.duts:
             t = CoreCollector(dut.device, self.data,
                               self.noseconfig.options.with_qkview.upper())
@@ -111,4 +121,4 @@ class Cores(ExtendedPlugin):
             pool.append(t)
 
         for t in pool:
-            t.join()
+            t.join(TIMEOUT + 10)

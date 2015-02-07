@@ -6,6 +6,11 @@ import logging
 LOG = logging.getLogger(__name__)
 
 
+class CommandFail(Exception):
+    """Base class for function fails that use Rest commands"""
+    pass
+
+
 class RestCommand(base.Command):
     """Base class for Rest Commands.
 

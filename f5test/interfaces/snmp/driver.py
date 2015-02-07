@@ -79,10 +79,13 @@ class SNMPWrap(object):
             raise SNMPWrapException(errorIndication)
         else:
             if errorStatus:
-                if returns_table:
-                    message = values[-1][int(errorIndex) - 1]
+                if values:
+                    if returns_table:
+                        message = values[-1][int(errorIndex) - 1]
+                    else:
+                        message = values[int(errorIndex) - 1]
                 else:
-                    message = values[int(errorIndex) - 1]
+                    message = '<unknown>'
                 # LOG.error('%s at %s' % (errorStatus.prettyPrint(), message))
                 raise SNMPWrapException('%s at %s' % (errorStatus.prettyPrint(),
                                                       message))

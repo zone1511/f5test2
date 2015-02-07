@@ -8,9 +8,9 @@ from base import SeleniumCommand
 # from ...interfaces.selenium import By
 from f5test.utils.wait import wait
 from f5test.base import AttrDict
-from selenium.common.exceptions import NoSuchElementException, \
-                                StaleElementReferenceException, \
-                                ElementNotVisibleException
+from selenium.common.exceptions import (NoSuchElementException,
+                                        StaleElementReferenceException,
+                                        ElementNotVisibleException)
 from f5test.interfaces.selenium import ActionChains
 from f5test.interfaces.selenium.driver import By, Is
 import logging
@@ -18,6 +18,11 @@ import re
 # import time
 
 LOG = logging.getLogger(__name__)
+
+
+class WrongParameterPassedMethodCheck(Exception):
+    """Error to be raised in case Parameters are not passed properly..."""
+    pass
 
 
 webel_grab = None
@@ -120,7 +125,7 @@ class WebelGrab(SeleniumCommand):  # @IgnorePep8
 def wait_for_text_in_webel(text, xpath=None, did=None, css=None,
                            mtm=False,
                            attr=None,
-                           textineach=False,
+                           textineach=False, visibleonly=False,
                            prop=None,
                            negated=False, timeout=10,
                            usedin=None,
@@ -167,6 +172,9 @@ def wait_for_text_in_webel(text, xpath=None, did=None, css=None,
     @param negated: default False. Inverts action. Makes sure the text is not in the el
     @type negated: bool
 
+    @param visibleonly: default False. It searches only in visible elements.
+    @type negated: bool
+
     @param timeout: default 10 seconds.
                     It will retry the search for 10 seconds.
                     Does not matter if used in conjunction with negated=True
@@ -182,6 +190,8 @@ def wait_for_text_in_webel(text, xpath=None, did=None, css=None,
         prop = ['text', 'is_displayed']
     if not prop:
         prop = []
+    if visibleonly:
+        prop.append('is_displayed')
     if not attr:
         attr = []
     ftext = None
@@ -207,11 +217,9 @@ def wait_for_text_in_webel(text, xpath=None, did=None, css=None,
 
     def to_appear():
         try:
-            x = webel_grab(xpath=xpath, did=did, css=css,
-                            attr=attr, prop=prop,
-                            *args, **kwargs)
-            LOG.debug("{0}. Looking for '{1}'; Grabbed: '{2}'"
-                                 .format(usedin, text, x))
+            x = webel_grab(xpath=xpath, did=did, css=css, attr=attr, prop=prop,
+                           *args, **kwargs)
+            LOG.debug("{0}. Looking for '{1}'; Grabbed: '{2}'".format(usedin, text, x))
             if negated and x == []:
                 return True
             occured = False
@@ -230,60 +238,61 @@ def wait_for_text_in_webel(text, xpath=None, did=None, css=None,
                         # if looking for a visible element
                         if 'is_displayed' in prop and ret:
                             if el.is_displayed:
-                                LOG.debug("{0}regex:'{1}'/. Found '{2}' in '{3}'"
-                                         .format(usedin, ftext, text, el.text,))
+                                LOG.debug("{0}regex:'{1}'/. Found '{2}' in above Grabbed!"
+                                          .format(usedin, ftext, text))
                                 occured = True
                         # if it does not matter if the element is visible or not
                         elif ret:
-                            LOG.debug("{0}regex:'{1}'/. Found '{2}' in '{3}'"
-                                     .format(usedin, ftext, text, el.text,))
+                            LOG.debug("{0}regex:'{1}'/. Found '{2}' in above Grabbed!"
+                                      .format(usedin, ftext, text))
                             occured = True
                     else:  # regular exact text match search (old style)
                         # if looking for a visible element
                         if 'is_displayed' in prop and text in eltext:
                             if el.is_displayed:
-                                LOG.debug("{0}exact match/Found '{1}' in '{2}'"
-                                         .format(usedin, text, el.text))
+                                LOG.debug("{0}exact match/Found '{1}' in in above Grabbed!"
+                                          .format(usedin, text))
                                 occured = True
                         # if it does not matter if the element is visible or not
                         elif text in eltext:
-                            LOG.debug("{0}exact match/Found '{1}' in '{2}'"
-                                         .format(usedin, text, el.text))
+                            LOG.debug("{0}exact match/Found '{1}' in above Grabbed!"
+                                      .format(usedin, text))
                             occured = True
             # (also) look in attributes (if not found already in properties)
             if x != [] and attr != [] and not occured:
                 for el in x:
-                    for val in attr:
-                        LOG.debug("{0}looking in attr [{1}]; got: [{2}]"
-                                            .format(usedin, val, el.get(val)))
-                        # LOG.info("{0}looking in attr [{1}]; got: [{2}]"
-                        #                    .format(usedin, val, el.get(val)))
-                        if textineach:
-                            occured = False
-                        # if using multi text match (regex lookahead assert)
-                        if mtm:
-                            ret = None
-                            eltext = el.get(val)
-                            eltext = eltext.encode('utf-8')
-                            ret = re.search(ftext, eltext, re.S | re.U)
-                            LOG.debug("{0}current re.search result: {1}"
-                                      .format(usedin, ret))
-                            if ret:
-                                LOG.debug("{0}regex:'{1}'/. Found '{2}' in '{3}'"
-                                         .format(usedin, ftext, text, el.get(val)))
-                                occured = True
+                    if (not visibleonly) or (visibleonly and el.get("is_displayed")):
+                        for val in attr:
+                            LOG.debug("{0}looking in attr [{1}]; got: [{2}]"
+                                      .format(usedin, val, el.get(val)))
+                            # LOG.info("{0}looking in attr [{1}]; got: [{2}]"
+                            #                    .format(usedin, val, el.get(val)))
+                            if textineach:
+                                occured = False
+                            # if using multi text match (regex lookahead assert)
+                            if mtm:
+                                ret = None
+                                eltext = el.get(val)
+                                eltext = eltext.encode('utf-8')
+                                ret = re.search(ftext, eltext, re.S | re.U)
+                                LOG.debug("{0}current re.search result: {1}"
+                                          .format(usedin, ret))
+                                if ret:
+                                    LOG.debug("{0}regex:'{1}'/. Found '{2}' in above Grabbed!"
+                                              .format(usedin, ftext, text))
+                                    occured = True
+                                else:
+                                    if textineach:
+                                        break
+                            # regular exact text match search (old style)
                             else:
-                                if textineach:
-                                    break
-                        # regular exact text match search (old style)
-                        else:
-                            if text in el.get(val):
-                                occured = True
-                            else:
-                                if textineach:
-                                    break
-                    if textineach and not occured:
-                        break
+                                if text in el.get(val):
+                                    occured = True
+                                else:
+                                    if textineach:
+                                        break
+                        if textineach and not occured:
+                            break
             if occured and not negated:
                 return True
             if not occured and negated:
@@ -302,8 +311,7 @@ def wait_for_text_in_webel(text, xpath=None, did=None, css=None,
             LOG.debug("{0}Error:".format(usedin))
             raise e
     wait(to_appear, interval=1, timeout=timeout,
-         progress_cb=lambda x: '{0}. Still looking for text "{1}"...'
-                                .format(usedin, text),
+         progress_cb=lambda x: '{0}. Still looking for text "{1}"...'.format(usedin, text),
          timeout_message="%s. Did Not Find text '%s' in {0}s" % (usedin, text))
     return x
 
@@ -351,18 +359,27 @@ class WebelClick(SeleniumCommand):  # @IgnorePep8
     @param right_click: default False, to right click on that el.
     @type right_click: bool
 
+    @param double_click: default False, to double click on that el.
+    @type double_click: bool
+
     @return: webel pos in browser if found and clicked, or fail
     """
 
     def __init__(self, xpath=None, css=None, did=None,
                  waitforid=None, waitforxpath=None, waitforcss=None,
                  waitfortext=None, inxpath=None, incss=None, indid=None, attr=None,
+                 mtm=False,
                  negated=False,
-                 right_click=False,
+                 right_click=False, double_click=False,
                  jsclick=False,
                  retryit=True, timeout=5,
                  *args, **kwargs):
         super(WebelClick, self).__init__(*args, **kwargs)
+        if (waitfortext and not (inxpath or incss or indid)
+                or not waitfortext and (inxpath or incss or indid)):
+            raise WrongParameterPassedMethodCheck("waitfortext parameter must"
+                                                  " be used with one of "
+                                                  "inxpath/incss/indid...")
         self.xpath = xpath
         self.css = css
         self.did = did
@@ -373,6 +390,7 @@ class WebelClick(SeleniumCommand):  # @IgnorePep8
         self.inxpath = inxpath
         self.incss = incss
         self.indid = indid
+        self.mtm = mtm
         self.negated = negated
         self.timeout = timeout
         self.jsclick = jsclick
@@ -381,6 +399,7 @@ class WebelClick(SeleniumCommand):  # @IgnorePep8
         self.attr = attr
         self.retryit = retryit
         self.right_click = right_click
+        self.double_click = double_click
 
     def setup(self):
         # To Do: Validate xpath/css/did el
@@ -406,7 +425,7 @@ class WebelClick(SeleniumCommand):  # @IgnorePep8
                         self.s = self.api.execute_script("return arguments[0].click()", button)
                     elif not self.jsclick and self.right_click:
                         LOG.debug("/WebelClick/{0}/Entering Action Chains."
-                          .format(self.using))
+                                  .format(self.using))
                         action = ActionChains(self.api)
                         # LOG.debug("/WebelClick/{0}/In Action Chains: Move to El.".format(self.using))
                         action.move_to_element(button)
@@ -417,7 +436,15 @@ class WebelClick(SeleniumCommand):  # @IgnorePep8
                         # LOG.debug("/WebelClick/{0}/In Action Chains: Perform().".format(self.using))
                         self.s = action.perform()
                         LOG.debug("/WebelClick/{0}/After Action Chains: Perform(): Finished."
-                          .format(self.using))
+                                  .format(self.using))
+                    elif not self.jsclick and not self.right_click and self.double_click:
+                        LOG.debug("/WebelClick/{0}/Entering Action Chains."
+                                  .format(self.using))
+                        action = ActionChains(self.api)
+                        action.double_click(button)
+                        self.s = action.perform()
+                        LOG.debug("/WebelClick/{0}/After Action Chains: Perform(): Finished."
+                                  .format(self.using))
                     elif not self.jsclick and not self.right_click:
                         self.s = button.click()
                     else:  # force js right click # NOT IMPLEMENTED YET # not sure is needed
@@ -442,11 +469,11 @@ class WebelClick(SeleniumCommand):  # @IgnorePep8
         if self.retryit:
             wait(retrythis, interval=1, timeout=self.timeout,
                  progress_cb=lambda x: "/WebelClick/{0}/'{1}'/Retry Click..."
-                            .format(self.using, self.xpath or self.css or self.did),
+                 .format(self.using, self.xpath or self.css or self.did),
                  timeout_message="/WebelClick/%s/'%s'/Could not Click "
                  "it after {0}s" % (self.using, (self.xpath or self.css or self.did)))
         else:
-            retrythis
+            retrythis()
 
         if self.waitforid:
             self.s = self.api
@@ -454,17 +481,18 @@ class WebelClick(SeleniumCommand):  # @IgnorePep8
         if self.waitforxpath:
             self.s = self.api
             self.s = self.s.wait(self.waitforxpath, By.XPATH, negated=self.negated,
-                       timeout=self.timeout)
+                                 timeout=self.timeout)
         if self.waitforcss:
             self.s = self.api
             self.s = self.s.wait(self.waitforcss, By.CSS_SELECTOR, negated=self.negated,
-                       timeout=self.timeout)
+                                 timeout=self.timeout)
         if self.waitfortext and (self.inxpath or self.incss or self.indid):
             wait_for_text_in_webel(text=self.waitfortext,
                                    xpath=self.inxpath,
                                    css=self.incss,
                                    did=self.indid,
                                    attr=self.attr,
+                                   mtm=self.mtm,
                                    negated=self.negated, timeout=self.timeout,
                                    ifc=self.ifc)
         return self.s

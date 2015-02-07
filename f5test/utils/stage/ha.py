@@ -22,11 +22,11 @@ class HAStage(Stage, FailoverMacro):
     name = 'ha'
 
     def __init__(self, device, specs=None, *args, **kwargs):
-        authorities = [device] + list(expand_devices(specs, 'authorities'))
-        peers = list(expand_devices(specs, 'peers'))
-        groups = specs.groups or []
-
         configifc = ConfigInterface()
+        authorities = [device] + list(expand_devices(specs, 'authorities') or [])
+        peers = list(expand_devices(specs, 'peers') or [])
+        groups = specs.groups or configifc.get_device_groups(authorities + peers).keys()
+
         options = Options(specs.options)
         if options.set_active:
             options.set_active = configifc.get_device(options.set_active)

@@ -24,7 +24,7 @@ LOG = logging.getLogger(__name__)
 DEFAULT_FROM = 'em-selenium@f5.com'
 DEFAULT_SUBJECT = 'Test Run'
 MAIL_HOST = 'mail.f5net.com'
-DUMP_EMAIL_FILENAME = 'email.txt'
+DUMP_EMAIL_FILENAME = 'email.html'
 
 
 def customfilter_ljust(string, width, fillchar=' '):
@@ -81,24 +81,29 @@ class Email(ExtendedPlugin):
         b = self.data.result.bars
         result = self.data.test_result
         b.good = ProgressBar(result.testsRun, result.testsRun
-                             - len(result.failures)
-                             - len(result.errors)
-                             - len(result.skipped))
-        b.bad = ProgressBar(result.testsRun, len(result.failures)
-                            + len(result.errors))
-        b.unknown = ProgressBar(result.testsRun, len(result.skipped))
+                             - result.failCount()
+                             - result.notFailCount())
+        b.bad = ProgressBar(result.testsRun, result.failCount())
+        b.unknown = ProgressBar(result.testsRun, result.notFailCount())
 
         # New progress bars for when Skipped tests should be ignored.
         b.good_no_skips = ProgressBar(result.testsRun
-                                      - len(result.skipped),
+                                      - result.notFailCount(),
                                       result.testsRun
-                                      - len(result.failures)
-                                      - len(result.errors)
-                                      - len(result.skipped))
+                                      - result.failCount()
+                                      - result.notFailCount())
         b.bad_no_skips = ProgressBar(result.testsRun
-                                     - len(result.skipped),
-                                     len(result.failures)
-                                     + len(result.errors))
+                                     - result.notFailCount(),
+                                     result.failCount())
+
+        x = {}
+        for label, storage in result.blocked.items():
+            for truple in storage:
+                test, err, context = truple
+                y = x.setdefault(label, {})
+                z = y.setdefault(context, [])
+                z.append((test, err))
+        self.data.result.blocked_groups = x
 
     def compile_emails(self):
         base = self.options
@@ -160,17 +165,14 @@ class Email(ExtendedPlugin):
                     value = ','.join(value)
                 msg.add_header(key, value)
 
-            template_text = env.get_template('email_text.tmpl')
             template_html = env.get_template('email_html.tmpl')
 
-            text = template_text.render(self.data)
             html = template_html.render(self.data)
 
-            msg.attach(MIMEText(text, 'plain'))
             msg.attach(MIMEText(html, 'html'))
 
             message = msg.as_string()
-            yield AttrDict(headers=headers, body=message, text=text)
+            yield AttrDict(headers=headers, body=message, text=html)
 
     def dump_text(self, email):
         path = self.data.session.path
@@ -192,6 +194,8 @@ class Email(ExtendedPlugin):
                 LOG.info("Email report sent to: %s", email.headers['To'])
             # Dump the text version of the last email template
             self.dump_text(email)
+        except Exception, e:
+            LOG.error('Email report failed: %s', e)
         finally:
             if server:
                 server.quit()

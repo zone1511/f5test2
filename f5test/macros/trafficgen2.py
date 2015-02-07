@@ -20,7 +20,7 @@ import urlparse
 DEFAULT_TIMEOUT = 3
 DEFAULT_LIMIT = 90
 LOG = logging.getLogger(__name__)
-__version__ = '0.3'
+__version__ = '0.4'
 
 
 def partition(size, n):
@@ -34,8 +34,22 @@ class TrafficGen(Macro):
     def __init__(self, options, urls):
         options.setdefault('timeout', DEFAULT_TIMEOUT)
         options.setdefault('limit', DEFAULT_LIMIT)
+        options.setdefault('concurrency', 1)
+        options.setdefault('rate', 100)
+        options.setdefault('requests', 1)
+        options.setdefault('keepalive', False)
         self.options = Options(options)
         self.urls = urls
+
+        self.stats = Options()
+        self.stats.requests = {}
+        self.stats.requests.successful = 0
+        self.stats.requests.failed = 0
+        self.stats.time = {}
+        self.stats.time.delta = 0
+        self.stats.time.req_per_sec = 0
+        self.stats.data = {}
+        self.stats.data.total = 0
 
         super(TrafficGen, self).__init__()
 
@@ -76,21 +90,21 @@ class TrafficGen(Macro):
 
         def run(client, url):
             qs = url.request_uri
-            with gevent.Timeout(o.timeout):
-                while True:
-                    try:
-                        response = client.get(qs)
-                        break
-                    except Exception, e:
-                        LOG.debug("Connect %s: %s", url, e)
-                        gevent.sleep(0.1)
-                        continue
-            #response.read()
-            #assert response.status_code == 200
+            try:
+                with gevent.Timeout(o.timeout):
+                    while True:
+                        try:
+                            response = client.get(qs)
+                            break
+                        except Exception, e:
+                            LOG.debug("Connect %s: %s", url, e)
+                            gevent.sleep(0.1)
+                            continue
+            except:
+                self.stats.requests.failed += 1
+                raise
 
             block_size = 256 * 1024  # 256KB
-            #block_size = 4096
-            #block_size = 1024
             block_count = 0
             kbps = o.rate
             bucket = TokenBucket(1000 * kbps, kbps)
@@ -100,14 +114,18 @@ class TrafficGen(Macro):
             while True:
                 try:
                     block = response.read(block_size)
+                    self.stats.data.total += len(block)
                 except Exception, e:
                     LOG.warning("Read %s: %s", url, e)
+                    self.stats.requests.failed += 1
                     break
 
                 if not block or response.parser_failed():
                     break
                 block_count += 1
                 rate_limiter(block_count, len(block))
+
+            self.stats.requests.successful += 1
 
         def superrun(url, group):
             client = self.make_client(url)
@@ -135,10 +153,10 @@ class TrafficGen(Macro):
         except KeyboardInterrupt:
             supergroup.kill()
 
-        delta = time.time() - now
-        #req_per_sec = o.requests / delta
+        self.stats.time.delta = delta = time.time() - now
+        self.stats.time.req_per_sec = o.requests / delta
 
-        LOG.info("delta: %f seconds" % delta)
+        LOG.info("stats: %s" % self.stats)
 
     def cleanup(self):
         """Shutdown gevent as it seems to be leaking some globals."""
@@ -150,8 +168,7 @@ def main():
     import optparse
     import sys
 
-    usage = """%prog [options] <url> [url]...""" \
-    """
+    usage = """%prog [options] <url> [url]...
 
   Examples:
   %prog https://10.11.41.73/1MB https://10.11.41.69/1MB -v
@@ -160,8 +177,7 @@ def main():
     formatter = optparse.TitledHelpFormatter(indent_increment=2,
                                              max_help_position=60)
     p = optparse.OptionParser(usage=usage, formatter=formatter,
-                            version="HTTP/S Traffic Generator %s" % __version__
-        )
+                              version="HTTP/S Traffic Generator %s" % __version__)
     p.add_option("-v", "--verbose", action="store_true",
                  help="Debug logging")
 #    p.add_option("-s", "--stats", action="store_true", default=False,
@@ -184,7 +200,7 @@ def main():
 #    p.add_option("-p", "--pattern", metavar="STRING",
 #                 default="0:10", type="string",
 #                 help="[Threads delta:Sleep]... (default: 1:300:-1:300)")
-    p.add_option("-t", "--timeout", metavar="SECONDS", type="int",
+    p.add_option("-t", "--timeout", metavar="SECONDS", type="float",
                  default=DEFAULT_TIMEOUT, help="Timeout (default: %d)" % DEFAULT_TIMEOUT)
     p.add_option("-l", "--limit", metavar="SECONDS", type="int",
                  default=DEFAULT_LIMIT, help="Run limit (default: %d)" % DEFAULT_LIMIT)
@@ -206,7 +222,7 @@ def main():
         p.print_help()
         sys.exit(2)
 
-    cs = TrafficGen(options=options, urls=args)
+    cs = TrafficGen(options=Options(options), urls=args)
     cs.run()
 
 

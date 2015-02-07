@@ -1,5 +1,5 @@
 from .. import base
-from ...interfaces.testopia import TestopiaInterface
+from ...interfaces.xmlrpc import BugzillaInterface
 import logging
 
 LOG = logging.getLogger(__name__) 
@@ -22,7 +22,7 @@ class TestopiaCommand(base.Command):
     def __init__(self, ifc=None, address=None, username=None, password=None,
                  *args, **kwargs):
         if ifc is None:
-            self.ifc = TestopiaInterface(address, username, password)
+            self.ifc = BugzillaInterface(address, username, password)
             self.api = self.ifc.open()
             self._keep_alive = False
         else:

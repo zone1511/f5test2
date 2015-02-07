@@ -3,9 +3,9 @@ Created on Mar 16, 2013
 
 @author: jono
 '''
-from ...base import Interface, Options
+from ...base import Interface, Options, Kind
 from ...defaults import ADMIN_PASSWORD, ADMIN_USERNAME, ROOT_PASSWORD, \
-    ROOT_USERNAME, DEFAULT_PORTS, KIND_TMOS, KIND_ANY, KIND_SEP
+    ROOT_USERNAME, DEFAULT_PORTS, KIND_TMOS, KIND_ANY
 from ...compat import _bool
 from ...utils import net
 from ...utils.dicts import inverse
@@ -99,7 +99,8 @@ class DeviceAccess(object):
         self.ports = copy.copy(DEFAULT_PORTS)
         self.ports.update(self.specs.get('ports', {}))
         self.specs.setdefault('_keyset', KEYSET_COMMON)
-        self.kind = self.specs.get('kind', KIND_TMOS)
+        self.kind = Kind(self.specs.get('kind', KIND_TMOS))
+        self.specs.setdefault('_enabled', True)
 
     def __repr__(self):
         return "%s:%s" % (self.alias, self.address)
@@ -107,9 +108,20 @@ class DeviceAccess(object):
     def __cmp__(self, other):
         return cmp(self.address, other.address)
 
+    def __hash__(self):
+        return hash((self.alias, self.address))
+
     @property
     def instances(self):
         return expand_devices(self.specs, 'instances')
+
+    @property
+    def enabled(self):
+        return self.specs._enabled
+
+    @enabled.setter
+    def enabled(self, value):
+        self.specs._enabled = bool(value)
 
     def is_default(self):
         return _bool(self.specs.get('default'))
@@ -224,6 +236,8 @@ class ConfigInterface(Interface):
         return self.api
 
     def get_default_key(self, collection):
+        if not collection:
+            return
         _ = list(filter(lambda x: _bool(x[1] and x[1].get('default')),
                         collection.items()))
         return _[0][0] if _ else Options()
@@ -262,13 +276,14 @@ class ConfigInterface(Interface):
         return {ADMIN_ROLE: admin, ROOT_ROLE: root, DEFAULT_ROLE: default}
 
     def get_device(self, device=None):
-
         if isinstance(device, DeviceAccess):
             return device
 
         if device is None:
-            device = self.get_default_key(self.config[CFG_DEVICES])
-            assert device, "No default device found. Check your test configuration."
+            device = self.get_default_key(self.config.get(CFG_DEVICES))
+            if device is None:
+                LOG.debug("No default device found. Check your test configuration.")
+                return
 
         try:
             specs = self.config[CFG_DEVICES][device]
@@ -291,16 +306,16 @@ class ConfigInterface(Interface):
         device_access = self.get_device(device)
         return device_access.address
 
-    def get_all_devices(self, kind=KIND_TMOS):
-        kind = kind.split(KIND_SEP) if kind else []
+    def get_all_devices(self, kind=KIND_TMOS, only_enabled=True):
         for device in self.config[CFG_DEVICES]:
             device = self.get_device(device)
-            device_kind = device.kind.split(KIND_SEP)
-            if device_kind[:len(kind)] == kind:
+            if device.kind == kind and (not only_enabled or device.enabled):
                 yield device
 
-    def get_device_groups(self):
-        return inverse(dict((x, x.groups) for x in self.get_all_devices() if x.groups))
+    def get_device_groups(self, devices=None):
+        if devices is None:
+            devices = self.get_all_devices()
+        return inverse(dict((x, x.groups) for x in devices if x.groups))
 
     @staticmethod
     def get_devices_instances(devices):

@@ -5,7 +5,7 @@ Created on Jun 16, 2012
 '''
 import celery
 from celery.result import AsyncResult
-from celery.signals import after_setup_task_logger
+from celery.signals import setup_logging  # ,after_setup_task_logger
 from celery.utils.log import get_task_logger
 from f5test.interfaces.config.driver import Signals
 from f5test.base import AttrDict
@@ -18,32 +18,36 @@ import logging.config
 from logging.handlers import BufferingHandler
 import nose
 import os
-#import re
 import sys
 import time
+import collections
+
+logging.raiseExceptions = 0
 
 LOG = get_task_logger(__name__)
 VENV = os.environ.get('VIRTUAL_ENV', '../../../')
 TESTS_DIR = os.path.join(VENV, 'tests')
-#if VENV is None:
+# if VENV is None:
 #    raise RuntimeError("You must first activate the virtualenv (e.g. workon my_environment).")
 LOG_CONFIG = 'logging.conf'
 MEMCACHED_META_PREFIX = 'f5test-task-'
-#URL_REGEX = r'(\(?\bhttp://[-A-Za-z0-9+&@#/%?=~_()|!:,.;]*[-A-Za-z0-9+&@#/%=~_()|])'
+# URL_REGEX = r'(\(?\bhttp://[-A-Za-z0-9+&@#/%?=~_()|!:,.;]*[-A-Za-z0-9+&@#/%=~_()|])'
+MAX_LOG_LINE = 1024
 
 
 # Setup logging only once when celery is initialized.
 # Never use --log-config with nosetests when running under celery!
 def _setup_logging(**kw):
     logging.config.fileConfig(os.path.join(VENV, LOG_CONFIG))
-after_setup_task_logger.connect(_setup_logging)
+# after_setup_task_logger.connect(_setup_logging)
+setup_logging.connect(_setup_logging)
 
 
 # This unloads all our modules, thus forcing nose to reload all tests.
 def _clean_sys_modules(tests_path=TESTS_DIR):
     for name, module in sys.modules.items():
         if (module and inspect.ismodule(module) and hasattr(module, '__file__')) \
-        and module.__file__.startswith(tests_path):
+                and module.__file__.startswith(tests_path):
             del sys.modules[name]
 
 
@@ -53,26 +57,24 @@ class MyMemoryHandler(BufferingHandler):
         super(MyMemoryHandler, self).__init__(*args, **kwargs)
         self.task = task
         self.level = level
+        self.tip = 0
+        self.buffer = collections.deque([], maxlen=MAX_LOG_LINE)
 
     def emit(self, record):
         item = AttrDict()
         item.name = record.name
         item.levelname = record.levelname
-        item.message = record.message
-        #item.message = re.sub(URL_REGEX, r'<a href="\1">\1</a>', record.message)
+        item.message = record.message[:MAX_LOG_LINE]
+        # item.message = re.sub(URL_REGEX, r'<a href="\1">\1</a>', record.message)
         item.timestamp = time.strftime('%b %d %H:%M:%S',
                                        time.localtime(record.created))
-        #for x in item:
+        # for x in item:
         #    if x not in ('levelname', 'asctime', 'message'):
         #        item.pop(x)
         self.buffer.append(item)
-        self.task.save_meta(logs=self.buffer)
-        #self.task.update_state(state='PENDING', meta=self.task._result)
-        if self.shouldFlush(record):
-            self.flush()
-
-    def flush(self):
-        self.buffer[:-self.capacity] = []
+        self.tip += 1
+        self.task.save_meta(logs=list(self.buffer), tip=self.tip)
+        # self.task.update_state(state='PENDING', meta=self.task._result)
 
 
 class MyAsyncResult(AsyncResult):
@@ -114,7 +116,7 @@ class DebugTask(celery.Task):
 
         if not self.request.is_eager:
             self.update_state(state=celery.states.STARTED)
-            #LOG.setLevel(level)
+            # LOG.setLevel(level)
 
         if self.request.is_eager:
             logging.basicConfig(level=logging.INFO)
@@ -127,11 +129,6 @@ class DebugTask(celery.Task):
             return super(DebugTask, self).__call__(*args, **kwargs)
         finally:
             root_logger.removeHandler(handler)
-
-    #def after_return(self, *args, **kwargs):
-    #    print('YYYYYYYYYYYYYYYYYYYYYYYYY')
-        # print [x.getMessage() for x in self._handler.buffer]
-    #    print('Task returned: %r' % (self.request,))
 
 
 @celery.task(base=DebugTask)
@@ -151,16 +148,13 @@ def add(x, y, user_input=None):
 
 def _run(*arg, **kw):
     kw['exit'] = False
-    return nose.core.TestProgram(*arg, **kw).success
-
-
-#def get_harness_config(harnesses):
-#    i = current_process().index
 #    try:
-#        return harnesses[i]
-#    except IndexError:
-#        LOG.warn("Worker %d doesn't have a harness associated. Add one in "
-#                 "HARNESSES or reduce the CELERY_CONCURRENCY", i)
+    return nose.core.TestProgram(*arg, **kw).success
+#    except:
+#        LOG.error('Nose crashed:')
+#        err = sys.exc_info()
+#        LOG.error(''.join(traceback.format_exception(*err)))
+#        raise
 
 
 @celery.task(base=DebugTask)
@@ -172,7 +166,9 @@ def nosetests(data, args, user_input=None):
 
     def merge_config(sender, config):
         merge(config, data)
-        config._task_id = nosetests._id
+        v = config.plugins.email.variables
+        v.task_id = nosetests._id
+        v.referer = "%s#%s" % (user_input._referer, nosetests._id)
 
     for i, arg in enumerate(args):
         args[i] = arg.format(VENV=VENV)

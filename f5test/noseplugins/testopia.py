@@ -72,20 +72,23 @@ class Testopia(Plugin):
     def configure(self, options, noseconfig):
         """ Call the super and then validate and call the relevant parser for
         the configuration file passed in """
-        from ..interfaces.testopia import TestopiaInterface
+        from ..interfaces.xmlrpc import BugzillaInterface
         from ..interfaces.config import ConfigInterface
         import f5test.commands.icontrol as ICMD
         import f5test.commands.testopia as TCMD
 
         Plugin.configure(self, options, noseconfig)
         self.options = options
-        #self._parse_attr(options)
 
         if options.with_testopia or options.syncplan:
             self.enabled = True
+        else:
+            return
 
-        self.testopia_ifc = TestopiaInterface()
         self.config_ifc = ConfigInterface()
+        testopia = self.config_ifc.api.testopia
+        self.testopia_ifc = BugzillaInterface(testopia.address,
+                                              testopia.username, testopia.password)
         self.ICMD = ICMD
         self.TCMD = TCMD
         self.product = 'Enterprise Manager'

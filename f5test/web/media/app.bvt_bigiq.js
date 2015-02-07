@@ -51,6 +51,8 @@ $(function(){
         inputs: ko.mapping.fromJS({
           project: ko.observable().extend({ remote: { type: 'project' }, required: true }),
           build: ko.observable().extend({ required: true }),
+          custom_iso: ko.observable(),
+          custom_hf_iso: ko.observable(),
           submitted_by: ko.observable(),
           debug: ko.observableArray([]),
           tests: ko.observable("tests/_examples/test_icontrol.py"),

@@ -38,13 +38,14 @@ class BvtInfo(ExtendedPlugin):
         ctx = self.data
         config = self.data.config
 
+        result = ctx.test_result
         if config.testopia and config.testopia._testrun:
             result_url = self.options.result_url % {'run_id': config.testopia._testrun}
         else:
             result_url = ctx.session_url
         result_text = "Total: %d, Fail: %d" % \
-            (ctx.test_result.testsRun - len(ctx.test_result.skipped),
-             len(ctx.test_result.failures) + len(ctx.test_result.errors))
+            (ctx.test_result.testsRun - result.notFailCount(),
+             result.failCount())
 
         # Report each device
         for dut in ctx.duts:
@@ -67,7 +68,7 @@ class BvtInfo(ExtendedPlugin):
                 bvttool=site.name,
                 project=self.options.get('project', project),
                 buildno=self.options.get('build', dut.version.build),
-                test_pass=int(not len(ctx.result.failures) and not len(ctx.result.errors)),
+                test_pass=int(result.wasSuccessful()),
                 platform=dut.platform,
                 result_url=result_url,
                 result_text=result_text

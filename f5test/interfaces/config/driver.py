@@ -82,7 +82,7 @@ class ConfigLoader(object):
             try:
                 if isinstance(hashable[key], basestring):
                     hashable[key] = hashable[key].format(CFG=root, ENV=os.environ)
-            except KeyError:
+            except (KeyError, ValueError):
                 LOG.debug('Key %s cannot be formatted.', v)
 
         if isinstance(src, dict):

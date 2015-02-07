@@ -9,14 +9,15 @@ from ...base import Options, enum
 from ...utils.wait import wait
 from ...interfaces.rest.emapi.objects.cloud import Tenant, Connector, IappTemplate, \
     IappTemplateProperties, ConnectorProperty
-from ...interfaces.rest.emapi.objects.shared import DeviceResolver, FailoverState
 from ...interfaces.testcase import ContextHelper
 from ...interfaces.rest.emapi.objects.base import Link, Reference, ReferenceList
-from .device import DEFAULT_ALLBIGIQS_GROUP
+from ...interfaces.rest.emapi.objects.shared import DeviceResolver
+from .device import DEFAULT_ALLBIGIQS_GROUP, DEFAULT_CLOUD_GROUP, \
+                    ASM_ALL_GROUP, FIREWALL_ALL_GROUP, DEFAULT_AUTODEPLOY_GROUP, \
+                    SECURITY_SHARED_GROUP, Discover
 from .system import WaitRestjavad
 from netaddr import IPAddress, ipv6_full
 import logging
-from copy import deepcopy
 
 LOG = logging.getLogger(__name__)
 PROPERTY_AA = {'highAvailabilityMode': 'active-active'}
@@ -27,6 +28,7 @@ CTYPES = enum(local='local',
               ec2='ec2',
               openstack='openstack',
               nsx='vmware-nsx',
+              vcmp='vcmp',
               )
 
 add_tenant = None
@@ -130,16 +132,21 @@ add_iapp_template = None
 class AddIappTemplate(IcontrolRestCommand):  # @IgnorePep8
     """Adds an iapp template to the Bigiq
         - will check for availability before posting
-        Usage:
+        Usage example 1 (use default HTTP iapp from cloud example):
+        add_iapp_template(name='BVT_cat_HTTP0_')
+        Usage example 2 (from file):
         add_iapp_template(name='BVT_cat_HTTP0_',
                           template_path=self.ih.get_data('PROJECTJSONDATAFOLDER'),
                           file_name='template115.json')
 
+
     @param name: name #mandatory
     @type name: string
-    @param template_path: the relative path in depo #mandatory
+    @param itype: Defaults to "http" #optional
+    @type itype: string
+    @param template_path: the relative path in depo #optional
     @type template_path: string
-    @param file_name: file name of the template file #mandatory
+    @param file_name: file name of the template file #optional
     @type file_name: string
 
     @param specs: other optional specs. Calling this spec for now in case it grows in the future.
@@ -151,32 +158,40 @@ class AddIappTemplate(IcontrolRestCommand):  # @IgnorePep8
     @return: iapp template rest resp
     @rtype: attr dict json
     """
-    def __init__(self, name, template_path, file_name, specs=None,
+    def __init__(self, name,
+                 template_path=None,
+                 file_name=None,
+                 specs=None,
+                 itype="f5.http",
                  *args, **kwargs):
         super(AddIappTemplate, self).__init__(*args, **kwargs)
         specs = Options(specs)
         self.name = name
-        self.file_name = file_name
-        self.template_path = template_path
         self.connector = specs.get('connector', '')
 
-        content = IappTemplate().from_file(self.template_path, self.file_name)
-        self.template_uri = specs.template_uri if specs.template_uri \
-                              else content.parentReference.link
+        content = None
+        if template_path and file_name:
+            content = IappTemplate().from_file(template_path, file_name)
+        else:
+            content = IappTemplate()
+            content.update(self.api.get(IappTemplate.EXAMPLE_URI % itype))
+        self.itype = itype
+        self.fn = template_path + "/" + file_name if template_path else None
+        self.template_uri = specs.template_uri if specs.template_uri else content.parentReference.link
+        self.payload = content
 
     def setup(self):
-        LOG.info("Creating catalog '{0}'...Using '{1}/{2}' as template."
-                 .format(self.name, self.template_path, self.file_name))
-        payload = IappTemplate().from_file(self.template_path,
-                                           self.file_name)
-        payload.update(templateName=self.name)
+        LOG.info("Creating catalog '{0}' from [{1}]...".format(self.name,
+                                                               self.fn or self.itype))
+
+        self.payload.update(templateName=self.name)
 
         if self.connector:
             provider = self.connector.selfLink if isinstance(self.connector, dict) \
-                           and self.connector.get('selfLink') else self.connector
-            payload.properties.append(IappTemplateProperties(provider=provider))
+                        and self.connector.get('selfLink') else self.connector
+            self.payload.properties.append(IappTemplateProperties(provider=provider))
         else:
-            payload.properties.append(IappTemplateProperties())
+            self.payload.properties.append(IappTemplateProperties())
 
         LOG.debug("Waiting for template to be available...")
 
@@ -204,7 +219,7 @@ class AddIappTemplate(IcontrolRestCommand):  # @IgnorePep8
         LOG.debug("Verified iapp is assosicated with a bigip device...")
 
         LOG.debug("Creating Catalog...Posting...")
-        resp = self.api.post(IappTemplate.URI, payload=payload)
+        resp = self.api.post(IappTemplate.URI, payload=self.payload)
         LOG.info("Created iappTemplate (Catalog) '{0}'. Further results in debug."
                  .format(self.name))
         return resp
@@ -214,7 +229,7 @@ add_connector = None
 class AddConnector(IcontrolRestCommand):  # @IgnorePep8
     """Adds a cloud connector to bigiq
 
-    @param name: name #mandatory
+    @param name: name #mandatory 
     @type name: string
     @param ctype: type of connector #mandatory
                 Accepted: local/vmware/ec2/openstack/vmware-nsx
@@ -232,7 +247,7 @@ class AddConnector(IcontrolRestCommand):  # @IgnorePep8
 
     @param specs: connector specific parameters in dict format #not mandatory
                   - each dict key is the exact "id" parameter value of the payload
-                  - notice that for ec2, no need to add the networks "name" subdict item. 
+                  - notice that for ec2, no need to add the networks "name" subdict item.
                   Examples:
                   nsx: nsxresp = add_connector(name=nsxalias,
                                             ctype=CTYPES.nsx,
@@ -299,6 +314,8 @@ class AddConnector(IcontrolRestCommand):  # @IgnorePep8
         elif ctype == CTYPES.vsm:
             pass
         elif ctype == CTYPES.openstack:
+            pass
+        elif ctype == CTYPES.vcmp:
             pass
         else:
             raise CommandError("Wrong Connector Type was passed...")
@@ -467,6 +484,10 @@ class AddConnector(IcontrolRestCommand):  # @IgnorePep8
                                        vcen_password_obj
                                        ])
             # Not Required Parameters:
+            if 'machineId' in self.specs and 'ipAddress' in self.specs:
+                # machineId and ipAddress are required to form the call back cluster map
+                payload.callbackClusterAddresses = [{'machineId': self.specs['machineId'], 'ipAddress': self.specs['ipAddress']}]
+
             if 'licenseReference' in self.specs:
                 payload.licenseReference = self.specs.licenseReference
             if 'ntpServers' in self.specs:
@@ -475,8 +496,24 @@ class AddConnector(IcontrolRestCommand):  # @IgnorePep8
                 payload.dnsServerAddresses = self.specs.dnsServerAddresses
             if 'timezone' in self.specs:
                 payload.timezone = self.specs.timezone
+            if 'deviceReference' in self.specs:
+                payload.deviceReferences = [Link(link=self.specs.deviceReference)]
 
-            # To be updated
+            # adding VCMP connector
+        if self.ctype == CTYPES.vcmp:
+            LOG.debug('Creating Specific VCMP parameters (from yaml)...')
+            vcmp_host_obj = ConnectorProperty(id='VcmpHost',
+                                              isRequired=True,
+                                              value=self.specs['VcmpHost'])
+            vcmp_hostusername_obj = ConnectorProperty(id='VcmpHostUserName',
+                                                      isRequired=True,
+                                                      value=self.specs['VcmpHostUserName'])
+            vcmp_hostpassword_obj = ConnectorProperty(id='VcmpHostPassword',
+                                                      isRequired=True,
+                                                      value=self.specs['VcmpHostPassword'])
+            payload.parameters.extend([vcmp_host_obj, vcmp_hostusername_obj,
+                                       vcmp_hostpassword_obj])
+            # to be updated
 
         LOG.debug("Creating Connector: Using payload:\n{0}".format(payload))
         resp = self.api.post(Connector.URI % self.ctype, payload=payload)
@@ -488,59 +525,36 @@ class AddConnector(IcontrolRestCommand):  # @IgnorePep8
 
 setup_ha = None
 class SetupHa(IcontrolRestCommand):  # @IgnorePep8
+    DEVICE_GROUPS = [SECURITY_SHARED_GROUP, DEFAULT_AUTODEPLOY_GROUP,
+                     ASM_ALL_GROUP, FIREWALL_ALL_GROUP, SECURITY_SHARED_GROUP,
+                     DEFAULT_CLOUD_GROUP, 'cm-asm-logging-nodes-trust-group',
+                     'cm-websafe-logging-nodes-trust-group']
+
     def __init__(self, peers, *args, **kwargs):
         super(SetupHa, self).__init__(*args, **kwargs)
         self.peers = peers
-        self.group = DEFAULT_ALLBIGIQS_GROUP
 
     def prep(self):
-        self.context = ContextHelper(__file__)
         WaitRestjavad(self.peers).run()
-
-    def cleanup(self):
-        self.context.teardown()
 
     def setup(self):
         LOG.info("Setting up Clustered HA with %s...", self.peers)
-        api = self.ifc.api
-        bigiqs = deepcopy(self.peers)
-        # Add the default device to get total bigiqs
-        bigiqs.append(self.context.get_config().get_device())
+        peer_ips = set(IPAddress(x.get_discover_address()).format(ipv6_full) for x in self.peers)
+        options = Options()
+        options.properties = PROPERTY_AA
+        options.automaticallyUpdateFramework = False
 
-        resp = api.get(DeviceResolver.DEVICES_URI % self.group)
-        theirs = {x.address: x for x in resp['items']}
+        Discover(self.peers, group=DEFAULT_ALLBIGIQS_GROUP,
+                 options=options).run()
 
-        # Add peer devices to default BIG-IQ
-        for device in self.peers:
-            payload = DeviceResolver()
-            payload.address = IPAddress(device.get_discover_address()).format(ipv6_full)
-            payload.userName = device.get_admin_creds().username
-            payload.password = device.get_admin_creds().password
-            payload.properties = PROPERTY_AA
-
-            if theirs.get(payload.address) and \
-               theirs[payload.address].state != 'ACTIVE' and \
-               theirs[payload.address].state not in  DeviceResolver.PENDING_STATES:
-                LOG.info('Deleting device {0}...'.format(payload.address))
-                api.delete(theirs[payload.address].selfLink)
-                DeviceResolver.wait(api, self.group)
-                theirs.pop(payload.address)
-
-            if payload.address not in theirs:
-                LOG.info('Adding device {0} using {1}...'.format(device, payload.address))
-                resp = api.post(DeviceResolver.DEVICES_URI % self.group, payload)
-
-        LOG.info('Waiting until all device groups in {0} are ACTIVE'.format(self.group))
-
-        for device in self.peers + [self.context.get_config().get_device()]:
-            p = self.context.get_icontrol_rest(device=device).api
-            resp = wait(lambda: p.get(DeviceResolver.DEVICES_URI % self.group),
-                        condition=lambda resp: len(resp['items']) >= len(bigiqs),
-                        progress_cb=lambda resp: "device group:{0}   bigiqs:{1} "\
-                        .format(len(resp['items']), len(bigiqs)),
-                        timeout=300)
-            DeviceResolver.wait(p, self.group)
-
+        # Wait until until peer BIG-IQs are added to the device groups.
+        for device_group in SetupHa.DEVICE_GROUPS:
+            if self.ifc.version < 'bigiq 4.5.0' and device_group == 'cm-websafe-logging-nodes-trust-group':
+                continue
+            wait(lambda: self.api.get(DeviceResolver.DEVICES_URI % device_group),
+                 condition=lambda ret: len(peer_ips) == len(peer_ips.intersection(set(x.address for x in ret['items']))),
+                 progress_cb=lambda ret: 'Waiting until {0} appears in {1}'.format(peer_ips, device_group),
+                 interval=10, timeout=600)
 
 i_apps = None
 class iApps(IcontrolRestCommand):  # @IgnorePep8

@@ -149,6 +149,18 @@ class WebElementWrapper(WebElement):
         self.parent.execute(Command.MOVE_TO, {'element': self.id})
         return self.parent
 
+    def find_element(self, by=By.ID, value=None):
+        # Reason for this is that if you do:
+        #   parent.find_element_by_xpath('//span')
+        # will return all <span>'s in the entire page not from parent.
+        #
+        # If you look at xpath syntax for '//' it clearly says:
+        # "Selects nodes in the document from the current node that match the
+        # selection no matter where they are"
+        if by == By.XPATH and value.startswith('/'):
+            value = '.' + value
+        return super(WebElementWrapper, self).find_element(by=by, value=value)
+
 
 class RemoteWrapper(RemoteWebDriver):
 

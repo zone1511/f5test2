@@ -1,13 +1,15 @@
 """All commands that run over the SSH interface."""
 
 from .base import SSHCommand, CommandNotSupported, SSHCommandError
-from ..base import CachedCommand, WaitableCommand, CommandError
+from ..base import CachedCommand, WaitableCommand, CommandError, ContextManagerCommand
 from ...base import Options, AttrDict
 from ...interfaces.subprocess import ShellInterface
 from ...interfaces.ssh import SSHInterface
+from ...interfaces.testcase import LOGCOLLECT_CONTAINER
 from ...utils.parsers.version_file import colon_pairs_dict, equals_pairs_dict
 from ...utils.parsers.audit import audit_parse
 from ...utils.version import Version
+from ...utils.wait import wait, wait_args
 from paramiko import RSAKey
 import logging
 import time
@@ -25,7 +27,7 @@ class LicenseParsingError(SSHCommandError):
 
 
 generic = None
-class Generic(WaitableCommand, SSHCommand): #@IgnorePep8
+class Generic(WaitableCommand, SSHCommand):  # @IgnorePep8
     """Run a generic shell command.
 
     >>> ssh.generic('id')
@@ -50,7 +52,7 @@ class Generic(WaitableCommand, SSHCommand): #@IgnorePep8
 
 
 scp_put = None
-class ScpPut(SSHCommand): #@IgnorePep8
+class ScpPut(SSHCommand):  # @IgnorePep8
     """Copy a file through SSH using the SCP utility. To avoid the "Password:"
     prompt for new boxes, it exchanges ssh keys first.
 
@@ -83,17 +85,17 @@ class ScpPut(SSHCommand): #@IgnorePep8
         scpargs = ['-p',  # Preserves modification times, access times, and modes from the original file.
                    '-o StrictHostKeyChecking=no',  # Don't look in  ~/.ssh/known_hosts.
                    '-o UserKnownHostsFile=/dev/null',  # Throw away the new identity
-                   #'-c arcfour256',  # High performance cipher.
+                   # '-c arcfour256',  # High performance cipher.
                    '-P %d' % self.ifc.port]
         destdir = os.path.dirname(self.destination)
         self.api.run('mkdir -p %s' % destdir)
         if self.upload:
-            shell.run('scp %s %s %s@%s:%s' %
+            shell.run('scp %s %s %s@%s:%s' % 
                                     (' '.join(scpargs),
                                      self.source, self.ifc.username,
                                      self.ifc.address, self.destination))
         else:
-            shell.run('scp %s %s@%s:%s %s' %
+            shell.run('scp %s %s@%s:%s %s' % 
                                     (' '.join(scpargs),
                                      self.ifc.username, self.ifc.address,
                                      self.source, self.destination))
@@ -102,12 +104,12 @@ class ScpPut(SSHCommand): #@IgnorePep8
 
 
 scp_get = None
-class ScpGet(ScpPut): #@IgnorePep8
+class ScpGet(ScpPut):  # @IgnorePep8
     upload = False
 
 
 parse_keyvalue_file = None
-class ParseKeyvalueFile(SSHCommand): #@IgnorePep8
+class ParseKeyvalueFile(SSHCommand):  # @IgnorePep8
     """Parses a file and return a dictionary. The file structure sould look like:
     Key1: Value1
     Key2: Value2
@@ -143,7 +145,7 @@ class ParseKeyvalueFile(SSHCommand): #@IgnorePep8
 
 
 get_version = None
-class GetVersion(SSHCommand): #@IgnorePep8
+class GetVersion(SSHCommand):  # @IgnorePep8
     """Parses the /VERSION file and returns a version object.
     For: bigip 9.3.1+, em 1.6.0+
 
@@ -157,7 +159,7 @@ class GetVersion(SSHCommand): #@IgnorePep8
 
 
 get_platform = None
-class GetPlatform(CachedCommand, SSHCommand): #@IgnorePep8
+class GetPlatform(CachedCommand, SSHCommand):  # @IgnorePep8
     """Parses the /PLATFORM file and return a dictionary.
     For: bigip 9.3.1+, em 1.6.0+
 
@@ -168,7 +170,7 @@ class GetPlatform(CachedCommand, SSHCommand): #@IgnorePep8
 
 
 license = None  # @ReservedAssignment
-class License(SSHCommand): #@IgnorePep8
+class License(SSHCommand):  # @IgnorePep8
     """Calls SOAPLicenseClient to license a box with a given basekey.
     For: bigip 9.4.0+, em 1.6.0+
 
@@ -211,7 +213,7 @@ class License(SSHCommand): #@IgnorePep8
 
 
 relicense = None
-class Relicense(SSHCommand): #@IgnorePep8
+class Relicense(SSHCommand):  # @IgnorePep8
     """Calls SOAPLicenseClient against the key grepped off bigip.license.
     For: bigip 9.4.0+, em 1.6.0+
 
@@ -235,7 +237,7 @@ class Relicense(SSHCommand): #@IgnorePep8
 
 
 parse_license = None
-class ParseLicense(CachedCommand, SSHCommand): #@IgnorePep8
+class ParseLicense(CachedCommand, SSHCommand):  # @IgnorePep8
     """Parse the bigip.license file into a dictionary.
 
     @param tokens_only: filter out all non license flags
@@ -281,7 +283,7 @@ class ParseLicense(CachedCommand, SSHCommand): #@IgnorePep8
 
 
 get_prompt = None
-class GetPrompt(WaitableCommand, SSHCommand): #@IgnorePep8
+class GetPrompt(WaitableCommand, SSHCommand):  # @IgnorePep8
     """Returns the bash prompt string.
 
     Examples:
@@ -307,7 +309,7 @@ class GetPrompt(WaitableCommand, SSHCommand): #@IgnorePep8
 
 
 reboot = None
-class Reboot(SSHCommand): #@IgnorePep8
+class Reboot(SSHCommand):  # @IgnorePep8
     """Runs the `reboot` command.
 
     @param post_sleep: number of seconds to sleep after reboot
@@ -338,7 +340,7 @@ class Reboot(SSHCommand): #@IgnorePep8
 
 
 switchboot = None
-class Switchboot(SSHCommand): #@IgnorePep8
+class Switchboot(SSHCommand):  # @IgnorePep8
     """Runs the `switchboot -b <slot>` command.
 
     @param post_sleep: the short-form description of a boot image location
@@ -357,7 +359,7 @@ class Switchboot(SSHCommand): #@IgnorePep8
 
 
 install_software = None
-class InstallSoftware(SSHCommand): #@IgnorePep8
+class InstallSoftware(SSHCommand):  # @IgnorePep8
     """Runs the `image2disk` command.
 
     @param repository: a product distribution file (an iso image), an HTTP URL,
@@ -407,8 +409,8 @@ class InstallSoftware(SSHCommand): #@IgnorePep8
                self.version.product.is_em and self.version >= 'em 2.0' or
                self.version.product.is_bigiq):
                 opts.append('--force')
-            #else:
-                #raise NotImplementedError('upgrade path not supported')
+            # else:
+                # raise NotImplementedError('upgrade path not supported')
 
         v = max(self.repo_version, self.version)
         if not (self.format and
@@ -425,7 +427,7 @@ class InstallSoftware(SSHCommand): #@IgnorePep8
         if self.reboot:
             opts.append('--reboot')
         opts.append(self.repository)
-        #if self.format:
+        # if self.format:
         #    opts.append(self.repository)
 
         ret = self.api.run_wait('image2disk %s' % ' '.join(opts),
@@ -438,7 +440,7 @@ class InstallSoftware(SSHCommand): #@IgnorePep8
 
 
 audit_software = None
-class AuditSoftware(SSHCommand): #@IgnorePep8
+class AuditSoftware(SSHCommand):  # @IgnorePep8
     """Parses the output of the software audit script.
     Version dependent.
 
@@ -462,7 +464,7 @@ class AuditSoftware(SSHCommand): #@IgnorePep8
 
 
 collect_logs = None
-class CollectLogs(SSHCommand): #@IgnorePep8
+class CollectLogs(SSHCommand):  # @IgnorePep8
     """Collects tails from different log files.
 
     @param last: how many lines to tail
@@ -501,7 +503,7 @@ class CollectLogs(SSHCommand): #@IgnorePep8
             if v >= 'bigiq 4.3' and v <= 'bigiq 4.4':
                 files.append('/var/log/nginx_errors.log')
             if v >= 'bigiq 4.5':
-                files.append('/var/log/nginx/errors.log*')
+                files.append('/var/log/webd/errors.log*')
         else:
             files.append('/var/log/tomcat4/catalina.out')
 
@@ -534,7 +536,7 @@ class CollectLogs(SSHCommand): #@IgnorePep8
 
 
 file_exists = None
-class FileExists(WaitableCommand, SSHCommand): #@IgnorePep8
+class FileExists(WaitableCommand, SSHCommand):  # @IgnorePep8
     """Checks whether a file exists or not on the remote system.
 
     @rtype: bool
@@ -554,7 +556,7 @@ class FileExists(WaitableCommand, SSHCommand): #@IgnorePep8
 
 
 cores_exist = None
-class CoresExist(SSHCommand): #@IgnorePep8
+class CoresExist(SSHCommand):  # @IgnorePep8
     """Checks for core files.
 
     @rtype: bool
@@ -570,7 +572,7 @@ class CoresExist(SSHCommand): #@IgnorePep8
 
 
 remove_em = None
-class RemoveEm(SSHCommand): #@IgnorePep8
+class RemoveEm(SSHCommand):  # @IgnorePep8
     """Remove all EM certificates.
     """
     def setup(self):
@@ -583,7 +585,7 @@ class RemoveEm(SSHCommand): #@IgnorePep8
 
 
 get_big3d_version = None
-class GetBig3dVersion(SSHCommand): #@IgnorePep8
+class GetBig3dVersion(SSHCommand):  # @IgnorePep8
     """Get the currently running big3d version.
 
     @rtype: Version
@@ -600,7 +602,7 @@ class GetBig3dVersion(SSHCommand): #@IgnorePep8
 
 
 enable_debug_log = None
-class EnableDebugLog(SSHCommand): #@IgnorePep8
+class EnableDebugLog(SSHCommand):  # @IgnorePep8
     """
     Enable iControl debug logs. Check /var/log/ltm for more info.
 
@@ -609,7 +611,7 @@ class EnableDebugLog(SSHCommand): #@IgnorePep8
     """
     def __init__(self, daemon, enable=True, *args, **kwargs):
         super(EnableDebugLog, self).__init__(*args, **kwargs)
-        #self.daemon = daemon
+        # self.daemon = daemon
         self.enable = enable
         daemon_map = Options()
 
@@ -661,7 +663,7 @@ class EnableDebugLog(SSHCommand): #@IgnorePep8
 
 
 parse_version_file = None
-class ParseVersionFile(SSHCommand): #@IgnorePep8
+class ParseVersionFile(SSHCommand):  # @IgnorePep8
     """Parse the /VERSION file and return a dictionary."""
 
     def setup(self):
@@ -669,7 +671,7 @@ class ParseVersionFile(SSHCommand): #@IgnorePep8
 
 
 is_cluster = None
-class IsCluster(CachedCommand, SSHCommand): #@IgnorePep8
+class IsCluster(CachedCommand, SSHCommand):  # @IgnorePep8
     """Check to see if the platfom we're running on is a cluster."""
 
     def setup(self):
@@ -680,10 +682,10 @@ class IsCluster(CachedCommand, SSHCommand): #@IgnorePep8
 
 
 key_exchange = None
-class KeyExchange(SSHCommand): #@IgnorePep8
+class KeyExchange(SSHCommand):  # @IgnorePep8
     """Exchange SSH key between two remote devices."""
     AUTHORIZED_KEYS = '.ssh/authorized_keys'
-    IDENTITY_SSH1 = '.ssh/identity'
+    IDENTITY_SSH1 = '/root/.ssh/identity'  # Hardcoded because ssh always look here even though $HOME is not /root
 
     def __init__(self, device, address=None, *args, **kwargs):
         super(KeyExchange, self).__init__(*args, **kwargs)
@@ -703,13 +705,13 @@ class KeyExchange(SSHCommand): #@IgnorePep8
 
         # Make sure known_hosts is updated
         self.api.run('ssh-keygen -R %s' % self.address)
-        self.api.run('ssh -n -o StrictHostKeyChecking=no root@%s /bin/true' %
+        self.api.run('ssh -n -o StrictHostKeyChecking=no root@%s /bin/true' % 
                      self.address)
 
 
 audit_port = None
 class AuditPort(SSHCommand):  # @IgnorePep8
-    """Checks if a port is opened.
+    """Checks if a port is opened. It will return either incoming/outgoing
     for string result use: str(@return.stdout)
     @return: SSHResult
     """
@@ -719,8 +721,59 @@ class AuditPort(SSHCommand):  # @IgnorePep8
         self.port = port
 
     def setup(self):
-        return self.api.run("netstat -anp |grep {0}".format(self.port))
+        return self.api.run('netstat -anp |grep "{0}"'.format(self.port))
 
+wait_for_port_closing = None
+class WaitForPortClosing(SSHCommand):  # @IgnorePep8
+    """Waits for a port to be closed. Incoming only
+    @return: Bool
+    """
+    def __init__(self, port, timeout=20, interval=5, *args, **kwargs):
+        super(WaitForPortClosing, self).__init__(*args, **kwargs)
+        self.port = port
+        self.timeout = timeout
+        self.interval = interval
+
+    def setup(self):
+        def is_port_released():
+            x = self.api.run('netstat -anp |grep ":{0} "'.format(self.port))
+            LOG.debug("Audit PORT Status (check for closed): status/stdout/stderr: '{0}'/'{1}'/'{2}'"
+                      .format(x.status, str(x.stdout), str(x.stderr)))
+            if (x.status == 1 and str(x.stdout) == "" and str(x.stderr) == ""):
+#                 or ((x.status == 0 and str(x.stderr) == "" and \
+#                      (str(self.port) + " ") not in str(x.stdout) and \
+#                         (str(self.port) + "/") not in str(x.stdout))):
+                return True
+        wait(is_port_released,
+             progress_cb=lambda x: "PORT Not released yet...",
+             timeout=self.timeout,
+             interval=self.interval,
+             timeout_message="Port not released after {0}s")
+        return True
+
+wait_for_port_opening = None
+class WaitForPortOpening(SSHCommand):  # @IgnorePep8
+    """Waits for a port to be opened. Incoming only
+    @return: Bool
+    """
+    def __init__(self, port, timeout=16, interval=2, *args, **kwargs):
+        super(WaitForPortOpening, self).__init__(*args, **kwargs)
+        self.port = port
+        self.timeout = timeout
+        self.interval = interval
+
+    def setup(self):
+        def is_port_opened():
+            x = self.api.run('netstat -anp |grep ":{0} "'.format(self.port))
+            LOG.debug("Audit PORT Status (check for opened): status/stdout/stderr: '{0}'/'{1}'/'{2}'"
+                      .format(x.status, str(x.stdout), str(x.stderr)))
+            return "LISTEN" in str(x.stdout)
+        wait(is_port_opened,
+             progress_cb=lambda x: "PORT Not Opened yet...",
+             timeout=self.timeout,
+             interval=self.interval,
+             timeout_message="Port not Opened after {0}s")
+        return True
 
 get_current_micros = None
 class GetCurrentMicros(SSHCommand):  # @IgnorePep8
@@ -738,7 +791,7 @@ class GetCurrentMicros(SSHCommand):  # @IgnorePep8
         return (str(self.api.run('date +"%s%{0}N"'.format(self.n)).stdout)).rstrip()
 
 get_system_stats = None
-class GetSystemStats(SSHCommand): # @IgnorePep8
+class GetSystemStats(SSHCommand):  # @IgnorePep8
     """ Returns values for current disk usage, current cpu usage,
     and memory usage.
     @return: dict
@@ -767,10 +820,10 @@ class GetSystemStats(SSHCommand): # @IgnorePep8
 
 
 get_running_processes = None
-class GetRunningProcesses(SSHCommand): # @IgnorePep8
+class GetRunningProcesses(SSHCommand):  # @IgnorePep8
     """
     Retrieves the processes by CPU usage as a list
-    If no count is passed, all procs are returned. 
+    If no count is passed, all procs are returned.
     Otherwise it will retrieve <count> off the top
     e.g. count=10 would be the top 10 processes
     @return: list
@@ -778,10 +831,217 @@ class GetRunningProcesses(SSHCommand): # @IgnorePep8
     def __init__(self, count=None, *args, **kwargs):
         super(GetRunningProcesses, self).__init__(*args, **kwargs)
         self.count = count
-       
+
     def setup(self):
         if self.count:
             self.top_procs = self.ifc.api.run("ps axo %%cpu,%%mem,args | sort -rb | head -n %s" % self.count).stdout.strip().split('\n')
         else:
             self.top_procs = self.ifc.api.run("ps axo %%pu,%%mem,args | sort -rb" % self.count).stdout.strip().split('\n')
         return self.top_procs
+
+
+port_redirector = None
+class PortRedirector(SSHCommand, ContextManagerCommand):  # @IgnorePep8
+    """Used to execute commands while a port redirector is running on host
+
+    $ socat -d -d -ls TCP4-LISTEN:8083,fork,reuseaddr TCP4:localhost:8100 &
+    <execute your code>
+    $ kill $!
+    """
+    def __init__(self, port, local_port=8100, *args, **kwargs):
+        super(PortRedirector, self).__init__(*args, **kwargs)
+        self.port = port
+        self.local_port = local_port
+        self.shell = None
+
+    def prep(self):
+        super(PortRedirector, self).prep()
+        shell = self.ifc.api.interactive()
+        shell.sendline('socat -d -d -ls TCP4-LISTEN:{0},fork,reuseaddr TCP4:localhost:{1} &'.
+                       format(self.port, self.local_port))
+        self.shell = shell
+
+    def cleanup(self):
+        try:
+            self.shell.send('kill $!')
+        finally:
+            self.shell.close()
+
+
+tcpdump = None
+class Tcpdump(SSHCommand, ContextManagerCommand):  # @IgnorePep8
+    """Used to execute commands while tcpdump is running. It also passes it to
+    logcollect plugin via testcase instance (optional).
+
+    By default it'll capture any packet on eth0. This behavior can be changed
+    via the arguments parameter.
+
+    $ tcpdump -nni eth0 -s0 -w /tmp/a.cap &
+    <execute your code>
+    $ kill $!
+
+    @param filename: The full path to the .cap file (default /tmp/tcpdump.cap)
+    @type filename: str
+    @param arguments: tcpdump arguments
+    @type arguments: str
+    @param test: TestCase instance if used from inside a testcase (optional)
+    @type test: <f5test.interfaces.testcase.InterfaceTestCase> instance
+
+    @author: i.turturica@f5.com
+    """
+    def __init__(self, filename='/tmp/tcpdump.cap', arguments=None, test=None,
+                 *args, **kwargs):
+        super(Tcpdump, self).__init__(*args, **kwargs)
+        self.filename = filename
+        self.arguments = arguments if arguments else '-nni eth0 -s0'
+        self.test = test
+        self.shell = None
+
+    def prep(self):
+        super(Tcpdump, self).prep()
+        shell = self.ifc.api.interactive()
+        shell.sendline('tcpdump {} -w {} &'.format(self.arguments, self.filename))
+        self.shell = shell
+        if self.test:
+            name = os.path.basename(self.filename)
+            self.test.set_data((self.ifc, self.filename), name,
+                               container=LOGCOLLECT_CONTAINER)
+
+    def cleanup(self):
+        try:
+            self.shell.send('kill $!')
+        finally:
+            self.shell.close()
+
+
+get_file_metadata = None
+class GetFileMetadata(SSHCommand):  # @IgnorePep8
+    """
+    - Use when information of a large quantity of files/directories is needed and stat is too slow
+    - Retrieves all files from a given directory or an individual file
+    - If no filename filter is passed, it will return all files
+    - Will return a list of dictionaries related to each file like so:
+        Example: [{'file_name': 'name1',
+                            'type': 'file',
+                            'size': XXXX, 
+                            'mtime': 'XX-XX-XX XX:XX:XX', 
+                            'owner': 'ownername', 
+                            'group': 'groupname', 
+                            'permissions': '-rwxr-xr-x'}},
+                        {'file_name': 'name2',
+                            'type': 'directory',
+                            'size': XXXX, 
+                            etc:etc}]
+    @return: list
+    """
+    def __init__(self, path=None, query_term=None, *args, **kwargs):
+        super(GetFileMetadata, self).__init__(*args, **kwargs)
+        self.path = path
+        if query_term:
+            self.query_term = query_term
+        else:
+            self.query_term = None
+
+    def setup(self):
+        dir_contents = []
+        if self.query_term:
+            dir_results = self.ifc.api.run('ls -qlSA --time-style=+%%s %s | grep -F %s'
+                % (self.path, self.query_term)).stdout.split('\n')
+        else:
+            dir_results = self.ifc.api.run('ls -qlSA --time-style=+%%s %s' % self.path).stdout.split('\n')
+        for each in dir_results[1:]:
+            # Check for empty string
+            if each:
+                split_filedata = each.split(' ')
+                split_stats = [x for x in split_filedata if x]
+                filename = split_stats[6]
+                filedata = AttrDict()
+                filedata.file_name = filename
+                if split_stats[0].startswith('-'):
+                    filedata.type = 'file'
+                elif split_stats[0].startswith('d'):
+                    filedata.type = 'directory'
+                elif split_stats[0].startswith('l'):
+                    filedata.type = 'link'
+                else:
+                    filedata.type = 'UNKNOWN'
+                filedata.permissions = split_stats[0]
+                filedata.owner = split_stats[2]
+                filedata.group = split_stats[3]
+                filedata.size = split_stats[4]
+                filedata.mtime = split_stats[5]
+            dir_contents.append(filedata)
+        return dir_contents
+
+change_date = None
+class ChangeDate(SSHCommand):  # @IgnorePep8
+    """Change date through ssh
+    (changing in utc if with_local_tz is False) - Default.
+    @param todate: string in ISO 8610: 2013-10-07T15:27:26
+    @return string: date now in ISO 8610 - utc format with rfc-822
+    """
+    def __init__(self, todate, with_local_tz=False, *args, **kwargs):
+        super(ChangeDate, self).__init__(*args, **kwargs)
+        self.todate = todate
+        self.with_local_tz = with_local_tz
+
+    def setup(self):
+
+        nowu = str(self.ifc.api.run('date -u +"%Y-%m-%dT%H:%M:%S.%3N%z"').stdout).rstrip()
+        nowl = str(self.ifc.api.run('date +"%Y-%m-%dT%H:%M:%S.%3N%z"').stdout).rstrip()
+        # micros_now = get_current_micros(ifc=ifc)
+        LOG.info("Date Was: [{0} | {1}]".format(nowu, nowl))
+        LOG.info("Changing date to [{1}] [{0}]..."
+                 .format(self.todate, "UTC" if not self.with_local_tz else "LTZ"))
+        utcformat = None
+        localdate = None
+        if not self.with_local_tz:
+            # utc format: 100700002013.00 - [MMDDhhmm[[CC]YY][.ss]]
+            utcformat = (self.todate[5:7] +  # MM
+                         self.todate[8:10] +  # DD
+                         self.todate[11:13] +  # hh
+                         self.todate[14:16] +  # mm
+                         self.todate[:4] + "." +  # YYYY
+                         self.todate[-2:])  # ss
+            self.ifc.api.run('date -u "{0}"'.format(utcformat))
+        else:
+            # "MM/DD/YYYY HH:MM:SS"
+            localdate = (self.todate[5:7] + "/" +  # MM
+                         self.todate[8:10] + "/" +  # DD
+                         self.todate[:4] + " " +  # YYYY
+                         self.todate[11:13] + ":" +  # hh
+                         self.todate[14:16] + ":" +  # mm
+                         self.todate[-2:])  # ss
+            self.ifc.api.run('date -s "{0}"'.format(localdate))
+
+        nowu = str(self.ifc.api.run('date -u +"%Y-%m-%dT%H:%M:%S.%3N%z"').stdout).rstrip()
+        nowl = str(self.ifc.api.run('date +"%Y-%m-%dT%H:%M:%S.%3N%z"').stdout).rstrip()
+        # micros_now = get_current_micros(ifc=ifc)
+        LOG.info("New Date shows: [{0} | {1}]".format(nowu, nowl))
+        if not self.with_local_tz:
+            assert nowu.startswith(self.todate[:4]), "Date was not changed properly..."
+        else:
+            assert nowl.startswith(self.todate[:4]), "Date was not changed properly..."
+        # return now[-4:-2] + ":" + now[-2:]
+        return nowu
+
+wait_for_year = None
+class WaitForYear(SSHCommand):  # @IgnorePep8
+    """wait for the date to start/not start with a specified year.
+    to be used when changing dates or ntps, etc..
+    """
+    def __init__(self, year, negated=False, *args, **kwargs):
+        super(WaitForYear, self).__init__(*args, **kwargs)
+        self.year = [year]
+        self.negated = negated
+
+    def setup(self):
+        self.now = None
+
+        def is_year(year):
+            self.now = str(self.api.run('date -u +"%Y-%m-%dT%H:%M:%S.%3N%z"').stdout).rstrip()
+            return self.now.startswith(year) if not self.negated else not self.now.startswith(year)
+        wait_args(is_year, self.year,
+                  progress_cb=lambda x: "Year still not changed...Got: [{0}]".format(self.now),
+                  timeout=60, interval=1,
+                  timeout_message="Check year failed, tried for {0}s..")

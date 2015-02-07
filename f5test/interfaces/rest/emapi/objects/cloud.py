@@ -48,14 +48,14 @@ class Connector(BaseApiObject):
             self.setdefault('parameters', [])
 
     @staticmethod
-    def wait(rest, connector, timeout=DEFAULT_TIMEOUT):
+    def wait(rest, connector, timeout=DEFAULT_TIMEOUT, interval=1):
         selflink = connector.selfLink if isinstance(connector, dict) \
                     else connector
 
         ret = wait(lambda: rest.get(selflink + '/stats'),
-                   condition=lambda ret: ret.entries['health.summary'].value != '0.5',
+                   condition=lambda ret: ret.entries['health.summary'].value != 0.5,
                    progress_cb=lambda ret: 'Waiting for connector health...',
-                   timeout=timeout, interval=1)
+                   timeout=timeout, interval=interval)
 
         if ret.entries['health.summary'].value != 1:
             msg = json.dumps(ret.entries['health.summary'], sort_keys=True,
@@ -125,13 +125,13 @@ class TenantService(BaseApiObject):
         self.setdefault('properties', [])
 
     @staticmethod
-    def wait(rest, tenant, service, timeout=DEFAULT_TIMEOUT):
+    def wait(rest, tenant, service, timeout=DEFAULT_TIMEOUT, *args, **kwargs):
         from .....commands.rest.device import DEFAULT_ALLBIGIQS_GROUP
 
         ret = wait(lambda: rest.get(TenantService.ITEM_URI % (tenant, service) + '/stats'),
                    condition=lambda ret: ret.entries['health.placement'].value != TenantService.PENDING,
                    progress_cb=lambda ret: 'Waiting until iApp is placed...',
-                   timeout=timeout, interval=2)
+                   timeout=timeout, interval=2, *args, **kwargs)
 
         if ret.entries['health.placement'].value != 1:
             rest.get(TenantPlacement.URI)
@@ -271,6 +271,8 @@ class NsxServiceRuntimes(BaseApiObject):
 class IappTemplate(BaseApiObject):
     URI = '/mgmt/cm/cloud/provider/templates/iapp'
     ITEM_URI = '/mgmt/cm/cloud/provider/templates/iapp/%s'
+    HTTP_EXAMPLE = '/mgmt/cm/cloud/templates/iapp/f5.http/providers/example'
+    EXAMPLE_URI = '/mgmt/cm/cloud/templates/iapp/%s/providers/example'
 
     class Variable(AttrDict):
         def __init__(self, *args, **kwargs):

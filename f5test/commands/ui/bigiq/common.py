@@ -13,12 +13,12 @@ from ....interfaces.selenium import By, Is
 import logging
 import time
 from itertools import izip
-from f5test.utils.wait import wait
-from selenium.common.exceptions import NoSuchElementException, \
-                                        StaleElementReferenceException, \
-                                            ElementNotVisibleException
-from f5test.commands.ui.uiutils import webel_grab, webel_click, \
-                                           wait_for_text_in_webel as wait_ftw
+from f5test.utils.wait import wait, WaitTimedOut
+from selenium.common.exceptions import (NoSuchElementException,
+                                        StaleElementReferenceException,
+                                        ElementNotVisibleException)
+from f5test.commands.ui.uiutils import (webel_grab, webel_click,
+                                        wait_for_text_in_webel as wait_ftw)
 from f5test.interfaces.selenium import ActionChains
 
 LOG = logging.getLogger(__name__)
@@ -44,8 +44,7 @@ class Login(SeleniumCommand):  # @IgnorePep8
         self.proto = proto
         self.path = '/ui/login/'
         if device or not address:
-            self.device = device if isinstance(device, DeviceAccess) \
-                        else ConfigInterface().get_device(device)
+            self.device = device if isinstance(device, DeviceAccess) else ConfigInterface().get_device(device)
             self.address = address or self.device.address
             self.port = port or self.device.ports.get(proto, 443)
             self.username = username or self.device.get_admin_creds().username
@@ -71,7 +70,7 @@ class Login(SeleniumCommand):  # @IgnorePep8
         url = "{0[proto]}://{0[address]}:{0[port]}{0[path]}".format(self.__dict__)
         b.get(url)
         # The login page might be outdated (from an old version)
-        b.refresh().wait('username')
+        b.refresh().wait('username', timeout=self.timeout)
 
         e = b.find_element_by_name("username")
         e.click()
@@ -104,45 +103,43 @@ class Navigate(SeleniumCommand):  # @IgnorePep8
     def setup(self):
         b = self.api
         LOG.info("Navigate to [{0}]...".format(self.module))
-
         bits = self.module.split('|')
-
         if self.ver >= 'bigiq 4.5':
             navmenu_xpath = "//div[@id='navMenu']"
+            link_xpath = "%s/ul//li/a[text()='%s']" % (navmenu_xpath, bits[0])
+            wait_xpath = "%s//div[@id='navMenuCurrentLink' and text()='%s']" % (navmenu_xpath, bits[0])
+            e = b.wait(link_xpath, By.XPATH, it=Is.PRESENT, timeout=self.timeout)
+            # Click on Product
+            e.jquery_click()
             if len(bits) > 1:
-                link_xpath = "%s/ul//li/a[text()='%s']" % (navmenu_xpath, bits[0])
-                wait_xpath = "%s//div[@id='navMenuCurrentLink' and text()='%s']" % (navmenu_xpath, bits[0])
+                tail = "//a[text()='%s']" % bits[1]
+                link_xpath = "%s/div[@id='navMenuSublinks']%s" % (navmenu_xpath, tail)
+                tail2 = '//*[contains(concat(" ", normalize-space(@class), " ")," active ")][contains(., "%s")]' % bits[1]
+                wait_xpath = "%s/div[@id='navMenuSublinks']%s" % (navmenu_xpath, tail2)
                 e = b.wait(link_xpath, By.XPATH, it=Is.PRESENT, timeout=self.timeout)
-                # Click on Module
                 e.jquery_click()
-                # artifice until angular is in place for all modules
-                if bits[1] != 'Network Security':
-                    tail = ''
-                    tail2 = ''
-                    for i in range(1, len(bits)):
-                        tail = tail + "//a[text()='%s']" % bits[i]
+                if len(bits) == 3:
+                    b.wait(wait_xpath, By.XPATH, timeout=self.timeout)
+                    if bits[1] in ['Web Application Security']:
+                        tail = tail + '//a[text()="%s"]' % bits[2]
                         link_xpath = "%s/div[@id='navMenuSublinks']%s" % (navmenu_xpath, tail)
-                        tail2 = tail2 + '//*[contains(concat(" ", normalize-space(@class), " ")," active ")][contains(., "%s")]' % bits[i]
+                        tail2 = tail + '[contains(concat(" ", normalize-space(@class), " ")," active ")]'
                         wait_xpath = "%s/div[@id='navMenuSublinks']%s" % (navmenu_xpath, tail2)
                         e = b.wait(link_xpath, By.XPATH, it=Is.PRESENT, timeout=self.timeout)
                         e.jquery_click()
-    #                 tail = ''.join(map(lambda x: "//a[text()='%s']" % x, bits[1:]))
-    #                 link_xpath = "%s/div[@id='navMenuSublinks']%s" % (navmenu_xpath, tail)
-    #                 tail = ''.join(map(lambda x: '//*[contains(concat(" ", normalize-space(@class), " ")," active ")][contains(., "%s")]' % x, bits[1:]))
-    #                 wait_xpath = "%s/div[@id='navMenuSublinks']%s" % (navmenu_xpath, tail)
-                else:
-                    tail = "//a[text()='%s']" % bits[-1]
-                    link_xpath = "%s/div[@id='navMenuSublinks']%s" % (navmenu_xpath, tail)
-                    tail2 = '//*[contains(concat(" ", normalize-space(@class), " ")," active ")][contains(., "%s")]' % bits[-1]
-                    wait_xpath = "%s/div[@id='navMenuSublinks']%s" % (navmenu_xpath, tail2)
-                    e = b.wait(link_xpath, By.XPATH, it=Is.PRESENT, timeout=self.timeout)
-                    e.jquery_click()
-            else:
-                link_xpath = "%s/ul//li/a[text()='%s']" % (navmenu_xpath, bits[0])
-                # wait_xpath = "%s//div[@id='navMenuCurrentLink' and text()='%s']" % (navmenu_xpath, bits[0])
-                wait_xpath = "%s//div[@id='navMenuCurrentLink'][contains(., '%s')]" % (navmenu_xpath, bits[0])
-                e = b.wait(link_xpath, By.XPATH, it=Is.PRESENT, timeout=self.timeout)
-                e.jquery_click()
+                    else:
+                        tail = '//div[a[text()="{0}"]][div[a[text()="{1}"]]]//a[text()="{1}"]'.format(bits[1], bits[2])
+                        link_xpath = "%s/div[@id='navMenuSublinks']%s" % (navmenu_xpath, tail)
+                        tail2 = ''
+                        if bits[1] in ["Network Security"] and bits[2] in ["Audit Log", "Reporting", ]:
+                            tail = "//a[text()='%s']//a[text()='%s']" % (bits[1], bits[2])
+                            tail2 = tail + '[contains(concat(" ", normalize-space(@class), " ")," active ")]'
+                        else:
+                            tail2 = '//div[a[text()="{0}"]][div[a[text()="{1}"]]]//*[contains(concat(" ", normalize-space(@class), " ")," active ")][contains(., "{1}")]'.format(bits[1], bits[2])
+                        wait_xpath = "%s/div[@id='navMenuSublinks']%s" % (navmenu_xpath, tail2)
+
+                        e = b.wait(link_xpath, By.XPATH, it=Is.PRESENT, timeout=self.timeout)
+                        e.jquery_click()
         elif self.ver >= 'bigiq 4.4' and self.ver < 'bigiq 4.5':
             navmenu_xpath = "//div[@id='navMenu']"
             if len(bits) > 1:
@@ -162,10 +159,6 @@ class Navigate(SeleniumCommand):  # @IgnorePep8
                         wait_xpath = "%s/div[@id='navMenuSublinks']%s" % (navmenu_xpath, tail2)
                         e = b.wait(link_xpath, By.XPATH, it=Is.PRESENT, timeout=self.timeout)
                         e.jquery_click()
-    #                 tail = ''.join(map(lambda x: "//a[text()='%s']" % x, bits[1:]))
-    #                 link_xpath = "%s/div[@id='navMenuSublinks']%s" % (navmenu_xpath, tail)
-    #                 tail = ''.join(map(lambda x: '//*[contains(concat(" ", normalize-space(@class), " ")," active ")][contains(., "%s")]' % x, bits[1:]))
-    #                 wait_xpath = "%s/div[@id='navMenuSublinks']%s" % (navmenu_xpath, tail)
                 else:
                     tail = "//a[text()='%s']" % bits[-1]
                     link_xpath = "%s/div[@id='navMenuSublinks']%s" % (navmenu_xpath, tail)
@@ -175,7 +168,6 @@ class Navigate(SeleniumCommand):  # @IgnorePep8
                     e.jquery_click()
             else:
                 link_xpath = "%s/ul//li/a[text()='%s']" % (navmenu_xpath, bits[0])
-                # wait_xpath = "%s//div[@id='navMenuCurrentLink' and text()='%s']" % (navmenu_xpath, bits[0])
                 wait_xpath = "%s//div[@id='navMenuCurrentLink'][contains(., '%s')]" % (navmenu_xpath, bits[0])
                 e = b.wait(link_xpath, By.XPATH, it=Is.PRESENT, timeout=self.timeout)
                 e.jquery_click()
@@ -217,15 +209,42 @@ class Navigate(SeleniumCommand):  # @IgnorePep8
 
         b = b.wait(wait_xpath, By.XPATH, timeout=self.timeout)
         # wait for all blades for some angular UI:
-        if len(bits) > 1 and bits[1] in ['Network Security', 'Configuration',
-                                         'Provisioning', 'Access Control']:
-            if len(bits) > 2 and bits[2] in ['Object Editor', 'Audit Logs']:
-                pass
-            else:
-                wait_ftw(text='ng-hide',
-                         xpath='//span[contains(concat(" ", normalize-space(@class), " ")," spinner ")]',
-                         textineach=True,
-                         attr=['class'], ifc=self.ifc, timeout=60, usedin='Navigate')
+        waitforspinners = True
+        waitforspinners_x = '//*[contains(concat(normalize-space(@class), " "),"spinner ") and not(contains(concat(" ", @class, " "), " cell-spinner ")) and not(contains(concat(" ", @class, " "), " security-spinner ")) and not(contains(concat(" ", @class, " "), " loading-spinner "))]'
+        if len(webel_grab(xpath=waitforspinners_x, ifc=self.ifc)) == 0:
+            waitforspinners = False
+
+#         waitforspinners_x = '//*[contains(concat(normalize-space(@class), " "),"spinner ")]'
+#         # do not wait for non angular pages
+#         if self.ver >= 'bigiq 4.6':
+#             waitforspinners_x = '//*[contains(concat(normalize-space(@class), " "),"spinner ") and not(contains(concat(" ", @class, " "), " cell-spinner ")) and not(contains(concat(" ", @class, " "), " security-spinner ")) and not(contains(concat(" ", @class, " "), " loading-spinner "))]'
+#         elif self.ver == 'bigiq 4.5':
+#             if len(bits) > 1:
+#                 if bits[1] in ['Network Security']:
+#                     if len(bits) > 2 and bits[2] in ['Audit Log', 'Reporting', 'Policy Editor']:
+#                         waitforspinners = False
+#                 elif bits[1] in ['Web Application Security']:
+#                     waitforspinners = False
+#         elif self.ver == 'bigiq 4.4':
+#             if len(bits) > 1 and bits[1] in ['Network Security', 'Shared Security',
+#                                              'Configuration',  # Device/System
+#                                              'Provisioning', 'Access Control',  # Device/System
+#                                              'Monitor', 'Design', 'Deployment',  # ADC
+#                                              ]:
+#                 if len(bits) > 2 and bits[2] in ['Object Editor', 'Audit Logs']:
+#                     waitforspinners = False
+#
+#         else:
+#             waitforspinners = False
+        if waitforspinners:
+            self.api.wait(waitforspinners_x, By.XPATH, negated=True, timeout=60)
+            wait_ftw(text='ng-hide',
+                     xpath=waitforspinners_x,
+                     textineach=True,
+                     attr=['class'],  # prop=["is_displayed"],
+                     ifc=self.ifc, timeout=60,
+                     usedin='Navigate[{0}]/WaitForSpinners'.format(self.module))
+
         popup_error_check(negative=True, ifc=self.ifc, ver=self.ver)
         return b
 
@@ -278,31 +297,32 @@ class Logout(SeleniumCommand):  # @IgnorePep8
         return s.wait(self.logo_d, timeout=self.timeout)
 
 
-def wait_for_brush_to_disappear(blade, timeout=15,
-                                usedin=None,
-                                ver=None, ifc=None):
-    """Function waits for top of a blade brush to be gone."""
+def wait_for_brush_to_disappear(blade, ifc=None, timeout=20,
+                                usedin=None, ver=None, interval=1):
+    """Function waits for all blade spinners to disappear
+    """
     if not ifc:
         raise NoSuchElementException(msg="/wait_for_brush_to_disappear/ifc parameter - mandatory")
     if not ver:
         ver = ifc.version
-    usedin = "{0}{1}".format(usedin + "/wait_for_brush_to_disappear/" if usedin else "/wait_for_brush_to_disappear/",
-                             blade)
+    usedin = "{0}[{1}]".format(usedin + "/wait_for_brush_to_disappear/" if usedin else "/wait_for_brush_to_disappear/",
+                               blade)
     if blade is not None:
         if ver >= 'bigiq 4.4':
-            # xpath = '//panel[@id="{0}"]/div/div/span[contains(concat(" ", normalize-space(@class), " ")," spinner ")]'.format(blade)
-            # all spinners relative to the blade
-            xpath = '//panel[@id="{0}"]//span[contains(concat(" ", normalize-space(@class), " ")," spinner ")]'.format(blade)
+            xpath = '//panel[@id="{0}"]//*[contains(concat(" ", normalize-space(@class), " "),"spinner ")]'.format(blade)
+            ifc.api.wait(xpath, By.XPATH, negated=True, timeout=timeout, interval=interval)
             wait_ftw(text='ng-hide', xpath=xpath, textineach=True,
-                       attr=['class'], ifc=ifc, timeout=timeout, usedin=usedin)
+                     attr=['class'],  # prop=["is_displayed"],
+                     ifc=ifc, timeout=timeout, usedin=usedin)
+            # ifc.api.wait(xpath, By.XPATH, negated=True, timeout=timeout, interval=interval)
         else:  # ver < 4.4
             xpath = '//*[@id="{0}_panel"]/div[1]/div[1]/span'.format(blade)
             # angular: //*[@id="tenants"]/div[3]/div[1]/span[2]
             # angular class: spinner ng-isolate-scope ng-hide
             # toggle: class: spinner ng-isolate-scope ng-show
             wait_ftw(text='display: inline-block', xpath=xpath,
-                       attr=['style'], negated=True, ifc=ifc, timeout=timeout,
-                       usedin=usedin)
+                     attr=['style'], negated=True, ifc=ifc, timeout=timeout,
+                     usedin=usedin)
 
     else:
         raise NoSuchElementException(msg="/wait_for_brush_to_disappear/Blade Name is mandatory and needs to be a string")
@@ -377,7 +397,7 @@ class SeeBlade(SeleniumCommand):  # @IgnorePep8
     def __init__(self, blade,
                  waitforxpath=None,
                  jclick=True,
-                 timeout=10,
+                 timeout=20,
                  ver=None,
                  *args, **kwargs):
         super(SeeBlade, self).__init__(*args, **kwargs)
@@ -391,15 +411,14 @@ class SeeBlade(SeleniumCommand):  # @IgnorePep8
         self.ver = ver
         self.jclick = jclick
         self.timeout = timeout
+        self.stabilize = 1
         if self.ver >= 'bigiq 4.4':
             self.blade_x = '//*[(@id="{0}") and not(@type)]'.format(self.blade)
             self.waitfor_c = '#{0} .panelLabelText'.format(self.blade)
-            self.stabilize = 0
         else:  # bigiq 4.3 and lower
             self.blade_docked_c = '#{0}_blade .bladeHeader'.format(self.blade)
             self.blade_x = '//*[@id="{0}_blade"]'.format(self.blade)
             self.waitfor_c = '#{0}.innerContainer'.format(self.blade)
-            self.stabilize = 1
 
     def setup(self):
         s = self.api
@@ -425,7 +444,7 @@ class SeeBlade(SeleniumCommand):  # @IgnorePep8
         blade.wait(self.waitfor_c, By.CSS_SELECTOR, stabilize=self.stabilize)
         # wait for the brush to go away if there.
         wait_for_brush_to_disappear(self.blade, ifc=self.ifc, timeout=self.timeout,
-                                    ver=self.ver, usedin="/see_blade/")
+                                    ver=self.ver, usedin="/see_blade")
         # popup_error_check(negative=True, ifc=self.ifc, ver=self.ver)
         return blade
 
@@ -457,7 +476,7 @@ class ExpandBlade(SeleniumCommand):  # @IgnorePep8
     def __init__(self, blade, menutext=None, visible=True,
                  use_this_x_button=None, use_this_c_button=None, use_this_d_button=None,
                  group=None,
-                 ver=None,
+                 ver=None, timeout=20,
                  *args, **kwargs):
         super(ExpandBlade, self).__init__(*args, **kwargs)
         if blade:
@@ -495,17 +514,34 @@ class ExpandBlade(SeleniumCommand):  # @IgnorePep8
 
         self.use_this_c_button = use_this_c_button
         self.menutext = menutext
+        self.timeout = timeout
 
     def setup(self):
         s = self.api
         LOG.info("ExpandBlade/{0}{1}/ ...".format(self.blade,
                                                   "/" + self.menutext if self.menutext else "/DefaultNew"))
         if self.visible:
-            blade = see_blade(blade=self.blade, ifc=self.ifc, ver=self.ver)
+            blade = see_blade(blade=self.blade, ifc=self.ifc, ver=self.ver, timeout=self.timeout)
         else:
             blade = s.find_element_by_xpath(self.blade_x)
         LOG.debug("ExpandBlade/Fetched the blade. Now expanding for new element...")
-        if self.ver >= "bigiq 4.4":
+        if self.ver >= "bigiq 4.6":
+            ie_r = webel_grab(xpath=self.fly_innercontainer_x, ifc=self.ifc)
+            if ie_r == []:
+                the_plus_class = webel_grab(xpath=self.use_this_x_button,
+                                            css=self.use_this_c_button,
+                                            did=self.use_this_d_button,
+                                            attr=["class"],
+                                            ifc=self.ifc)[0]["class"]
+                webel_click(xpath=self.use_this_x_button,
+                            css=self.use_this_c_button,
+                            did=self.use_this_d_button,
+                            jsclick=True, ifc=self.ifc)
+                if (self.menutext) or ("single" not in the_plus_class and "multiple" in the_plus_class):
+                    webel_click(xpath=self.menu_item_x, jsclick=True, ifc=self.ifc)
+            else:
+                LOG.info("ExpandBlade/{0}/Found Blade already expanded. No action!".format(self.blade))
+        elif self.ver >= "bigiq 4.4" and self.ver < "bigiq 4.6":
             ie_r = webel_grab(xpath=self.fly_innercontainer_x, ifc=self.ifc)
             if ie_r == []:
                 webel_click(xpath=self.use_this_x_button,
@@ -524,7 +560,8 @@ class ExpandBlade(SeleniumCommand):  # @IgnorePep8
                 newitembtn = blade.find_element_by_css_selector(self.use_this_c_button)
             s.execute_script("return arguments[0].click()", newitembtn)
         blade.wait(self.waitfor_c, By.CSS_SELECTOR, stabilize=self.stabilize)
-        wait_for_brush_to_disappear(self.blade, ifc=self.ifc, ver=self.ver, usedin="ExpandBlade")
+        wait_for_brush_to_disappear(self.blade, ifc=self.ifc, ver=self.ver,
+                                    usedin="ExpandBlade", timeout=self.timeout)
         popup_error_check(negative=True, ifc=self.ifc, ver=self.ver)
         return blade
 
@@ -552,7 +589,7 @@ class ExpandGroup(SeleniumCommand):  # @IgnorePep8
     def __init__(self, blade, group, directions=None, menutext=None,
                  visible=True,
                  ver=None,
-                 usedin=None,
+                 usedin=None, timeout=15,
                  *args, **kwargs):
         super(ExpandGroup, self).__init__(*args, **kwargs)
         if blade:
@@ -573,8 +610,8 @@ class ExpandGroup(SeleniumCommand):  # @IgnorePep8
         self.ver = ver
         self.visible = visible
         self.usedin = "{0}ExpandGroup/{1}/{2}/{3}/".format(usedin + "/" if usedin else "",
-                                                       self.blade, self.directions,
-                                                       menutext if menutext else "DefaultNew")
+                                                           self.blade, self.directions,
+                                                           menutext if menutext else "DefaultNew")
 
         if self.ver >= 'bigiq 4.4':  # used with angular (BQ>=4.4) by default:
             # self.menu_x = '//panel[@id="{0}"]/div/div[contains(@class, "panelHeader")]/span[contains(@class, "addBtn")]/ul[contains(@class, "dropdown-menu")]'.format(self.blade)
@@ -587,7 +624,7 @@ class ExpandGroup(SeleniumCommand):  # @IgnorePep8
             self.blade_x = '//panel[@id="{0}"]'.format(self.blade)
             self.fly_innercontainer_x = '//panel[@id="{0}"]/flyout/div[contains(@class, "innerContainer")]/div'.format(self.blade)
             self.panelbase = '//panel[@id="{0}"]/div[contains(@class,"panelMain")]/div[contains(@class,"innerContainer")]' \
-                            .format(self.blade)
+                             .format(self.blade)
             self.thisgroup_x = self.panelbase + \
                 '//li[contains(., "{0}")]'.format(self.group)
             self.thisgroup_div_x = self.panelbase + \
@@ -604,6 +641,7 @@ class ExpandGroup(SeleniumCommand):  # @IgnorePep8
             LOG.error("Expand Group Method not supported for this version.")
             raise NoSuchElementException(msg="/expand_group/Expand Group Method not supported for this version.")
         self.menutext = menutext
+        self.timeout = timeout
 
     def setup(self):
         s = self.api
@@ -642,13 +680,13 @@ class ExpandGroup(SeleniumCommand):  # @IgnorePep8
                 # make sure the expansion is of this group and not something else
                 # is element highlighted?
                 el_class = webel_grab(xpath=self.thisgroup_div_x, attr=["class"],
-                                 ifc=self.ifc)
+                                      ifc=self.ifc)
                 if self.highlight_c not in el_class[0].get("class"):
                     group_el.click()
                     LOG.info("{0}Click Group, blade already expanded right.".format(self.usedin))
                 else:
                     LOG.info("{0}Found Group already expanded right.".format(self.usedin))
-            blade.wait(self.fly_innercontainer_x, By.XPATH)
+            s.wait(self.fly_innercontainer_x, By.XPATH)
         # expand down
         if "down" in self.directions:
             is_expanded = None
@@ -658,15 +696,21 @@ class ExpandGroup(SeleniumCommand):  # @IgnorePep8
                     is_expanded = False
                 elif "carrot-down-light-gray" in iec[0].get('class'):
                     is_expanded = True
-            if is_expanded == False:
+            if is_expanded is False:
                 webel_click(xpath=self.icon_down_x, ifc=self.ifc)
                 # no way of knowing  if there is any el in this group to wait for
                 time.sleep(1)
-            elif is_expanded == True:
+                # wait for spinners
+                wait_for_brush_to_disappear(self.blade, ifc=self.ifc, ver=self.ver,
+                                            usedin="ExpandGroup", timeout=self.timeout)
+                # no way of knowing  if there is any el in this group to wait for
+                time.sleep(1)
+            elif is_expanded is True:
                 LOG.info("{0}Found Group already expanded down.".format(self.usedin))
             else:
                 raise NoSuchElementException(msg="/expand_group/error.")
-        wait_for_brush_to_disappear(self.blade, ifc=self.ifc, ver=self.ver, usedin="ExpandGroup")
+        wait_for_brush_to_disappear(self.blade, ifc=self.ifc, ver=self.ver,
+                                    usedin="ExpandGroup", timeout=self.timeout)
         popup_error_check(negative=True, ifc=self.ifc, ver=self.ver)
         return blade
 
@@ -697,7 +741,7 @@ class CountOnBlade(SeleniumCommand):  # @IgnorePep8
     """
     def __init__(self, blade, group=None, visible=True,
                  ui_inner_cell_height=None,
-                 ver=None,
+                 ver=None, timeout=15, usedin=None,
                  *args, **kwargs):
         super(CountOnBlade, self).__init__(*args, **kwargs)
         if blade:
@@ -710,14 +754,13 @@ class CountOnBlade(SeleniumCommand):  # @IgnorePep8
         self.visible = visible
         self.group = group
         # //*[@id="device"]/div[4]/div[3]/div/ul/div/li/div[1]/a
-        self.usedin = "CountOnBlade/{0}{1}{2}/" \
-                        .format(self.blade,
-                                ">" if self.group else "",
-                                self.group if self.group else "")
+        self.usedin = "{0}CountOnBlade/{1}{2}{3}/".format(usedin + "/" if usedin else "",
+                                                          self.blade, ">" if self.group else "",
+                                                          self.group if self.group else "",)
 
         if self.ver >= 'bigiq 4.4':
             self.panelbase = '//panel[@id="{0}"]/div[contains(@class,"panelMain")]/div[contains(@class,"innerContainer")]' \
-                            .format(self.blade)
+                             .format(self.blade)
             if self.group:
                 self.all_els_x = self.panelbase + \
                     '//li[contains(., "{0}")]/div[2]/ul/li[*]/div'.format(self.group)
@@ -733,22 +776,11 @@ class CountOnBlade(SeleniumCommand):  # @IgnorePep8
             if not ui_inner_cell_height:
                 ui_inner_cell_height = 46
         self.ui_inner_cell_height = ui_inner_cell_height
+        self.timeout = timeout
 
     def setup(self):
         finalcount = 0
         s = self.api
-        # Remember Autorefresh and disable it:
-        js_no_autorefresh = s.execute_script('return window._debug_disable_autorefresh;')
-        if js_no_autorefresh is None:
-            js_no_autorefresh = "null"
-            # Disable Autorefresh:
-            s.execute_script('window._debug_disable_autorefresh=true;')
-        elif js_no_autorefresh:
-            js_no_autorefresh = "true"
-        elif js_no_autorefresh == False:
-            js_no_autorefresh = "false"
-            # Disable Autorefresh:
-            s.execute_script('window._debug_disable_autorefresh=true;')
 
         # failsafe needed in case a blade has no elements: (it will infinite loop otherwise)
         blade = None
@@ -762,11 +794,11 @@ class CountOnBlade(SeleniumCommand):  # @IgnorePep8
 
         if self.group:
             expand_group(blade=self.blade, group=self.group,
-                          directions=["down"],
-                          visible=False,  # already determined state of blade
-                          usedin="CountOnBlade",
-                          ifc=self.ifc,
-                          ver=self.ver)
+                         directions=["down"],
+                         visible=False,  # already determined state of blade
+                         usedin="CountOnBlade",
+                         ifc=self.ifc,
+                         ver=self.ver)
 
         # //panel[@id="device"]/div/div[3]/div/ul/div/li/div[2]
         if self.ver >= "bigiq 4.4":
@@ -782,7 +814,7 @@ class CountOnBlade(SeleniumCommand):  # @IgnorePep8
             finalcount = max_inview_no
             if not bladeisblank:
                 LOG.debug("{0}Warning: Counted on Blade - But - No Scroll Yet!"
-                         .format(self.usedin))
+                          .format(self.usedin))
                 pass
 #                 bladewebel = s.find_element_by_id(self.blade_d)
 #                 inner_container = bladewebel.find_element_by_css_selector(self.bladecont_c)
@@ -798,35 +830,47 @@ class CountOnBlade(SeleniumCommand):  # @IgnorePep8
 #                 if finalcount > max_inview_no:
 #                     finalcount = max_inview_no
         else:  # all versions prior to 4.4
+                    # Remember Autorefresh and disable it:
+            js_no_autorefresh = s.execute_script('return window._debug_disable_autorefresh;')
+            if js_no_autorefresh is None:
+                js_no_autorefresh = "null"
+                # Disable Autorefresh:
+                s.execute_script('window._debug_disable_autorefresh=true;')
+            elif js_no_autorefresh:
+                js_no_autorefresh = "true"
+            elif js_no_autorefresh is False:
+                js_no_autorefresh = "false"
+                # Disable Autorefresh:
+                s.execute_script('window._debug_disable_autorefresh=true;')
             allels = blade.find_elements_by_css_selector(self.incss)
             max_inview_no = len(allels)
             if max_inview_no == 0:
                 LOG.debug("{0}No elements found on this blade. Final Count: {1}"
-                         .format(self.usedin, finalcount))
+                          .format(self.usedin, finalcount))
                 bladeisblank = True
             else:
                 LOG.debug("{0}Max In View Els at once is: {1}"
-                         .format(self.usedin, max_inview_no))
+                          .format(self.usedin, max_inview_no))
             if not bladeisblank:
                 bladewebel = s.find_element_by_id(self.blade_d)
                 inner_container = bladewebel.find_element_by_css_selector(self.bladecont_c)
                 scroll_height = s.execute_script('return arguments[0].scrollHeight',
-                                                      inner_container)
+                                                 inner_container)
                 if scroll_height <= 0:
                     raise NoSuchElementException(msg="{0}/ScrollHeight was: {1}".format(self.usedin, scroll_height))
-                LOG.debug("{0}Scroll Height found: {1}"
-                             .format(self.usedin, scroll_height))
+                LOG.debug("{0}Scroll Height found: {1}".format(self.usedin, scroll_height))
                 finalcount = int(scroll_height / self.ui_inner_cell_height)
                 # if the no of els is smaller than the scroll:
                 if finalcount > max_inview_no:
                     finalcount = max_inview_no
 
-        if js_no_autorefresh != "true":
-            s.execute_script('window._debug_disable_autorefresh={0};'
-                             .format(js_no_autorefresh))
-            LOG.debug("{0}Returned _debug_disable_autorefresh={1}"
-                      .format(self.usedin, js_no_autorefresh))
-        wait_for_brush_to_disappear(self.blade, ifc=self.ifc, ver=self.ver, usedin="/count_on_blade/")
+            if js_no_autorefresh != "true":
+                s.execute_script('window._debug_disable_autorefresh={0};'
+                                 .format(js_no_autorefresh))
+                LOG.debug("{0}Returned _debug_disable_autorefresh={1}"
+                          .format(self.usedin, js_no_autorefresh))
+        wait_for_brush_to_disappear(self.blade, ifc=self.ifc, ver=self.ver,
+                                    usedin="/count_on_blade/", timeout=self.timeout)
         popup_error_check(negative=True, ifc=self.ifc, ver=self.ver)
         return finalcount
 
@@ -891,7 +935,7 @@ class ClickBladeOnText(SeleniumCommand):  # @IgnorePep8
                  enforce_scroll_only=False,
                  dontscroll=False,
                  remember_jsrefresh=False,
-                 ver=None,
+                 ver=None, timeout=30,
                  *args, **kwargs):
         super(ClickBladeOnText, self).__init__(*args, **kwargs)
         if blade:
@@ -909,11 +953,10 @@ class ClickBladeOnText(SeleniumCommand):  # @IgnorePep8
 
         if threshold is None:
             threshold = 0  # was int(self.CH / 2)
-        usedin = "{0}ClickBladeObj/{1}{2}{3}/".format(
-                        (usedin + "/") if usedin else "",
-                        self.blade,
-                        ">" if self.group else "",
-                        self.group if self.group else "")
+        usedin = "{0}ClickBladeObj/{1}{2}{3}/".format((usedin + "/") if usedin else "",
+                                                      self.blade,
+                                                      ">" if self.group else "",
+                                                      self.group if self.group else "")
         if expandit:  # enforce centering element if trying to expand blade
             center_el_on_blade = True
 
@@ -922,7 +965,7 @@ class ClickBladeOnText(SeleniumCommand):  # @IgnorePep8
                 ui_cell_height = 47
             self.blade_x = '//panel[@id="{0}"]'.format(self.blade)
             self.panelbase = '//panel[@id="{0}"]/div[contains(@class,"panelMain")]/div[contains(@class,"innerContainer")]' \
-                            .format(self.blade)
+                             .format(self.blade)
             if self.group:
                 self.innercontainer_x = self.panelbase + \
                     '//li[contains(., "{0}")]//ul'.format(self.group)
@@ -933,8 +976,7 @@ class ClickBladeOnText(SeleniumCommand):  # @IgnorePep8
                 self.mygear_el_x = self.myel_x + \
                     '/div[contains(concat(" ", normalize-space(@class), " ")," sprite propertiesIcon ")]'
             else:
-                self.innercontainer_x = self.panelbase + \
-                     '//div[contains(@class,"panelListContainer")]'
+                self.innercontainer_x = self.panelbase + '//div[contains(@class,"panelListContainer")]'
                 self.all_els_x = self.innercontainer_x + \
                     '/ul/li[*]'
                 self.myel_x = self.innercontainer_x + \
@@ -942,10 +984,7 @@ class ClickBladeOnText(SeleniumCommand):  # @IgnorePep8
                 self.mygear_el_x = self.innercontainer_x + \
                     '/ul/li[contains(concat(" ", normalize-space(), " "), "{0}")]/div[contains(concat(" ", normalize-space(@class), " ")," sprite propertiesIcon ")]'.format(self.text)
             self.menu_x = '//panel[@id="{0}"]/div/panel-{1}-dropdown//span[contains(@class, "{2}")]/ul[contains(@class, "dropdown-menu")]' \
-                          .format(self.blade,
-                                  "item", "itemHeader")
-                                # "group" if self.group else "item",
-                                # "groupHeader" if self.group else "itemHeader")
+                          .format(self.blade, "item", "itemHeader")
             if menutext:
                 # choose the default link.
                 self.menu_item_x = '{0}/li/a[contains(.,"{1}")]'.format(self.menu_x, menutext)
@@ -953,7 +992,7 @@ class ClickBladeOnText(SeleniumCommand):  # @IgnorePep8
                 self.menu_item_x = '{0}/li/a[contains(@class,"fntSemibold")]'.format(self.menu_x)
             self.selectedcss_c = "highlight"
             self.fly_header_c = "#{0} .panelSubHeader".format(self.blade)
-            self.fly_innercontainer_x = '//panel[@id="{0}"]/flyout/div[contains(@class, "innerContainer")]/div'.format(self.blade)
+            self.fly_innercontainer_x = '//panel[@id="{0}"]/flyout/div[contains(@class, "innerContainer")]/*'.format(self.blade)
             self.bladelist_cells_x = '//panel[@id="{0}"]/div/div[contains(@class, "innerContainer")]/panel-list/div[contains(@class, "panelListContainer")]/ul/li[*]'.format(self.blade)
             self.blade_d = self.blade
         elif self.ver < 'bigiq 4.4':
@@ -972,7 +1011,7 @@ class ClickBladeOnText(SeleniumCommand):  # @IgnorePep8
             self.incss = "#{0}_blade .listCell".format(self.blade)
             self.selectedcss_c = "brushSource highlight"
             self.bladelist_gearbtns_x = '{0}//div[contains(concat(" ", normalize-space(@class), " ")," propertiesIcon ")]' \
-                                    .format(self.bladelist_cells_x)
+                                        .format(self.bladelist_cells_x)
             self.ui_inner_cell_height = ui_inner_cell_height
 
         self.center_el_on_blade = center_el_on_blade
@@ -986,6 +1025,7 @@ class ClickBladeOnText(SeleniumCommand):  # @IgnorePep8
         self.enforce_scroll_only = enforce_scroll_only
         self.dontscroll = dontscroll
         self.menutext = menutext
+        self.timeout = timeout
 
     def setup(self):
         s = self.api
@@ -998,7 +1038,7 @@ class ClickBladeOnText(SeleniumCommand):  # @IgnorePep8
                 s.execute_script('window._debug_disable_autorefresh=true;')
             elif js_no_autorefresh:
                 js_no_autorefresh = "true"
-            elif js_no_autorefresh == False:
+            elif js_no_autorefresh is False:
                 js_no_autorefresh = "false"
                 # Disable Autorefresh:
                 s.execute_script('window._debug_disable_autorefresh=true;')
@@ -1015,7 +1055,8 @@ class ClickBladeOnText(SeleniumCommand):  # @IgnorePep8
         blade = None
 
         if self.visible:
-            blade = see_blade(blade=self.blade, ifc=self.ifc, ver=self.ver)
+            blade = see_blade(blade=self.blade, ifc=self.ifc, ver=self.ver,
+                              timeout=self.timeout)
         else:
             blade = s.find_element_by_id(self.blade_d)
 
@@ -1052,7 +1093,7 @@ class ClickBladeOnText(SeleniumCommand):  # @IgnorePep8
                     # finished, now we know if it is expanded
 
                 already_found_and_clicked = False
-                ###################### Optimization ###############################
+                # ##################### Optimization ###############################
                 if not self.enforce_scroll_only:
                     # LOG.info("{0}Try with NO Scroll first...".format(self.usedin))
                     # See if element was in the current display and calculate position
@@ -1081,37 +1122,41 @@ class ClickBladeOnText(SeleniumCommand):  # @IgnorePep8
                                 LOG.debug("{0}Will scroll to: {1}".format(self.usedin, to_position))
                                 do_scroll_element_to(inner_container, to_position)
                                 LOG.info("{0}Centered to position '{1}' on blade.(No Scroll)"
-                                                 .format(self.usedin, to_position))
+                                         .format(self.usedin, to_position))
                                 wait_for_brush_to_disappear(self.blade, ifc=self.ifc,
-                                                            ver=self.ver, usedin=self.usedin)
+                                                            ver=self.ver, usedin=self.usedin,
+                                                            timeout=self.timeout)
                             element_found = False
                             s.wait(self.myel_x, By.XPATH)
                             webel = s.find_element_by_xpath(self.myel_x)
                             element_found = True
                             LOG.info("{0}Gained webel...".format(self.usedin))
-                            # click it if not already highlighted
-                                # if element is not highlighted
-                            if (self.selectedcss_c not in webel.get_attribute('class')):
-                                # s.execute_script("return arguments[0].click()", webel)
-                                webel.click()
-                                LOG.info("{0}Clicked directly to show el on "
-                                         "'{1}'. (wait to be highlighted)"
-                                         .format(self.usedin, self.text))
-                                wait_ftw(xpath=self.myel_x, text=self.selectedcss_c,
-                                         attr=["class"], ifc=self.ifc, usedin=self.usedin)
-                            else:
-                                LOG.info("{0}Found element clicked and higlighted already:  '{1}'"
+                            # check if is not already highlighted and clik it
+                            # only if I don't want to expand it or if I want to expand it
+                            # and is already expanded
+                            if (not self.expandit) or (self.expandit and is_expanded):
+                                if (self.selectedcss_c not in webel.get_attribute('class')):
+                                    # s.execute_script("return arguments[0].click()", webel)
+                                    webel.click()
+                                    LOG.info("{0}Clicked directly to show el on "
+                                             "'{1}'. (wait to be highlighted)"
+                                             .format(self.usedin, self.text))
+                                    wait_ftw(xpath=self.myel_x, text=self.selectedcss_c,
+                                             attr=["class"], ifc=self.ifc, usedin=self.usedin)
+                                else:
+                                    LOG.info("{0}Found element clicked and higlighted already:  '{1}'"
                                              .format(self.usedin, self.text))
                             # if want blade to expand on el
                             if self.expandit and not is_expanded:
                                 webel = s.find_element_by_xpath(self.myel_x)
                                 action = ActionChains(self.api)
+                                action.move_to_element(webel)
                                 if not self.menutext:
                                     # use double_click
                                     action.double_click(webel)
                                     action.perform()
                                     LOG.info("{0}Double Clicked item to expand el for "
-                                          "'{1}'".format(self.usedin, self.text))
+                                             "'{1}'".format(self.usedin, self.text))
                                     # alternative (click default menu item on gear menu):
                                     # action.move_to_element(webel)
                                     # action.perform()
@@ -1125,7 +1170,6 @@ class ClickBladeOnText(SeleniumCommand):  # @IgnorePep8
                                     #      "'{1}'".format(self.usedin, self.text))
                                 else:
                                     # click exact menu item on gear menu:
-                                    action.move_to_element(webel)
                                     action.perform()
                                     webel_click(xpath=self.mygear_el_x, jsclick=True,
                                                 timeout=10,
@@ -1134,7 +1178,7 @@ class ClickBladeOnText(SeleniumCommand):  # @IgnorePep8
                                                 timeout=10,
                                                 ifc=self.ifc)
                                     LOG.info("{0}Clicked GEAR/Menu '{2}' item to expand el for "
-                                          "'{1}'".format(self.usedin, self.text, self.menutext))
+                                             "'{1}'".format(self.usedin, self.text, self.menutext))
                             already_found_and_clicked = True
                             LOG.debug("{0}Webel after actions: {1}. already_found_and_clicked = {2}"
                                       .format(self.usedin, webel, already_found_and_clicked))
@@ -1156,8 +1200,8 @@ class ClickBladeOnText(SeleniumCommand):  # @IgnorePep8
                                 pass
                             else:
                                 raise NoSuchElementException(msg="{0} Got Stale.".format(self.usedin))
-                        except Exception, e:
-                            raise e
+#                         except Exception, e:
+#                             raise e
 
 #                 ###################### Finished Optimization ######################
 #                 # and now with scroll (the hard way):
@@ -1218,7 +1262,8 @@ class ClickBladeOnText(SeleniumCommand):  # @IgnorePep8
 
             else:  # all prior to 4.4 versions
                 # Determine if the blade is already expanded. Look for the Head Text
-                wait_for_brush_to_disappear(self.blade, ifc=self.ifc, ver=self.ver, usedin=self.usedin)
+                wait_for_brush_to_disappear(self.blade, ifc=self.ifc, ver=self.ver,
+                                            usedin=self.usedin, timeout=self.timeout)
                 is_expanded = True
                 headtext = None
                 try:
@@ -1251,14 +1296,14 @@ class ClickBladeOnText(SeleniumCommand):  # @IgnorePep8
                 # allgearbtns = bladewebel.find_elements_by_xpath(self.bladelist_gearbtns_x)
                 inner_container = bladewebel.find_element_by_css_selector(self.bladecont_c)
                 scroll_height = s.execute_script('return arguments[0].scrollHeight',
-                                                      inner_container)
+                                                 inner_container)
                 do_scroll_element_to(inner_container, 0)
                 bladewebel = s.find_element_by_id(self.blade_d)
                 all_blade_els = bladewebel.find_elements_by_css_selector(self.incss)
                 # allgearbtns = bladewebel.find_elements_by_xpath(self.bladelist_gearbtns_x)
                 inner_container = bladewebel.find_element_by_css_selector(self.bladecont_c)
                 scroll_height = s.execute_script('return arguments[0].scrollHeight',
-                                                      inner_container)
+                                                 inner_container)
                 max_scroll_height = scroll_height + self.CH
 
                 if is_expanded:
@@ -1267,16 +1312,16 @@ class ClickBladeOnText(SeleniumCommand):  # @IgnorePep8
                     LOG.info("{0}Found Blade Retracted...".format(self.usedin))
                 already_found_and_clicked = False
 
-                ###################### Optimization ###############################
+                # ##################### Optimization ###############################
                 # beleive it or not, this is quicker than scroll and mostly accurate
                 # try a quicker approach before scroll in hope it works
                 if not self.enforce_scroll_only:
                     LOG.info("{0}Try with NO Scroll first...".format(self.usedin))
 
                     all_styles_and_texts = webel_grab(css=self.incss,
-                                                 prop=["text"],
-                                                 attr=["style"],
-                                                 ifc=self.ifc)
+                                                      prop=["text"],
+                                                      attr=["style"],
+                                                      ifc=self.ifc)
                     to_position = 0
                     element_found = False
                     for gr in all_styles_and_texts:
@@ -1295,14 +1340,14 @@ class ClickBladeOnText(SeleniumCommand):  # @IgnorePep8
                         if self.center_el_on_blade:
                             do_scroll_element_to(inner_container, to_position)
                             LOG.info("{0}Centered to position '{1}' on blade.(No Scroll)"
-                                             .format(self.usedin, to_position))
+                                     .format(self.usedin, to_position))
                             # regain all the blade elements after scroll
                             bladewebel = s.find_element_by_id(self.blade_d)
                             all_blade_els = bladewebel.find_elements_by_css_selector(self.incss)
                             inner_container = bladewebel.find_element_by_css_selector(self.bladecont_c)
                         else:  # should be used in Save Retarct Verify - only
                             LOG.info("{0}Not Centering El on blade. (No Scroll)"
-                                             .format(self.usedin))
+                                     .format(self.usedin))
                         allgearbtns = bladewebel.find_elements_by_xpath(self.bladelist_gearbtns_x)
                         element_found = False
                         for el, gearel in izip(all_blade_els, allgearbtns):
@@ -1366,7 +1411,7 @@ class ClickBladeOnText(SeleniumCommand):  # @IgnorePep8
                     except Exception, e:
                         raise e
 
-                ###################### Finished Optimization ######################
+                # ##################### Finished Optimization ######################
                 # and now with scroll (the hard way):
                 if not already_found_and_clicked and not self.dontscroll:
                     # fail in case we can't get the height
@@ -1391,7 +1436,9 @@ class ClickBladeOnText(SeleniumCommand):  # @IgnorePep8
                         # go around the Selenium Stale parent issue and regain the inner
                         bladewebel = s.find_element_by_id(self.blade_d)
                         inner_container = bladewebel.find_element_by_css_selector(self.bladecont_c)
-                        wait_for_brush_to_disappear(self.blade, ifc=self.ifc, ver=self.ver, usedin=self.usedin)
+                        wait_for_brush_to_disappear(self.blade, ifc=self.ifc,
+                                                    ver=self.ver,
+                                                    usedin=self.usedin, timeout=self.timeout)
 
                         curels = inner_container.find_elements_by_css_selector(self.incss)
                         row_count = len(curels)
@@ -1404,7 +1451,9 @@ class ClickBladeOnText(SeleniumCommand):  # @IgnorePep8
                         while (j <= row_count) and (not elfound):
                             # Delay 0.1 because the blade cells get regenerated after save.
                             time.sleep(0.1)
-                            wait_for_brush_to_disappear(self.blade, ifc=self.ifc, ver=self.ver, usedin=self.usedin)
+                            wait_for_brush_to_disappear(self.blade, ifc=self.ifc,
+                                                        ver=self.ver, usedin=self.usedin,
+                                                        timeout=self.timeout)
 
                             xpathrow = '//div[@id="{1}"]/div/div[{0}]'.format(j, self.blade)
                             try:
@@ -1491,10 +1540,10 @@ class ClickBladeOnText(SeleniumCommand):  # @IgnorePep8
             else:
                 LOG.info("{0}Blade was found blank. expect_none={1}".format(self.usedin, self.expect_none))
         if (self.expandit or is_expanded) and (webel) and (not self.expect_none) \
-                        and (not bladeisblank):
+           and (not bladeisblank):
             LOG.info("{0}Waiting for Blade to be properly expanded...".format(self.usedin))
             if self.ver >= "bigiq 4.4":
-                s.wait(self.fly_innercontainer_x, By.XPATH)
+                s.wait(self.fly_innercontainer_x, By.XPATH, stabilize=1.5, timeout=self.timeout)
             else:  # prior to 4.4
                 bladewebel.wait(self.waitfor_c, By.CSS_SELECTOR, stabilize=1.5)
         LOG.info("{0}Wait for brush and error check...".format(self.usedin))
@@ -1503,7 +1552,8 @@ class ClickBladeOnText(SeleniumCommand):  # @IgnorePep8
                              .format(js_no_autorefresh))
             LOG.debug("{0}Returned _debug_disable_autorefresh={1}"
                       .format(self.usedin, js_no_autorefresh))
-        wait_for_brush_to_disappear(self.blade, ifc=self.ifc, ver=self.ver, usedin=self.usedin)
+        wait_for_brush_to_disappear(self.blade, ifc=self.ifc, ver=self.ver,
+                                    usedin=self.usedin, timeout=self.timeout)
         popup_error_check(negative=True, ifc=self.ifc, ver=self.ver)
         LOG.info("{0}Done...".format(self.usedin))
         return webel
@@ -1548,7 +1598,7 @@ class ExpandBladeOnThisText(SeleniumCommand):  # @IgnorePep8
                  center_el_on_blade=True,
                  ui_cell_height=None,
                  threshold=None,
-                 ver=None,
+                 ver=None, timeout=30,
                  *args, **kwargs):
         super(ExpandBladeOnThisText, self).__init__(*args, **kwargs)
         if blade:
@@ -1572,6 +1622,7 @@ class ExpandBladeOnThisText(SeleniumCommand):  # @IgnorePep8
         else:  # versions prior to 4.4
             self.blade_x = '//*[@id="{0}_blade"]'.format(self.blade)
         self.menutext = menutext
+        self.timeout = timeout
 
     def setup(self):
 
@@ -1584,7 +1635,7 @@ class ExpandBladeOnThisText(SeleniumCommand):  # @IgnorePep8
                             ui_cell_height=self.ui_cell_height,
                             threshold=self.threshold,
                             center_el_on_blade=self.center_el_on_blade,
-                            ver=self.ver,
+                            ver=self.ver, timeout=self.timeout,
                             ifc=self.ifc)
         # gain blade to return it
         s = self.api
@@ -1625,7 +1676,7 @@ class RetractBlade(SeleniumCommand):  # @IgnorePep8
         if self.ver >= "bigiq 4.4":
             self.blade = blade
             if not use_this_x_button and not use_this_d_button and not use_this_c_button:
-                use_this_x_button = '//panel[@id="{0}"]//button[@id="closeFlyout"]'.format(self.blade)
+                use_this_x_button = '//panel[@id="{0}"]//button[contains(@id,"closeFlyout") or (normalize-space()="Cancel") or (normalize-space()="Close")]'.format(self.blade)
             self.fly_innercontainer_x = '//panel[@id="{0}"]/flyout/div[contains(@class, "innerContainer")]/div'.format(self.blade)
         else:
             self.blade_d = '{0}_blade'.format(self.blade)
@@ -1660,7 +1711,7 @@ class RetractBlade(SeleniumCommand):  # @IgnorePep8
                     cancelbtn = s.find_element_by_xpath(self.cancel_btn_x)
                 s = cancelbtn.click().wait(self.fly_innercontainer_x, By.XPATH,
                                            negated=True,
-                                           # stabilize=1,
+                                           stabilize=1,
                                            timeout=self.timeout)
             else:
                 LOG.debug("/RetractBlade/{0}/Found Blade Retracted...".format(self.blade))
@@ -1684,8 +1735,11 @@ class RetractBlade(SeleniumCommand):  # @IgnorePep8
                 cancelbtn = subheader.find_element_by_xpath(self.cancel_btn_x)
             s = cancelbtn.click().wait(self.bladesub_c, By.CSS_SELECTOR,
                                        negated=True, timeout=self.timeout, stabilize=1)
+        # wait for animation to rearrange blades after some retracts (IE 9 mostly).
+        time.sleep(1)
         # wait for the brush to go away if there.
-        wait_for_brush_to_disappear(self.blade, ifc=self.ifc, ver=self.ver, usedin="/retract_blade/")
+        wait_for_brush_to_disappear(self.blade, ifc=self.ifc, ver=self.ver,
+                                    usedin="/retract_blade/", timeout=self.timeout)
 
         popup_error_check(negative=True, ifc=self.ifc, ver=self.ver)
         LOG.info("/RetractBlade/{0}/Done.".format(self.blade))
@@ -1749,10 +1803,10 @@ class SaveRetract(SeleniumCommand):  # @IgnorePep8
         if ver >= "bigiq 4.4":
             self.blade_d = self.blade
             if not use_this_x_button and not use_this_d_button and not use_this_c_button:
-                use_this_x_button = '//panel[@id="{0}"]//button[(@id="save") or (@id="add")]'.format(self.blade)
+                use_this_x_button = '//panel[@id="{0}"]//button[contains(@id,"save") or contains(@id,"add") or (normalize-space()="Save")]'.format(self.blade)
             self.fly_innercontainer_x = '//panel[@id="{0}"]/flyout/div[contains(@class, "innerContainer")]/div'.format(self.blade)
             if not waittoverify:
-                waittoverify = 0
+                waittoverify = 1
         else:
             self.blade_d = '{0}_blade'.format(self.blade)
             use_this_c_button = '.subBladeBtn3'
@@ -1815,7 +1869,8 @@ class SaveRetract(SeleniumCommand):  # @IgnorePep8
                     btn.click()
                 else:
                     s.execute_script("return arguments[0].click()", btn)
-                wait_for_brush_to_disappear(self.blade, ifc=self.ifc, ver=self.ver, usedin="SaveRetract")
+                wait_for_brush_to_disappear(self.blade, ifc=self.ifc, ver=self.ver,
+                                            usedin="SaveRetract", timeout=self.timeout)
                 popup_error_check(negative=True, ifc=self.ifc, ver=self.ver)
                 s.wait(self.fly_innercontainer_x, By.XPATH,
                                            negated=True,
@@ -1879,7 +1934,8 @@ class SaveRetract(SeleniumCommand):  # @IgnorePep8
             if webel is None:
                 raise NoSuchElementException(msg="/SaveRetractVerify/Could Not Verify that the el is there.")
 
-        wait_for_brush_to_disappear(self.blade, ifc=self.ifc, ver=self.ver, usedin="SaveRetract")
+        wait_for_brush_to_disappear(self.blade, ifc=self.ifc, ver=self.ver,
+                                    usedin="SaveRetract", timeout=self.timeout)
         # regain control of the same blade and return it
         blade = s.find_element_by_id(self.blade_d)
         if js_no_autorefresh != "true":
@@ -1928,7 +1984,7 @@ class SearchBlade(SeleniumCommand):  # @IgnorePep8
                  ui_inner_cell_height=None,
                  dontscroll=False,
                  remember_jsrefresh=False,
-                 ver=None,
+                 ver=None, timeout=15,
                  *args, **kwargs):
         super(SearchBlade, self).__init__(*args, **kwargs)
         if blade:
@@ -1993,6 +2049,7 @@ class SearchBlade(SeleniumCommand):  # @IgnorePep8
         self.visible = visible
         self.dontscroll = dontscroll
         self.remember_jsrefresh = remember_jsrefresh
+        self.timeout = timeout
 
     def setup(self):
         s = self.api
@@ -2023,9 +2080,10 @@ class SearchBlade(SeleniumCommand):  # @IgnorePep8
         count = count_on_blade(blade=self.blade, group=self.group,
                                visible=self.visible,
                                ui_inner_cell_height=self.ui_inner_cell_height,
-                               ifc=self.ifc, ver=self.ver)
+                               usedin=self.usedin, ifc=self.ifc, ver=self.ver)
         if count >= 0:
-            wait_for_brush_to_disappear(self.blade, ifc=self.ifc, ver=self.ver, usedin=self.usedin)
+            wait_for_brush_to_disappear(self.blade, ifc=self.ifc, ver=self.ver,
+                                        usedin=self.usedin, timeout=self.timeout)
 
             if self.ver >= "bigiq 4.4":
                 if self.group:
@@ -2151,7 +2209,8 @@ class SearchBlade(SeleniumCommand):  # @IgnorePep8
                              .format(js_no_autorefresh))
             LOG.debug("{0}Returned _debug_disable_autorefresh={1}"
                       .format(self.usedin, js_no_autorefresh))
-        wait_for_brush_to_disappear(self.blade, ifc=self.ifc, ver=self.ver, usedin=self.usedin)
+        wait_for_brush_to_disappear(self.blade, ifc=self.ifc, ver=self.ver,
+                                    usedin=self.usedin, timeout=self.timeout)
         popup_error_check(negative=True, ifc=self.ifc, ver=self.ver)
         return returnlist
 
@@ -2238,13 +2297,13 @@ class DeleteObjectOnText(SeleniumCommand):  # @IgnorePep8
             if not ui_cell_height:
                 ui_cell_height = 47
             if not waittoverify:
-                waittoverify = 0
+                waittoverify = 1
             if not widget_title_x and not widget_title_c:
-                widget_title_x = '//dialog[contains(@title, "Delete") or contains(@title, "Remove")]//span[contains(., "Delete") or contains(., "Remove")]'
+                widget_title_x = '//dialog[@show="true"][contains(@title, "Delete") or contains(@title, "Remove")]//span[contains(., "Delete") or contains(., "Remove")]'
             if not widget_delete_btn_x and not widget_delete_btn_c:
-                widget_delete_btn_x = '//dialog[contains(@title, "Delete") or contains(@title, "Remove")]//button[(normalize-space()="Delete") or (normalize-space()="Remove")]'
+                widget_delete_btn_x = '//dialog[@show="true"][contains(@title, "Delete") or contains(@title, "Remove")]//button[(normalize-space()="Delete") or (normalize-space()="Remove")]'
             if not use_this_x_button and not use_this_d_button and not use_this_c_button:
-                use_this_x_button = '//panel[@id="{0}"]//button[(@id="delete")]'.format(self.blade)
+                use_this_x_button = '//panel[@id="{0}"]//button[contains(@id,"delete") or (normalize-space()="Delete")]'.format(self.blade)
         else:  # all version before 4.4
             self.blade_d = '{0}_blade'.format(self.blade)
             if not ui_cell_height:
@@ -2287,16 +2346,16 @@ class DeleteObjectOnText(SeleniumCommand):  # @IgnorePep8
             s.execute_script('window._debug_disable_autorefresh=true;')
         elif js_no_autorefresh:
             js_no_autorefresh = "true"
-        elif js_no_autorefresh == False:
+        elif js_no_autorefresh is False:
             js_no_autorefresh = "false"
             # Disable Autorefresh:
             s.execute_script('window._debug_disable_autorefresh=true;')
 
         LOG.info("DeleteObj/Will Delete: '{0}' on blade '{1}'..."
-                      .format(self.text, self.blade))
+                 .format(self.text, self.blade))
         for text in self.text:
             LOG.info("DeleteObj/Deleting object with text '{0}' on blade '{1}'..."
-                      .format(text, self.blade))
+                     .format(text, self.blade))
             click_blade_on_text(blade=self.blade, text=text, group=self.group,
                                 menutext=self.menutext,
                                 usedin="DeleteObj",
@@ -2306,8 +2365,10 @@ class DeleteObjectOnText(SeleniumCommand):  # @IgnorePep8
                                 threshold=self.threshold,
                                 center_el_on_blade=self.center_el_on_blade,
                                 ver=self.ver,
+                                timeout=self.timeout,
                                 ifc=self.ifc)
-            wait_for_brush_to_disappear(self.blade, ifc=self.ifc, ver=self.ver)
+            wait_for_brush_to_disappear(self.blade, ifc=self.ifc, ver=self.ver,
+                                        timeout=self.timeout)
 
             # if using the confirm widget:
             if self.with_widget:
@@ -2327,11 +2388,12 @@ class DeleteObjectOnText(SeleniumCommand):  # @IgnorePep8
                 # wait for the dialog to dissapear
                 if self.widget_title_c:
                     s.wait(self.widget_title_c, By.CSS_SELECTOR, negated=True,
-                       timeout=self.timeout)
+                           timeout=self.timeout)
                 if self.widget_title_x:
                     s.wait(self.widget_title_x, By.XPATH, negated=True,
-                       timeout=self.timeout)
-                wait_for_brush_to_disappear(self.blade, ifc=self.ifc, ver=self.ver, usedin="DeleteObj")
+                           timeout=self.timeout)
+                wait_for_brush_to_disappear(self.blade, ifc=self.ifc, ver=self.ver,
+                                            usedin="DeleteObj", timeout=self.timeout)
                 LOG.debug("DeleteObj/Delete Confirm Widget disappeared...")
             # if not using the confirm widget at all (blade requires no confirm del):
             else:
@@ -2356,22 +2418,24 @@ class DeleteObjectOnText(SeleniumCommand):  # @IgnorePep8
                 LOG.info("DeleteObjVerify/{1}/Obj: {2}; Waiting {0}s before verify. ..."
                          .format(self.waittoverify, self.blade, self.text))
                 time.sleep(self.waittoverify)
-            result = search_blade(blade=self.blade, text=self.text, group=self.group,
+            wait_for_brush_to_disappear(self.blade, ifc=self.ifc, ver=self.ver,
+                                        usedin="DeleteObjVerify", timeout=self.timeout)
+
+            self.result = [""]
+
+            def is_el_removed_from_blade():
+                self.result = search_blade(blade=self.blade, text=self.text, group=self.group,
                                   usedin="DeleteObjVerify",
                                   ui_inner_cell_height=self.ui_cell_height,
                                   ver=self.ver,
                                   dontscroll=self.dontscroll,
                                   ifc=self.ifc)
-            if result is not None:
-                errmsg = "DeleteObjVerify/{0}/Objects: '{1}' were still " \
-                          "found after delete. " \
-                          "(Use with_verify=False if multiple objects same name.)" \
-                          .format(self.blade, result)
-                LOG.error(errmsg)
-                raise NoSuchElementException(msg=errmsg)
-            else:
-                LOG.debug("DeleteObjVerify/Blade was checked for '{0}' absence."
-                          .format(self.text))
+                if self.result is None:
+                    return True
+            wait(is_el_removed_from_blade, interval=10, timeout=self.timeout,
+             timeout_message="DeleteObjVerify/%s/After {0}s, Objects: '%s' were still "
+                             "found after delete. (Use with_verify=False if multiple "
+                             "objects same name.)" % (self.blade, self.result))
 
         LOG.info("DeleteObj/Deleted object(s) with text(s) '{0}' on blade '{1}'..."
                   .format(self.text, self.blade))
@@ -2425,12 +2489,11 @@ class DragAndDrop(SeleniumCommand):  # @IgnorePep8
                  fromblade, toblade,
                  fromtext, totext,
                  ui_cell_height=None, threshold=None,
-                 use_this_c_button='.confirm_save',
-                 use_this_d_button=None, use_this_x_button=None,
+                 use_this_c_button=None, use_this_d_button=None, use_this_x_button=None,
                  finxpath=None, fattr=None, fincss=None, findid=None,
                  tinxpath=None, tattr=None, tincss=None, tindid=None,
                  withconfirmdialog=True, withrefresh=False,
-                 timeout=180,
+                 timeout=15, dead_timeout=180,
                  ver=None,
                  *args, **kwargs):
         super(DragAndDrop, self).__init__(*args, **kwargs)
@@ -2444,27 +2507,42 @@ class DragAndDrop(SeleniumCommand):  # @IgnorePep8
         if not ver:
             ver = self.ifc.version
         self.ver = ver
+        self.dialogtitle_c = ""
+        if self.ver >= 'bigiq 4.5':
+            if not use_this_c_button and not use_this_x_button and not use_this_d_button:
+                use_this_x_button = "//*[@id='confirmdeleteuser']//button[contains(., 'Confirm')]"
+            if not fincss and not finxpath and not findid:
+                finxpath = '//*[@id="{0}"]//panel-list//ul/li[div[contains(concat(" ", normalize-space(), " ")," {1} ")]]' \
+                            .format(self.fromblade, self.fromtext)
+            if not tincss and not tinxpath and not tindid:
+                tinxpath = '//*[@id="{0}"]//panel-list//ul/li[div[contains(concat(" ", normalize-space(), " ")," {1} ")]]' \
+                            .format(self.toblade, self.totext)
+            self.dialogtitle_c = "#confirmdeleteuser .dialogTitle"
+        else:  # older than 4.5
+            if not use_this_c_button and not use_this_x_button and not use_this_d_button:
+                use_this_c_button = '.confirm_save'
+            if not fincss and not finxpath and not findid:
+                fincss = "#{0} .listCell".format(self.fromblade)
+            if not tincss and not tinxpath and not tindid:
+                tincss = "#{0} .listCell".format(self.toblade)
+            self.dialogtitle_c = ".ui-dialog-title"
         self.finxpath = finxpath
         self.fattr = fattr
-        if (self.finxpath is None) and (fincss is None):
-            fincss = "#{0} .listCell".format(self.fromblade)
         self.fincss = fincss
         self.findid = findid
         self.tinxpath = tinxpath
         self.tattr = tattr
-        if (self.tinxpath is None) and (tincss is None):
-            tincss = "#{0} .listCell".format(self.toblade)
         self.tincss = tincss
         self.tindid = tindid
         self.withconfirmdialog = withconfirmdialog
         self.use_this_x_button = use_this_x_button
-        self.use_this_c_button = use_this_c_button  # default: '.confirm_save'
+        self.use_this_c_button = use_this_c_button
         self.use_this_d_button = use_this_d_button
         self.timeout = timeout
         self.withrefresh = withrefresh
-        self.dialogtitle_c = ".ui-dialog-title"
         self.ui_cell_height = ui_cell_height
         self.threshold = threshold
+        self.dead_timeout = dead_timeout
 
     def setup(self):
         s = self.api
@@ -2489,16 +2567,16 @@ class DragAndDrop(SeleniumCommand):  # @IgnorePep8
             # Disable Autorefresh:
             s.execute_script('window._debug_disable_autorefresh=true;')
 
-        see_blade(blade=self.fromblade, ifc=self.ifc, ver=self.ver)
-        see_blade(blade=self.toblade, ifc=self.ifc, ver=self.ver)
+        # see_blade(blade=self.fromblade, ifc=self.ifc, ver=self.ver)
+        # see_blade(blade=self.toblade, ifc=self.ifc, ver=self.ver)
         # wait for the brush to go away if there.
-        wait_for_brush_to_disappear(self.fromblade, ifc=self.ifc, ver=self.ver, usedin="Drag&Drop")
-        wait_for_brush_to_disappear(self.toblade, ifc=self.ifc, ver=self.ver, usedin="Drag&Drop")
-
-        LOG.info("/Drag&Drop/Fetch webel ...From: [{0}][{1}];"
-                 .format(self.fromblade, self.fromtext))
+        # wait_for_brush_to_disappear(self.fromblade, ifc=self.ifc, ver=self.ver,
+        #                            usedin="Drag&Drop", timeout=self.timeout)
+        # wait_for_brush_to_disappear(self.toblade, ifc=self.ifc, ver=self.ver,
+        #                            usedin="Drag&Drop", timeout=self.timeout)
 
         # fetch a valid webel from each blade (retry it if fails)
+
         def give_a_valid_from_webel():
             ff = False
             from_webel = click_blade_on_text(blade=self.fromblade,
@@ -2509,7 +2587,7 @@ class DragAndDrop(SeleniumCommand):  # @IgnorePep8
                                              ui_cell_height=self.ui_cell_height,
                                              threshold=self.threshold,
                                              remember_jsrefresh=True,
-                                             ver=self.ver,
+                                             ver=self.ver, timeout=self.dead_timeout,
                                              ifc=self.ifc)
             if from_webel is not None:
                 ff = True
@@ -2517,10 +2595,6 @@ class DragAndDrop(SeleniumCommand):  # @IgnorePep8
             else:
                 LOG.debug("/Drag&Drop/From Webel was None this time...")
             return ff
-        wait(give_a_valid_from_webel, timeout=self.timeout)
-
-        LOG.info("/Drag&Drop/Fetch webel ...To: [{0}][{1}];"
-                 .format(self.toblade, self.totext))
 
         def give_a_valid_to_webel():
             ff = False
@@ -2532,7 +2606,7 @@ class DragAndDrop(SeleniumCommand):  # @IgnorePep8
                                              ui_cell_height=self.ui_cell_height,
                                              threshold=self.threshold,
                                              remember_jsrefresh=True,
-                                             ver=self.ver,
+                                             ver=self.ver, timeout=self.dead_timeout,
                                              ifc=self.ifc)
             if to_webel is not None:
                 ff = True
@@ -2540,17 +2614,80 @@ class DragAndDrop(SeleniumCommand):  # @IgnorePep8
             else:
                 LOG.debug("/Drag&Drop/To Webel was None this time...")
             return ff
-        wait(give_a_valid_to_webel, timeout=self.timeout)
+
+        LOG.info("/Drag&Drop/Fetch webel ...From: [{0}][{1}];"
+                 .format(self.fromblade, self.fromtext))
+        wait(give_a_valid_from_webel, timeout=self.dead_timeout)
+        LOG.info("/Drag&Drop/Fetch webel ...From: [{0}][{1}];"
+                 .format(self.toblade, self.totext))
+        wait(give_a_valid_to_webel, timeout=self.dead_timeout)
 
         # regain s
         s = self.api
         # Disable Autorefresh:
         s.execute_script('window._debug_disable_autorefresh=true;')
-        wait_for_brush_to_disappear(self.fromblade, ifc=self.ifc, ver=self.ver, usedin="Drag&Drop")
-        wait_for_brush_to_disappear(self.toblade, ifc=self.ifc, ver=self.ver, usedin="Drag&Drop")
+        wait_for_brush_to_disappear(self.fromblade, ifc=self.ifc, ver=self.ver,
+                                    usedin="Drag&Drop", timeout=self.timeout)
+        wait_for_brush_to_disappear(self.toblade, ifc=self.ifc, ver=self.ver,
+                                    usedin="Drag&Drop", timeout=self.timeout)
 
         # Retry the Drag and Drop
         def tryactionchain():
+            tobeornottobe = True
+            try:
+                # only support xpath for now
+                from_webel = s.find_element_by_xpath(self.finxpath)
+                to_webel = s.find_element_by_xpath(self.tinxpath)
+                if not from_webel or not to_webel:
+                    LOG.error("/Drag&Drop/Did a refresh just happened? "
+                              "From:[{0}] To [{1}] - Needs both to be valid..."
+                              .format(from_webel, to_webel))
+                # The Drag and Drop:
+                LOG.info("/Drag&Drop/Trying Drag&Drop now... ...")
+                # print "Move to from_webel"
+                # time.sleep(2)
+                action = ActionChains(s)
+                action.move_to_element(from_webel)
+                action.perform()
+                time.sleep(2)
+                action = ActionChains(s)
+                # print "Click and hold"
+                action = ActionChains(s)
+                action.click_and_hold(from_webel)
+                action.perform()
+                time.sleep(2)
+                # print "Move to to"
+                action = ActionChains(s)
+                action.move_to_element(to_webel)
+                action.perform()
+                # print "Release"
+                time.sleep(2)
+                action = ActionChains(s)
+                action.release(from_webel)
+                action.perform()
+                # time.sleep(1)
+                # ActionChains(s).drag_and_drop(from_webel, to_webel).perform()
+                time.sleep(1)
+                if self.withconfirmdialog:
+                    el = None
+                    LOG.info("/Drag&Drop/Should Have Happened...Wait for Confirm Dialog...")
+                    try:
+                        s.wait(self.dialogtitle_c, By.CSS_SELECTOR)
+                        el = s.find_element_by_css_selector(self.dialogtitle_c)
+                        # print el
+                    except NoSuchElementException:
+                        tobeornottobe = False
+                        pass
+                    if el is None:
+                        tobeornottobe = False
+            except StaleElementReferenceException:
+                tobeornottobe = False
+                LOG.warning("/Drag&Drop/StaleElementReferenceException happened "
+                          " during ActionChains. Will retry a few times...")
+                pass
+            return tobeornottobe
+
+        def tryactionchain_43():
             tobeornottobe = True
             try:
                 items = []
@@ -2600,7 +2737,11 @@ class DragAndDrop(SeleniumCommand):  # @IgnorePep8
                           " during ActionChains. Will retry a few times...")
                 pass
             return tobeornottobe
-        wait(tryactionchain, timeout=self.timeout)
+        if self.ver >= 'bigiq 4.4':
+            wait(tryactionchain, timeout=self.dead_timeout)
+            # tryactionchain()
+        else:  # self.ver <= 'bigiq 4.3':
+            wait(tryactionchain_43, timeout=self.dead_timeout)
         LOG.info("/Drag&Drop/Success in Drag and Drop...")
 
         # Moving on to the Confirm Dialog, if any
@@ -2608,33 +2749,35 @@ class DragAndDrop(SeleniumCommand):  # @IgnorePep8
             LOG.debug("/Drag&Drop/Confirming action in the confirm dialog...")
             LOG.info("/Drag&Drop/Confirming action in the confirm dialog...")
 
-            def is_confirm_dialog_there_yet():
-                appeared = False
-                try:
-                    s.wait(self.dialogtitle_c, By.CSS_SELECTOR)
-                    textd = s.find_element_by_css_selector(self.dialogtitle_c).text
-                    s.wait(self.dialogtitle_c, By.CSS_SELECTOR, it=Is.TEXT_MATCH,
-                           match=textd,
-                           interval=1,
-                           timeout=20,
-                           stabilize=1)
-                    appeared = True
-                except StaleElementReferenceException:
-                        pass
-                except NoSuchElementException:
-                        pass
-                return appeared
-            wait(is_confirm_dialog_there_yet, timeout=self.timeout)
+#             def is_confirm_dialog_there_yet():
+#                 appeared = False
+#                 try:
+#                     s.wait(self.dialogtitle_c, By.CSS_SELECTOR)
+#                     textd = s.find_element_by_css_selector(self.dialogtitle_c).text
+#                     s.wait(self.dialogtitle_c, By.CSS_SELECTOR, it=Is.TEXT_MATCH,
+#                            match=textd,
+#                            interval=1,
+#                            timeout=20,
+#                            stabilize=1)
+#                     appeared = True
+#                 except StaleElementReferenceException:
+#                         pass
+#                 except NoSuchElementException:
+#                         pass
+#                 return appeared
+#             wait(is_confirm_dialog_there_yet, timeout=self.dead_timeout)
             # click the confirm button and wait for the dialog to dissapear
             webel_click(css=self.use_this_c_button,
                         xpath=self.use_this_x_button,
                         did=self.use_this_d_button,
                         waitforcss=self.dialogtitle_c, negated=True,
-                        timeout=self.timeout, ifc=self.ifc)
+                        timeout=self.dead_timeout, ifc=self.ifc)
             LOG.info("/Drag&Drop/Success in confirming the popup dialog...")
         # wait for the brush to go away if there.
-        wait_for_brush_to_disappear(self.fromblade, ifc=self.ifc, ver=self.ver, usedin="Drag&Drop")
-        wait_for_brush_to_disappear(self.toblade, ifc=self.ifc, ver=self.ver, usedin="Drag&Drop")
+        wait_for_brush_to_disappear(self.fromblade, ifc=self.ifc, ver=self.ver,
+                                    usedin="Drag&Drop", timeout=self.timeout)
+        wait_for_brush_to_disappear(self.toblade, ifc=self.ifc, ver=self.ver,
+                                    usedin="Drag&Drop", timeout=self.timeout)
         if js_no_autorefresh != "true":
             s.execute_script('window._debug_disable_autorefresh={0};'
                              .format(js_no_autorefresh))

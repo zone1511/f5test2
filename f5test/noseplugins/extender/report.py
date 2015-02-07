@@ -9,8 +9,7 @@ import datetime
 import logging
 import time
 
-from nose.case import Test
-from nose.plugins.skip import SkipTest
+from nose.suite import ContextSuite
 import nose.util
 import f5test.commands.icontrol as ICMD
 from ...utils import Version
@@ -44,6 +43,8 @@ def nose_selector(test):
     Return "Unknown test" if it can't construct a decent path.
 
     """
+    if isinstance(test, ContextSuite):
+        return test.id()
     address = test_address(test)
     if address:
         _, module, rest = address
@@ -90,7 +91,7 @@ class Report(ExtendedPlugin):
 
     def set_runner_data(self):
         d = self.data
-        d.result = Options(failures=[], errors=[], skipped=[], passed=[])
+        d.result = Options(passed=[])
         d.nose_config = self.noseconfig
         d.config = self.cfgifc.open()
         d.test_runner_ip = get_local_ip(A_HOST)
@@ -123,25 +124,14 @@ class Report(ExtendedPlugin):
         result.descriptions = 0
         result.getDescription = lambda y: nose_selector(y)  # @IgnorePep8
 
-    def addFailure(self, test, err):
-        result = self.data.result.failures
-        result.append((test, err))
-
-    def addError(self, test, err):
-        if isinstance(test, Test):
-            result = self.data.result.errors
-            if err[0] is SkipTest:
-                self.data.result.skipped.append((test, err))
-            else:
-                result.append((test, err))
-
-    def addSuccess(self, test):
-        result = self.data.result.passed
-        result.append((test,))
-
-    def startTest(self, test):
+    def startTest(self, test, blocking_context):
         """Initializes a timer before starting a test."""
-        self.start = time.time()
+        # No-op when current test is blocked
+        if not self.data.duts:
+            self.set_duts_stats(expand_devices(self.duts))
+        if blocking_context:
+            return
+        test._start = time.time()
         adr = nose_selector(test)
         test_meta = ["%s: %s" % (k, getattr(test.test, k, None))
                      for k in INC_TEST_ATTRIBUTES]
@@ -151,7 +141,12 @@ class Report(ExtendedPlugin):
         """Initializes a timer before starting a test."""
         now = time.time()
         adr = nose_selector(test)
-        LOG.debug('* Time * %s: %.3fs', adr, now - self.start)
+        LOG.debug('* Time * %s: %.3fs', adr, now - test._start)
+        test._stop = now
+
+    def addSuccess(self, test):
+        result = self.data.result.passed
+        result.append((test, None))
 
     def begin(self):
         """Set the testrun start time.
@@ -162,7 +157,6 @@ class Report(ExtendedPlugin):
     def finalize(self, result):
         """Set the testrun stop time and delta.
         """
-        self.set_duts_stats(expand_devices(self.duts))
         d = self.data
         d.time.stop = datetime.datetime.now()
         d.time.delta = d.time.stop - d.time.start

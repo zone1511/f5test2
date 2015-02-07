@@ -59,8 +59,8 @@ def hotfix_validator(value, project=None, build=None, product=Product.BIGIP, **k
             return 'Invalid hotfix for %s' % project
 
 
-def min_version_validator(value, project=None, hotfix=None, product=Product.BIGIP,
-                          min_ver='bigip 11.4.0', **kwargs):
+def min_version_validator(value=None, project=None, hotfix=None, product=Product.BIGIP,
+                          iso=None, min_ver='bigip 11.4.0', **kwargs):
     if hotfix and 'eng' == hotfix.lower() and not value:
         return 'Invalid ENG hotfix build'
     if value and project:
@@ -68,12 +68,16 @@ def min_version_validator(value, project=None, hotfix=None, product=Product.BIGI
             project2, hotfix2 = split_hf(project)
             isofile = create_finder(identifier=project2, build=value,
                                     hotfix=hotfix or hotfix2, product=product).find_file()
-            iso_version = version_from_metadata(isofile)
-            return iso_version >= Version(min_ver)
         except IsoNotFoundError:
             if hotfix:
                 return 'Invalid build for {0} hotfix {1}'.format(project, hotfix)
             return 'Invalid build for %s' % project
+    elif iso:
+        isofile = iso
+    else:
+        raise NotImplementedError('Need build and project or iso')
+    iso_version = version_from_metadata(isofile)
+    return iso_version >= Version(min_ver)
 
 
 validators = {'file': file_validator,

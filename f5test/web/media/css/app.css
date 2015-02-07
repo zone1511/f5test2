@@ -20,7 +20,7 @@ code.logs .ERROR {
   color: #bb1166;
 }
 
-code.logs ._console_ {
+code.logs .celery\.utils\.log {
   color: #32AAEE;
 }
 

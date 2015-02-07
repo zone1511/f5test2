@@ -8,24 +8,123 @@ import copy
 import optparse
 import re
 import sys
+import warnings
 
 
 def enum(*args, **kwargs):
-    #enums = dict(zip(args, range(len(args))), **kwargs)
     enums = dict(zip(args, args), **kwargs)
     return type('Enum', (), enums)
 
 
 def main(*args, **kwargs):
     import nose
-    from f5test.noseplugins.logcollect import LogCollect
+    from f5test.noseplugins.extender.logcollect_start import LogCollect
     from f5test.noseplugins.testconfig import TestConfig
 
     return nose.main(addplugins=[TestConfig(), LogCollect()], defaultTest=sys.argv[0])
 
 
 class TestCase(unittest.TestCase):
-    pass
+
+    def __init__(self, *args, **kwargs):
+        super(TestCase, self).__init__(*args, **kwargs)
+        self.error_context = None
+
+    def id(self):
+        ret = super(TestCase, self).id()
+        if self.error_context:
+            return "%s:%s" % (ret, self.error_context)
+        return ret
+
+    def run(self, result=None):
+        """This is the original method from unittest.TestCase modified to
+        execute tearDown always (i.e. even when an exception occurs in the setUp)
+
+        - Added error_context tracking.
+        - Changed id() to generate different signatures for when the test
+        errored in setUp or tearDown.
+        """
+        orig_result = result
+        if result is None:
+            result = self.defaultTestResult()
+            startTestRun = getattr(result, 'startTestRun', None)
+            if startTestRun is not None:
+                startTestRun()
+
+        self._resultForDoCleanups = result
+        result.startTest(self)
+
+        testMethod = getattr(self, self._testMethodName)
+        if (getattr(self.__class__, "__unittest_skip__", False) or
+                getattr(testMethod, "__unittest_skip__", False)):
+            # If the class or method was skipped.
+            try:
+                skip_why = (getattr(self.__class__, '__unittest_skip_why__', '')
+                            or getattr(testMethod, '__unittest_skip_why__', ''))
+                self._addSkip(result, skip_why)
+            finally:
+                result.stopTest(self)
+            return
+        try:
+            success = False
+            try:
+                self.setUp()
+            except unittest.case.SkipTest as e:
+                self._addSkip(result, str(e))
+            except KeyboardInterrupt:
+                raise
+            except:
+                self.error_context = 'setup'
+                result.addError(self, sys.exc_info())
+            else:
+                try:
+                    testMethod()
+                except KeyboardInterrupt:
+                    raise
+                except self.failureException:
+                    result.addFailure(self, sys.exc_info())
+                except unittest.case._ExpectedFailure as e:
+                    addExpectedFailure = getattr(result, 'addExpectedFailure', None)
+                    if addExpectedFailure is not None:
+                        addExpectedFailure(self, e.exc_info)
+                    else:
+                        warnings.warn("TestResult has no addExpectedFailure method, reporting as passes",
+                                      RuntimeWarning)
+                        result.addSuccess(self)
+                except unittest.case._UnexpectedSuccess:
+                    addUnexpectedSuccess = getattr(result, 'addUnexpectedSuccess', None)
+                    if addUnexpectedSuccess is not None:
+                        addUnexpectedSuccess(self)
+                    else:
+                        warnings.warn("TestResult has no addUnexpectedSuccess method, reporting as failures",
+                                      RuntimeWarning)
+                        result.addFailure(self, sys.exc_info())
+                except unittest.case.SkipTest as e:
+                    self._addSkip(result, str(e))
+                except:
+                    result.addError(self, sys.exc_info())
+                else:
+                    success = True
+
+            try:
+                self.tearDown()
+            except KeyboardInterrupt:
+                raise
+            except:
+                self.error_context = 'teardown'
+                result.addError(self, sys.exc_info())
+                success = False
+
+            cleanUpSuccess = self.doCleanups()
+            success = success and cleanUpSuccess
+            if success:
+                result.addSuccess(self)
+        finally:
+            result.stopTest(self)
+            if orig_result is None:
+                stopTestRun = getattr(result, 'stopTestRun', None)
+                if stopTestRun is not None:
+                    stopTestRun()
 
 
 class Interface(object):
@@ -116,7 +215,6 @@ class AttrDict(dict):
 
                 if isinstance(v, AttrDict):
                     d[k] = v
-                #elif isinstance(v, dict) and type(v) != type(self):
                 # This will convert any dict or OrderedDict instance into AttrDict
                 elif type(v) in (dict, OrderedDict):
                     if not isinstance(d[k], dict):
@@ -164,8 +262,8 @@ class Aliasificator(type):
         module = sys.modules[attrs['__module__']]
 
         # Turn NamesLikeThis into names_like_this
-        alias = re.sub("([A-Z])", lambda mo: (mo.start() > 0 and '_' or '') + \
-                                              mo.group(1).lower(), name)
+        alias = re.sub("([A-Z])", lambda mo: (mo.start() > 0 and '_' or '') +
+                       mo.group(1).lower(), name)
 
         # Create the class so that we can call its __init__ in the stub()
         klass = super(Aliasificator, cls).__new__(cls, name, bases, attrs)
@@ -177,3 +275,48 @@ class Aliasificator(type):
         setattr(module, alias, stub)
 
         return klass
+
+
+class Kind(object):
+    SEPARATOR = ':'
+
+    def __init__(self, kind=None):
+        if isinstance(kind, Kind):
+            self.bits = []
+            self.bits[:] = kind.bits
+        else:
+            self.bits = kind.strip().lower().split(Kind.SEPARATOR) if kind else []
+
+    def __len__(self):
+        return len(self.bits)
+
+    def __repr__(self):
+        name = self.__class__.__name__
+        return "<{0}: {1}>".format(name, str(self) or '*any*')
+
+    def __str__(self):
+        return ':'.join(self.bits)
+
+    def __abs__(self):
+        if not self.bits:
+            raise ValueError('Unable to determine the absolute value.')
+        return Kind(self.bits[0])
+
+    def __eq__(self, other):
+        if not isinstance(other, Kind):
+            other = Kind(other)
+
+        # Any special case
+        if not self.bits:
+            return True
+
+        return self.bits[:len(other)] == other.bits
+
+    def __ne__(self, other):
+        return not self == other
+
+    def __lt__(self, other):
+        raise NotImplementedError('Operation not permitted.')
+
+    def __gt__(self, other):
+        raise NotImplementedError('Operation not permitted.')

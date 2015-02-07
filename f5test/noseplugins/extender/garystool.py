@@ -8,6 +8,8 @@ import json
 import logging
 import os
 import traceback
+import unittest
+from itertools import chain
 
 from ...base import Options
 from . import ExtendedPlugin, PLUGIN_NAME
@@ -43,12 +45,18 @@ class GarysTool(ExtendedPlugin):
     def dump_json(self):
         d = self.data
         path = d.session.path
+        result = d.test_result
         output = Options()
+
+        def testcases(seq):
+            return [x[0] for x in seq if isinstance(x[0], unittest.TestCase)]
+
         output.summary = Options()
-        output.summary.total = d.test_result.testsRun
-        output.summary.failed = len(d.result.failures)
-        output.summary.errors = len(d.result.errors)
-        output.summary.skipped = len(d.result.skipped)
+        output.summary.total = result.testsRun
+        output.summary.failed = len(testcases(result.failures))
+        output.summary.errors = len(testcases(result.errors))
+        output.summary.blocked = len(testcases(chain(*result.blocked.values())))
+        output.summary.skipped = len(testcases(result.skipped))
 
         output.duration = d.time.delta.total_seconds()
         output.start = int(d.time.start.strftime('%s'))
@@ -65,26 +73,47 @@ class GarysTool(ExtendedPlugin):
         output.testrun_data = d.config.testrun
 
         output.results = []
-        for result, status in [(d.result.failures, 'FAILED'),
-                               (d.result.errors, 'ERROR'),
-                               (d.result.skipped, 'SKIPPED'),
+        for result, status in [(result.failures, 'FAILED'),
+                               (result.errors, 'ERROR'),
+                               (map(lambda x: x[:2], chain(*result.blocked.values())), 'BLOCKED'),
+                               (result.skipped, 'SKIPPED'),
                                (d.result.passed, 'PASSED')]:
-            for test in result:
-                _, module, method = test[0].address()
+            for test, err in result:
+                if not isinstance(test, unittest.TestCase):
+                    continue
+                _, module, method = test.address()
                 address = '%s:%s' % (module, method)
-                message = None if len(test) == 1 else \
-                    str(test[1][1].message).strip()
-                tb = None if len(test) == 1 else \
-                    ''.join(traceback.format_exception(*test[1]))
-                testMethod = getattr(test[0].test, test[0].test._testMethodName)
-                loc = len(inspect.getsourcelines(testMethod)[0])
-                size = len(inspect.getsource(testMethod))
 
-                output.results.append(dict(name=address, status=status,
-                                           author=getattr(test[0].test, 'author', None),
-                                           message=message, traceback=tb,
-                                           loc=loc, size=size)
-                                      )
+                tb = None
+                if isinstance(err, tuple):
+                    message = str(err[1])
+                    tb = ''.join(traceback.format_exception(*err))
+                elif isinstance(err, Exception):
+                    message = str(err)
+                else:
+                    message = err
+                testMethod = getattr(test.test, test.test._testMethodName)
+                try:
+                    loc = len(inspect.getsourcelines(testMethod)[0])
+                    size = len(inspect.getsource(testMethod))
+                except IOError:  # IOError:source code not available
+                    loc = size = -1
+
+                r = Options()
+                r.name = address
+                r.status = status
+                r.author = getattr(test.test, 'author', None)
+                r.rank = getattr(test.test, 'rank', None)
+                r.message = message
+                r.traceback = tb
+                r.loc = loc
+                r.size = size
+                if hasattr(test, '_start'):
+                    r.start = test._start
+                    r.stop = test._stop
+                else:
+                    LOG.debug('No timestamp for %s', test)
+                output.results.append(r)
 
         if os.path.exists(path):
             with open(os.path.join(path, self.filename), 'wt') as f:

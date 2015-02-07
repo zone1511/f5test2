@@ -85,7 +85,7 @@ class SecurityTaskV2(Task):
             if ret.status != 'FINISHED' or ret.currentStep != 'DONE':
                 msg = json.dumps(ret, sort_keys=True, indent=4,
                                  ensure_ascii=False)
-                raise TaskError("Firewall Deploy failed:\n%s" % msg)
+                raise TaskError("Task failed:\n%s" % msg)
 
         else:
             ret = wait(loop, timeout=timeout, interval=1,

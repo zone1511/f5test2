@@ -34,7 +34,8 @@ class Activate(SeleniumCommand):  # @IgnorePep8
         submodule = b.find_element_by_css_selector('#navMenuSublinks .active').text
         path = "%s|%s" % (module, submodule)
         if version >= 'bigiq 4.4' and path not in ('Cloud|Overview',
-                                                   'Security|Web Application Security'):
+                                                   'Security|Web Application Security') \
+           or version >= 'bigiq 4.5' and path not in ('Security|Web Application Security'):
             blade_xpath = "//*[div[contains(@class, 'panelMain ') and descendant::*[contains(@class, 'panelHeader ') and descendant::*[text()='%s']]]]"
             blade = b.find_element_by_xpath(blade_xpath % self.name)
             header = blade.find_element_by_css_selector('.panelHeader')

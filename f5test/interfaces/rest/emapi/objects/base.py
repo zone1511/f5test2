@@ -1,4 +1,8 @@
+import json
+
 from .....base import enum, AttrDict
+from .....utils.wait import wait
+
 
 DEFAULT_TIMEOUT = 30
 
@@ -16,6 +20,9 @@ class Reference(AttrDict):
                 self['link'] = other['link'] if 'link' in other else other['selfLink']
             except KeyError:
                 raise KeyError('Referenced object does not have a selfLink key.')
+
+    def set(self, link):
+        self['link'] = link
 
 
 class ReferenceList(list):
@@ -45,3 +52,23 @@ class Task(AttrDict):
                   'FAILED', 'FINISHED')
     PENDING_STATUSES = ('CREATED', 'STARTED', 'CANCEL_REQUESTED')
     FINAL_STATUSES = ('CANCELED', 'FAILED', 'FINISHED')
+    FAIL_STATE = 'FAILED'
+
+    @staticmethod
+    def wait(rest, resource, loop=None, timeout=30, interval=1,
+             timeout_message=None):
+        def get_status():
+            return rest.get(resource.selfLink)
+        if loop is None:
+            loop = get_status
+        ret = wait(loop, timeout=timeout, interval=interval,
+                   timeout_message=timeout_message,
+                   condition=lambda x: x.status not in Task.PENDING_STATUSES,
+                   progress_cb=lambda x: 'Status: {0}'.format(x.status))
+        assert ret.status in Task.FINAL_STATUSES, "{0.status}:{0.error}".format(ret)
+
+        if ret.status == Task.FAIL_STATE:
+            msg = json.dumps(ret, sort_keys=True, indent=4, ensure_ascii=False)
+            raise TaskError("Task failed.\n%s" % msg)
+
+        return ret

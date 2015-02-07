@@ -9,6 +9,8 @@ import ssl
 from threading import Thread
 import time
 import base64
+from geventhttpclient import HTTPClient
+import gevent.ssl
 
 from f5test.utils.net import get_local_ip, get_open_port
 # from .net import get_local_ip
@@ -53,8 +55,8 @@ class HttpListener(Thread):
                 server.server_close()
 
 
-def http_server(handler_class, address=None, port=None, timeout=TIMEOUT,
-                debug=False, ssl=False, ssl_version=ssl.PROTOCOL_SSLv23):
+def server(handler_class, address=None, port=None, timeout=TIMEOUT,
+           debug=False, ssl=False, ssl_version=ssl.PROTOCOL_SSLv23):
     assert callable(handler_class)
     if not address:
         address = get_local_ip(MGMT_HOST)
@@ -67,13 +69,28 @@ def http_server(handler_class, address=None, port=None, timeout=TIMEOUT,
     return address, port, t
 
 
+def request(url, method='GET', payload=u'', headers={}):
+    """A super-simplistic http/s client with no SSL cert validation.
+
+    >>> print request('http://google.com').status_code
+    301
+    >>> print request('https://google.com').read()
+    <HTML><HEAD>...
+    """
+    client = HTTPClient.from_url(url, ssl_options={'cert_reqs': gevent.ssl.CERT_NONE})  # @UndefinedVariable
+    try:
+        return client.request(method, url, payload, headers)
+    finally:
+        client.close()
+
+
 if __name__ == '__main__':
     class HandlePost(BasicAuthRequestHandler):
         def do_POST(self):
             print 'Got a post!', self.auth
             self.send_response(200)
             self.server.running = False
-    a, p, t = http_server(HandlePost, port=8082, timeout=TIMEOUT)
+    a, p, t = server(HandlePost, port=8082, timeout=TIMEOUT)
     print a, p
     t.join()
     print 'done!'

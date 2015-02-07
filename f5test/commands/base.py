@@ -58,8 +58,8 @@ class Command(threading.Thread):
             self.result = self.setup()
             return self.result
         except Exception, e:
-            self.revert()
             LOG.error("%s %r", self, e)
+            self.revert()
             raise
         finally:
             self.cleanup()
@@ -166,3 +166,18 @@ class WaitableCommand(Command):
         LOG.debug("In command: %s", self)
         w = CommandWait(self, *args, **kwargs)
         return w.run()
+
+
+class ContextManagerCommand(Command):
+
+    def __enter__(self):
+        self.prep()
+        self.setup()
+        return self.ifc.api
+
+    def __exit__(self, type, value, traceback):  # @ReservedAssignment
+        if value:
+            try:
+                self.revert()
+            finally:
+                self.cleanup()

@@ -1,23 +1,25 @@
 '''
-Created on Jun 16, 2011
+Created on Feb 6, 2015
 
 @author: jono
 '''
 from __future__ import absolute_import
-from nose.plugins.base import Plugin
-import logging
+
 import datetime
 import json
-# import time
+import logging
 from urlparse import urlparse
-from ..utils.net import get_local_ip
-from ..utils.wait import wait, StopWait
+
+from . import ExtendedPlugin
+from ...utils.net import get_local_ip
+from ...utils.wait import wait, StopWait
+
 
 # IRACK_HOSTNAME_DEBUG = '127.0.0.1:8081'
 DEFAULT_TIMEOUT = 60
 POLL_INTERVAL = 60
 DEFAULT_HOSTNAME = 'irack.mgmt.pdsea.f5net.com'
-DEFAULT_RESERVATION_TIME = datetime.timedelta(hours=3)
+DEFAULT_RESERVATION_TIME = datetime.timedelta(hours=4)
 URI_USER_NOBODY = '/api/v1/user/2/'
 URI_RESERVATION = '/api/v1/reservation/'
 LOG = logging.getLogger(__name__)
@@ -28,13 +30,15 @@ def datetime_to_str(date):
     return date_str[:date_str.find('.')]  # Remove microseconds
 
 
-class IrackCheckout(Plugin):
+class IrackCheckout(ExtendedPlugin):
     """
     iRack plugin. Enable with ``--with-irack``. This plugin checks in/out
     devices from iRack: http://go/irack
+
+    WARNING: This plugin expects an 'irack' section to be present at the ROOT
+    of the test config (this is for backward compatibility).
     """
     enabled = False
-    name = "irack"
     score = 530
 
     def options(self, parser, env):
@@ -46,12 +50,10 @@ class IrackCheckout(Plugin):
     def configure(self, options, noseconfig):
         """ Call the super and then validate and call the relevant parser for
         the configuration file passed in """
-        from ..interfaces.config import ConfigInterface
+        from ...interfaces.config import ConfigInterface
 
-        Plugin.configure(self, options, noseconfig)
-        self.options = options
-        if options.with_irack:
-            self.enabled = True
+        super(IrackCheckout, self).configure(options, noseconfig)
+        self.enabled = noseconfig.options.with_irack
         self.config_ifc = ConfigInterface()
         if self.enabled:
             config = self.config_ifc.open()
@@ -86,13 +88,13 @@ class IrackCheckout(Plugin):
                     interval=POLL_INTERVAL, timeout=DEFAULT_RESERVATION_TIME.seconds)[2]
 
     def begin(self):
-        from ..interfaces.rest.irack import IrackInterface
+        from ...interfaces.rest.irack import IrackInterface
         LOG.info("Checking out devices from iRack...")
 
         config = self.config_ifc.open()
         irackcfg = config.irack
         devices = [x for x in self.config_ifc.get_all_devices()
-                     if 'no-irack-reservation' not in x.tags]
+                   if 'no-irack-reservation' not in x.tags]
 
         if not devices:
             LOG.warning('No devices to be reserved.')
@@ -117,9 +119,9 @@ class IrackCheckout(Plugin):
                     'id: {1}\n' \
                     'config: {2}\n' \
                     'url: {3}\n'.format(get_local_ip(address),
-                                     self.config_ifc.get_session().name,
-                                     config._filename,
-                                     self.config_ifc.get_session().get_url())
+                                        self.config_ifc.get_session().name,
+                                        config._filename,
+                                        self.config_ifc.get_session().get_url())
             payload = json.dumps(dict(notes=notes,
                                       assets=[x['resource_uri'] for x in assets],
                                       # to=URI_USER_NOBODY, # nobody
@@ -133,26 +135,3 @@ class IrackCheckout(Plugin):
             LOG.debug("Checkout location: %s", ret.response.location)
             res = urlparse(ret.response.location).path
             irackcfg._reservation = res
-
-    def finalize(self, result):
-        from ..interfaces.rest.irack import IrackInterface
-        LOG.info("Checking in devices to iRack...")
-
-        config = self.config_ifc.open()
-        irackcfg = config.irack
-        res = irackcfg._reservation
-
-        if not res:
-            LOG.warning('No devices to be un-reserved.')
-            return
-
-        with IrackInterface(address=irackcfg.get('address', DEFAULT_HOSTNAME),
-                          timeout=irackcfg.get('timeout', DEFAULT_TIMEOUT),
-                          username=irackcfg.username,
-                          password=irackcfg.apikey, ssl=False) as irack:
-
-            try:
-                ret = irack.api.from_uri(res).delete()
-                LOG.debug("Checkin HTTP status: %s", ret.response.status)
-            except:
-                LOG.error("Exception occured while deleting reservation")

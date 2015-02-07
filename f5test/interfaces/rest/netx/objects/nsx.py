@@ -148,6 +148,14 @@ class Virtualserver(BaseApiObject):
         super(Virtualserver, self).__init__(*args, **kwargs)
 
 
+class Pool(BaseApiObject):
+    URI = Edges.ITEM_URI + '/loadbalancer/config/pools'
+    ITEM_URI = Edges.ITEM_URI + '/loadbalancer/config/pools/%s'
+
+    def __init__(self, *args, **kwargs):
+        super(Pool, self).__init__(*args, **kwargs)
+
+
 class Nat(BaseApiObject):
     URI = Edges.ITEM_URI + '/nat/config'
     ITEM_URI = Edges.ITEM_URI + '/nat/config/rules/%s'

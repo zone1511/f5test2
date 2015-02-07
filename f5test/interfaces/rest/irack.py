@@ -4,10 +4,11 @@ Created on Feb 26, 2012
 @author: jono
 '''
 from .core import RestInterface
-from .driver import RestResource
+from .driver import BaseRestResource
 import urlparse
 
-class IrackRestResource(RestResource):
+
+class IrackRestResource(BaseRestResource):
     api_version = 1
     trailing_slash = True
 

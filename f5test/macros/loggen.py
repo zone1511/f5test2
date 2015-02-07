@@ -12,9 +12,11 @@ from loggerglue.emitter import TCPSyslogEmitter, UDPSyslogEmitter
 from loggerglue.logger import Logger
 import itertools
 import time
+import sys
 from f5test.utils.stb import RateLimit, TokenBucket
+# from netaddr import IPAddress, ipv6_full
 
-__version__ = '0.1'
+__version__ = '0.3'
 LOG = logging.getLogger(__name__)
 BOM = "\xEF\xBB\xBF"
 
@@ -44,7 +46,7 @@ CANNED_TYPES = {
 'dos3': (r'[F5@12276 action="Packet Dropped" hostname="nsoni-63.f5net.com" bigip_mgmt_ip="172.31.56.163" date_time="Aug 01 2012 06:48:09" dest_ip="10.10.10.163" dest_port="0" device_product="Network Firewall" device_vendor="F5" device_version="11.3.0.1607.0.58" dos_attack_event="Attack Sampled" dos_attack_id="565510146" dos_attack_name="Bad ICMP frame" errdefs_msgno="23003138" errdefs_msg_name="Network DoS Event" severity="8" partition_name="Common" route_domain="0" source_ip="10.10.10.166" source_port="0" vlan="/Common/internal"] "Aug 01 2012 06:48:09","172.31.56.163","nsoni-63.f5net.com","10.10.10.166","10.10.10.163","0","0","/Common/internal","Bad ICMP frame","565510146","Attack Sampled","Packet Dropped"',
          r'[F5@12276 action="None" hostname="nsoni-63.f5net.com" bigip_mgmt_ip="172.31.56.163" date_time="Aug 01 2012 06:50:36" dest_ip="" dest_port="" device_product="Network Firewall" device_vendor="F5" device_version="11.3.0.1607.0.58" dos_attack_event="Attack Stopped" dos_attack_id="0" dos_attack_name="Bad ICMP frame" errdefs_msgno="23003138" errdefs_msg_name="Network DoS Event" severity="8" partition_name="Common" route_domain="" source_ip="" source_port="" vlan=""] "Aug 01 2012 06:50:36","172.31.56.163","nsoni-63.f5net.com","","","","","","Bad ICMP frame","0","Attack Stopped","None"',
        ),
-'dos7': (r'[F5@12276 action="Transparent" hostname="igor19.com" bigip_mgmt_ip="172.29.36.19" client_ip_geo_location="" client_request_uri="" configuration_date_time="Aug 23 2012 05:57:52" context_name="/Common/vs_228" context_type="Virtual Server" date_time="Aug 23 2012 05:58:12" device_product="ASM" device_vendor="F5" device_version="11.3.0" dos_attack_detection_mode="TPS Increased" dos_attack_event="Attack started" dos_attack_id="424172807" dos_attack_name="DOS L7 attack" dos_attack_tps="28" dos_dropped_requests_count="0" dos_mitigation_action="Source IP-Based Rate Limiting" errdefs_msgno="23003140" errdefs_msg_name="Application DoS Event" severity="7" partition_name="Common" profile_name="/Common/dos" source_ip=""]', 
+'dos7': (r'[F5@12276 action="Transparent" hostname="igor19.com" bigip_mgmt_ip="172.29.36.19" client_ip_geo_location="" client_request_uri="" configuration_date_time="Aug 23 2012 05:57:52" context_name="/Common/vs_228" context_type="Virtual Server" date_time="Aug 23 2012 05:58:12" device_product="ASM" device_vendor="F5" device_version="11.3.0" dos_attack_detection_mode="TPS Increased" dos_attack_event="Attack started" dos_attack_id="424172807" dos_attack_name="DOS L7 attack" dos_attack_tps="28" dos_dropped_requests_count="0" dos_mitigation_action="Source IP-Based Rate Limiting" errdefs_msgno="23003140" errdefs_msg_name="Application DoS Event" severity="7" partition_name="Common" profile_name="/Common/dos" source_ip=""]',
        ),
 
 }
@@ -52,39 +54,96 @@ CANNED_TYPES = {
 
 class LogGenerator(Macro):
 
-    def __init__(self, options, address, custom=None):
+    def __init__(self, options, address):
         self.options = Options(options)
         self.address = address
-        self.custom = custom
 
         super(LogGenerator, self).__init__()
 
     def setup(self):
         o = self.options
 
+        assert self.address, "Invalid Address passed."
+        assert o.port, "Please Provide a port."
+        if not o.count:
+            o.count = 1
+        if not o.rate:
+            o.rate = 1
+        if not o.nofuzz:
+            o.nofuzz = False
+
         klass = UDPSyslogEmitter if o.udp else TCPSyslogEmitter
 
         l = Logger(klass(address=(self.address, o.port),
                          octet_based_framing=False))
 
-        assert o.type
-        if 'CUSTOM' in o.type and self.custom:
-            CANNED_TYPES['custom'] = self.custom
-
-        msgs = []
-        for x in [CANNED_TYPES[x.lower()] for x in o.type]:
-            msgs += x
+        if o.type:
+            if 'CUSTOM' in o.type or 'custom' in o.type:
+                if not o.custom:
+                    o.custom = CANNED_TYPES['asm']
+                CANNED_TYPES['custom'] = o.custom
+            else:
+                for x in o.type:
+                    assert x in CANNED_TYPES, "Did not receive proper type of logs."
+        if o.fromfile:
+            # To Do: better arg check
+            o.type = ['CUSTOM']
+            x = []
+            for filename in o.fromfile:
+                if o.logasfile:
+                    with open(filename) as f:
+                        # probably some work required here when the case arrises
+                        x += [f]
+                else:
+                    with open(filename) as f:
+                        x += [line.strip() for line in f]
+            CANNED_TYPES['custom'] = tuple(x)
 
         bucket = TokenBucket(3500, o.rate)
         rate_limiter = RateLimit(bucket)
 
+        msgs = []
+        full_size = 0
+        full_byte_size = 0
+        container_no_of_logs = 0
+        for x in [CANNED_TYPES[x.lower()] for x in o.type]:
+            msgs += x
+            for i in x:
+                full_size += len(i)
+                full_byte_size += sys.getsizeof(i)
+                container_no_of_logs += 1
+
+        average_size = full_size / container_no_of_logs
+        average_byte_size = full_byte_size / container_no_of_logs
+
+        LOG.info("\nDoing this: \n"
+                 "Remote Address/Port/Prot:       {0}:{1} ({2})\n"
+                 "Type of logs sending:           {3}{4}{5}/{6}\n"
+                 "Number of logs sending/rate:    {7} /{8}\n"
+                 "Avg. size per log (ch/B):       {9}/{10}\n"
+                 "No of detected unique events:   {11}\n"
+                 "Sample of what is sending:      {12}\n"
+                 "=======================================\n"
+                 "In Progress...."
+                 "\n"
+                 .format(self.address, o.port, "TCP" if not o.udp else "UDP",
+                         o.type, "/From File" if o.fromfile else "", "[" + str(len(o.fromfile)) + "]" if o.fromfile else "",
+                         "Generating Fuzzy, Loop and Repeat." if not o.nofuzz else "Loop and Repeat As Is.",
+                         o.count, o.rate,
+                         average_size, average_byte_size,
+                         container_no_of_logs,
+                         (msgs[0]).format(0, 10) if not o.nofuzz else msgs[0]))
+
+        now = time.time()
         rate_limiter(0, 1)
         for i in itertools.count():
             msg = msgs[i % len(msgs)]
-            # LOG.info(msg.format(i % 10, 10 - i % 10))
-
+            if not o.nofuzz:
+                msg = msg.format(i % 10, 10 - i % 10)
             try:
-                l.log(msg.format(i % 10, 10 - i % 10))
+                # LOG.info(msg)
+                # LOG.info("\n:i:{0}".format(i))
+                l.log(msg)
             except Exception, e:
                 LOG.warning(e)
                 time.sleep(1)
@@ -92,15 +151,34 @@ class LogGenerator(Macro):
             if i + 1 == o.count:
                 break
             rate_limiter(i, 100)
+        delta = time.time() - now  # seconds
+        bps = average_byte_size * o.count / delta
+        LOG.info("f5.loggen: Stats:\n"
+                 "Sent Events/time:   {0}/{1} seconds\n"
+                 "Avg. events/sec:    {2} events/sec\n"
+                 "Avg. Bytes/sec:     {3} Bytes/sec\n"
+                 "Avg. KBytes/sec:    {4} KBytes/sec\n"
+                 "Done...."
+                 .format(o.count, delta,
+                         o.count / delta,
+                         bps,
+                         bps / 1024))
 
         l.close()
 
 
 def main():
     import optparse
-    import sys
 
-    usage = """%prog [options] <address>"""
+    usage = """%prog [options] <address>
+               Samples:
+               Send 10 logs with rate 10 from file (each line is a log)
+                   f5.loggen <address> -c 10 -r 10 -p 9025 -s -f "yourlogfile1.log" -f "yourlogfile2.log"
+               Send 10 logs with rate 50 generated by the tool (defaults on asm)
+                   f5.loggen <address> -c 10 -r 50 -p 9025
+               Send 10 logs with rate 50 generated by the tool (rfc type)
+                   f5.loggen <address> -c 10 -r 50 -p 9025 -t "rfc"
+            """
 
     formatter = optparse.TitledHelpFormatter(indent_increment=2,
                                              max_help_position=60)
@@ -122,8 +200,23 @@ def main():
     p.add_option("-t", "--type", metavar="ENUM", action="append",
                  default=[],
                  help="Canned type of log entries to generate. Multiple "
-                 "arguments accepted. Supported: RFC, ASM, NetworkEvent, AVR, DOS3. "
-                 "(default: RFC)")
+                 "arguments accepted. Supported: RFC, ASM, NetworkEvent, AVR, DOS3, DOS7. "
+                 "(default: ASM)")
+    p.add_option("-C", "--custom", metavar="ENUM", action="append",
+                 default=(),
+                 help="Canned type of log entries already generated by you and passed here.")
+    p.add_option("-s", "--nofuzz", metavar="BOOL", action="store_true",
+                 default=False,
+                 help="Set to True if you do not want the tool to autogenerate, "
+                 "but send exactly what the file/custom fields have.")
+    p.add_option("-f", "--fromfile", metavar="ENUM", action="append",
+                 default=[],
+                 help="Grab logs from list of files passed here. Eg. ['file1', 'file2']. "
+                 "Unless this is a special file that has {0} in it, you must use with -s parameter.")
+    p.add_option("-F", "--logasfile", metavar="BOOL", action="store_true",
+                 default=False,
+                 help="Used with --fromfile only if you want to send the whole"
+                 " file as one single log. Not Tested.")
 
     options, args = p.parse_args()
 
@@ -143,7 +236,7 @@ def main():
         sys.exit(2)
 
     if not options.type:
-        options.type.append('rfc')
+        options.type.append('asm')
 
     cs = LogGenerator(options=options, address=args[0])
     cs.run()

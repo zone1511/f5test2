@@ -6,7 +6,7 @@ Created on Jan 9, 2014
 @author: jono
 '''
 from .....base import enum, AttrDict
-from .base import Reference, Task, TaskError, DEFAULT_TIMEOUT, ReferenceList
+from .base import Reference, Task, TaskError, DEFAULT_TIMEOUT
 from ...base import BaseApiObject
 from .....utils.wait import wait
 import json
@@ -77,7 +77,7 @@ class BackupRestoreTask(Task):
         self.setdefault('description', '')
 
     @staticmethod
-    def wait(rest, resource, timeout=60):
+    def wait(rest, resource, timeout=120):
 
         # Wait for the task to get into a Pending state first
         # See BZ440336
@@ -87,10 +87,10 @@ class BackupRestoreTask(Task):
                                                            x.backupRestoreStatus),
              timeout=timeout, interval=5)
         ret = wait(lambda: rest.get(resource.selfLink),
-               condition=lambda x: x.status in Task.FINAL_STATUSES,
-               progress_cb=lambda x: 'State: {0}:{1}'.format(x.status,
-                                                             x.backupRestoreStatus),
-               timeout=timeout, interval=5)
+                   condition=lambda x: x.status in Task.FINAL_STATUSES,
+                   progress_cb=lambda x: 'State: {0}:{1}'.format(x.status,
+                                                                 x.backupRestoreStatus),
+                   timeout=timeout, interval=5)
         if ret.status == Task.STATUS.FAILED:  # @UndefinedVariable
             msg = json.dumps(ret, sort_keys=True, indent=4, ensure_ascii=False)
             raise TaskError("Task failed:\n%s" % msg)
@@ -250,6 +250,9 @@ class BulkDiscovery(BaseApiObject):
     FINISH_STATE = 'FINISHED'
     CANCEL_STATE = 'CANCELED'
     START_STATE = 'STARTED'
+    # Need to look at each device's state
+    PENDING_STATE = 'PENDING'
+    SUCCESSFUL_STATE = ('SKIPPED', 'COMPLETED')
 
     def __init__(self, *args, **kwargs):
         super(BulkDiscovery, self).__init__(*args, **kwargs)
@@ -258,40 +261,53 @@ class BulkDiscovery(BaseApiObject):
         self.setdefault('status', '')
 
     @staticmethod
-    def wait(rest, timeout=DEFAULT_TIMEOUT):
-
+    def wait(rest, post_resp, *args, **kwargs):
         def all_done(ret):
-            return sum(1 for x in ret['items'] if (x.status == BulkDiscovery.FINISH_STATE or \
-                    x.status == BulkDiscovery.CANCEL_STATE)) == sum(1 for x in ret['items'])
+            values = ret.deviceStatesMap.values()
+            return sum(1 for x in values if x.status not in
+                       BulkDiscovery.PENDING_STATE) == len(values)
 
-        ret = wait(lambda: rest.get(BulkDiscovery.URI), timeout=timeout, interval=1,
-                   condition=all_done,
-                   progress_cb=lambda ret: 'Status: {0}'.format(list(x.status for x in ret['items'])))
+        wait(lambda: rest.get(post_resp.selfLink), condition=all_done,
+             progress_cb=lambda ret: 'Status: {0}'.format(list(x.status
+                                        for x in ret.deviceStatesMap.values())),
+             *args, **kwargs)
+
+        ret = wait(lambda: rest.get(post_resp.selfLink),
+                   condition=lambda ret: ret.status != BulkDiscovery.START_STATE,
+                   progress_cb=lambda ret: 'Status: {0}'.format(ret.status),
+                   *args, **kwargs)
+
+        for value in ret.deviceStatesMap.values():
+            if value.status not in BulkDiscovery.SUCCESSFUL_STATE:  # @UndefinedVariable
+                msg = json.dumps(ret, sort_keys=True, indent=4, ensure_ascii=False)
+                raise TaskError("Task failed:\n%s" % msg)
 
         return ret
 
     @staticmethod
-    def cancel_wait(rest, timeout=DEFAULT_TIMEOUT):
+    def cancel_wait(rest, *args, **kwargs):
 
         def all_done(ret):
             return sum(1 for x in ret['items'] if (x.status == BulkDiscovery.START_STATE or x.status == BulkDiscovery.FINISH_STATE or \
                     x.status == BulkDiscovery.CANCEL_STATE)) == sum(1 for x in ret['items'])
 
-        ret = wait(lambda: rest.get(BulkDiscovery.URI), timeout=timeout, interval=1,
+        ret = wait(lambda: rest.get(BulkDiscovery.URI),
                    condition=all_done,
-                   progress_cb=lambda ret: 'Status: {0}'.format(list(x.status for x in ret['items'])))
+                   progress_cb=lambda ret: 'Status: {0}'.format(list(x.status for x in ret['items'])),
+                   *args, **kwargs)
 
         return ret
 
     @staticmethod
-    def start_wait(rest, link, timeout=DEFAULT_TIMEOUT):
+    def start_wait(rest, link, *args, **kwargs):
 
         def all_done(ret):
             return len(ret['items']) == 2
 
-        ret = wait(lambda: rest.get(link), timeout=timeout, interval=1,
+        ret = wait(lambda: rest.get(link),
                    condition=all_done,
-                   progress_cb=lambda ret: len(ret['items']))
+                   progress_cb=lambda ret: len(ret['items']),
+                   *args, **kwargs)
         return ret
 
 # Ref- https://confluence.pdsea.f5net.com/display/BIGIQDEVICETEAM/Radius+Authentication+Providers
@@ -421,3 +437,159 @@ class ServiceCluster(BaseApiObject):
         ret = wait(lambda: rest.get(ServiceCluster.DEVGRP_URI), timeout=timeout, interval=1,
                    condition=all_done, progress_cb=lambda ret: 'Status: {0}'.format(list(x.name for x in ret['items'])))
         return ret
+
+
+# API: https://nibs.olympus.f5net.com/build/bigiq/project/bigiq-mgmt/daily/current/api/com.f5.rest.workers.maintenance.PruneBackupTaskCollectionWorker.html
+class PruneBackupTask(Task):
+    URI = '/mgmt/cm/system/prune-backups'
+    ITEM_URI = '%s/%%s' % URI
+
+    def __init__(self, *args, **kwargs):
+        super(PruneBackupTask, self).__init__(*args, **kwargs)
+        self.setdefault('scheduleReference', Reference())
+
+
+# API: https://nibs.olympus.f5net.com/build/bigiq/project/bigiq-mgmt/daily/current/api/com.f5.rest.workers.maintenance.ArchiveBackupTaskCollectionAPI.html
+class ArchiveBackupTask(Task):
+    URI = '/mgmt/cm/system/archive-backups'
+    ITEM_URI = '%s/%%s' % URI
+    TYPE = enum('SCP', 'LOCAL')
+
+    def __init__(self, *args, **kwargs):
+        super(ArchiveBackupTask, self).__init__(*args, **kwargs)
+        self.setdefault('scheduleReference', Reference())
+        self.setdefault('archivingLocation', '')
+        self.setdefault('archiveType', ArchiveBackupTask.TYPE.SCP)
+
+
+class SimpleEncrypter(AttrDict):
+    URI = '/mgmt/cm/system/simple-encrypter'
+
+    def __init__(self, *args, **kwargs):
+        super(SimpleEncrypter, self).__init__(*args, **kwargs)
+        self.setdefault('inputText', '')
+
+
+class MachineIdResolver(AttrDict):
+    URI = '/mgmt/cm/system/machineid-resolver'
+    ITEM_URI = '%s/%%s' % URI
+    ITEM_URI_F = "/mgmt/cm/system/machineid-resolver?$filter=uuid%20eq%20'{0}'"  # generating full with items[]
+    STATS_ITEM_URI = '%s/%%s/stats' % URI
+    # with filters
+    BIGIQS_ITEMS_URI_F = "/mgmt/cm/system/machineid-resolver?$filter=product%20eq%20'BIG-IQ'"
+    BIGIPS_ITEMS_URI_F = "/mgmt/cm/system/machineid-resolver?$filter=product%20eq%20'BIG-IP'"
+
+    def __init__(self, *args, **kwargs):
+        super(MachineIdResolver, self).__init__(*args, **kwargs)
+
+
+# Ref- https://nibs.olympus.f5net.com/build/bigiq/project/bigiq-mgmt/daily/current/api/com.f5.rest.workers.em.license.volume.VolumeLicenses.html
+class VolumeLicense(BaseApiObject):
+    URI = '/mgmt/cm/system/licensing/pool/volume/licenses'
+    ITEM_URI = '/mgmt/cm/system/licensing/pool/volume/licenses/%s'
+
+    AUTOMATIC_ACTIVATION_STATES = enum('ACTIVATING_AUTOMATIC', 'ACTIVATING_AUTOMATIC_EULA_ACCEPTED')
+
+    MANUAL_ACTIVATION_STATES = enum('ACTIVATING_MANUAL', 'ACTIVATING_MANUAL_LICENSE_TEXT_PROVIDED',
+                                    'ACTIVATING_MANUAL_OFFERINGS_LICENSE_TEXT_PROVIDED')
+
+    WAITING_STATES = ['ACTIVATING_AUTOMATIC_NEED_EULA_ACCEPT', 'ACTIVATING_AUTOMATIC_OFFERINGS',
+                      'ACTIVATING_MANUAL_NEED_LICENSE_TEXT', 'ACTIVATING_MANUAL_OFFERINGS_NEED_LICENSE_TEXT']
+
+    FAILED_STATES = ['ACTIVATION_FAILED_OFFERING', 'ACTIVATION_FAILED']
+
+    SUCCESS_STATE = ['READY']
+
+    def __init__(self, *args, **kwargs):
+        super(VolumeLicense, self).__init__(*args, **kwargs)
+        self.setdefault('regKey', '')
+        self.setdefault('addOnKeys', [])
+        self.setdefault('name', '')
+        self.setdefault('status', '')
+        self.setdefault('licenseText', '')
+        self.setdefault('eulaText', '')
+        self.setdefault('dossier', '')
+
+    @staticmethod
+    def wait(rest, uri, wait_for_status, timeout=30, interval=1):
+
+        resp = wait(lambda: rest.get(uri), condition=lambda temp: temp.status in wait_for_status,
+                    progress_cb=lambda temp: 'Status: {0}, Message: {1}' .format(temp.status, temp.message), timeout=timeout, interval=interval)
+
+        return resp
+
+
+# Ref- https://nibs.olympus.f5net.com/build/bigiq/project/bigiq-mgmt/daily/current/api/com.f5.rest.workers.em.license.base.OfferingCollectionWorker.html
+class VolumeLicenseOfferingsCollection(BaseApiObject):
+    URI = '/mgmt/cm/system/licensing/pool/volume/licenses/%s/offerings'
+    ITEM_URI = '/mgmt/cm/system/licensing/pool/volume/licenses/%s/offerings/%s'
+
+    def __init__(self, *args, **kwargs):
+        super(VolumeLicenseOfferingsCollection, self).__init__(*args, **kwargs)
+        self.setdefault('status', '')
+        self.setdefault('licenseText', '')
+
+
+# Ref- https://nibs.olympus.f5net.com/build/bigiq/project/bigiq-mgmt/daily/current/api/com.f5.rest.workers.em.license.volume.VolumeLicenseMembers.html
+class VolumeLicenseMembersCollection(BaseApiObject):
+    URI = '/mgmt/cm/system/licensing/pool/volume/licenses/%s/offerings/%s/members'
+    ITEM_URI = '/mgmt/cm/system/licensing/pool/volume/licenses/%s/offerings/%s/members/%s'
+
+    WAITING_STATE = 'INSTALLING'
+    FAILED_STATE = 'INSTALLATION_FAILED'
+    SUCCESS_STATE = 'LICENSED'
+
+    def __init__(self, *args, **kwargs):
+        super(VolumeLicenseMembersCollection, self).__init__(*args, **kwargs)
+        self.setdefault('deviceMachineId', '')
+
+    @staticmethod
+    def wait(rest, uri, wait_for_status, timeout=30, interval=1):
+
+        resp = wait(lambda: rest.get(uri), condition=lambda temp: temp.status == wait_for_status,
+                    progress_cb=lambda temp: 'Status: {0}, Message: {1}' .format(temp.status, temp.message), timeout=timeout, interval=interval)
+
+        return resp
+
+
+# Ref- https://nibs.olympus.f5net.com/build/bigiq/project/bigiq-mgmt/daily/current/api/com.f5.rest.workers.authn.RootPasswordWorkerAPI.html
+class RootCredentialChange(BaseApiObject):
+    URI = '/mgmt/shared/authn/root'
+
+    def __init__(self, *args, **kwargs):
+        super(RootCredentialChange, self).__init__(*args, **kwargs)
+        self.setdefault('oldPassword', '')
+        self.setdefault('newPassword', '')
+
+
+# Ref -https://confluence.pdsea.f5net.com/display/PDCLOUD/RestFileTransferWorkerAPI
+class FileTransfer(BaseApiObject):
+    URI = '/mgmt/shared/file-transfer/uploads/%s'
+    DEFAULT_DEVICES_CSV = 'file'
+
+    def __init__(self, *args, **kwargs):
+        super(FileTransfer, self).__init__(*args, **kwargs)
+
+    @staticmethod
+    def upload(rest, content, file_name=DEFAULT_DEVICES_CSV):
+        CHUNKS = 256 * 1024  # 256KB chunks
+
+        def chunks(l, m):
+            for i in xrange(0, len(l), m):
+                yield l[i:i + m]
+
+        offset = 0
+        content_length = len(content)
+        headers = dict()
+        headers['Content-Type'] = "application/octet-stream"
+        for chunk in chunks(content, CHUNKS):
+            chunk_length = len(chunk)
+            headers['Content-range'] = "%s-%s/%s" % (offset,
+                                                     chunk_length + offset - 1,
+                                                     content_length)
+            headers['Content-Length'] = chunk_length
+            offset += chunk_length
+            resp = rest.post(FileTransfer.URI % file_name, payload=chunk,
+                             headers=headers)
+
+        return resp

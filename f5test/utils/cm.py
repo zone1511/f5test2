@@ -51,6 +51,7 @@ LOG = logging.getLogger(__name__)
 ROOT_PATH = '/build'
 BIGIP = Product.BIGIP
 PRODUCT_REGEX = '[\w+-]+'
+BRANCH_PATTERN = '(\D+)?(\d+\.\d+\.\d+)-?(eng-?\w*|hf\d+|hf-\w+)?'
 
 
 class FileNotFoundError(Exception):
@@ -186,8 +187,15 @@ def ovafile(identifier, build=None, hotfix=None, product=BIGIP, disk='scsi'):
 
 
 def create_finder(identifier, build=None, hotfix=None, product=BIGIP, root=ROOT_PATH):
-    if build and build.isdigit() and not '.' in build:
+    if build and build.isdigit() and '.' not in build:
         build = '%s.0' % build
+
+    # Split new hotfix branches from 10.11.12-hf-xyz into identifier and hf
+    match = re.match(BRANCH_PATTERN, identifier)
+    if match:
+        identifier = match.group(2)
+        if match.group(3) and hotfix:
+            hotfix = match.group(3)
 
     if hotfix and hotfix.isdigit():
         hotfix = 'hf%s' % hotfix
@@ -204,7 +212,7 @@ def create_finder(identifier, build=None, hotfix=None, product=BIGIP, root=ROOT_
     else:
         if hotfix is not None:
             errmsg = ("invalid combination of project %s and hotfix %s"
-                                % (identifier, hotfix))
+                      % (identifier, hotfix))
         else:
             errmsg = "%s is not a project or version" % identifier
         raise ValueError(errmsg)
@@ -387,10 +395,10 @@ class IsoFinder(CMFileFinder):
 
     def _raise_not_found_error(self):
             param_str = ' '.join(['%s: %s' % (k, v) for k, v
-                         in self.__dict__.iteritems()
-                         if not k.startswith('_')])
+                                  in self.__dict__.iteritems()
+                                  if not k.startswith('_')])
             raise IsoNotFoundError("Could not find ISO file that matches:"
-                                    " %s" % param_str)
+                                   " %s" % param_str)
 
 
 class VersionFinder(IsoFinder):
@@ -501,18 +509,28 @@ class HotfixFinder(IsoFinder):
     def _make_regex(self):
         build = r'\d+\.\d+(\.\d+)*'
         regexes = []
-        if re.match('hf-\w+', self.hotfix):
-            module = self.hotfix.split('-')[-1]
+        if re.match('hf(-\w+)?', self.hotfix):
+            module_short = self.hotfix.split('-')[-1]
+            module_full = self.hotfix
             self.hotfix = 'HF\d+'
 
             # After 11.5.0-hf-tmos (3/11/2014)
             # Hotfix-BIGIP-tmos-11.5.0.1.0.283-HF1.iso
-            hotfix_115_regex = re.compile(r'hotfix-%s-%s-'
-                                          '%s.%s-%s\.(iso|im)$'
-                                          % (PRODUCT_REGEX, module,
-                                             self._original_identifier, build, self.hotfix),
-                                          re.IGNORECASE)
-            regexes.append(hotfix_115_regex)
+            hotfix_regex = re.compile(r'hotfix-%s-%s-'
+                                      '%s.%s-%s\.(iso|im)$'
+                                      % (PRODUCT_REGEX, module_short,
+                                         self._original_identifier, build, self.hotfix),
+                                      re.IGNORECASE)
+            regexes.append(hotfix_regex)
+
+            # After 11.5.0-hf-tmos (11/07/2014)
+            # Hotfix-BIGIP-hf-tmos-11.5.1.6.0.305-HF6.iso
+            hotfix_regex = re.compile(r'hotfix-%s-%s-'
+                                      '%s.%s-%s\.(iso|im)$'
+                                      % (PRODUCT_REGEX, module_full,
+                                         self._original_identifier, build, self.hotfix),
+                                      re.IGNORECASE)
+            regexes.append(hotfix_regex)
 
         # Matches:
         # Hotfix-BIGIP-11.4.1-637.0-HF3.iso

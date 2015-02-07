@@ -10,7 +10,7 @@ from f5test.interfaces.ssh import SSHInterface
 from f5test.interfaces.config import ConfigInterface
 from f5test.interfaces.rest.irack import IrackInterface
 from f5test.interfaces.rest.emapi import EmapiInterface
-from f5test.interfaces.rest.emapi.objects import NetworkVlan, NetworkSelfip, EasySetup
+from f5test.interfaces.rest.emapi.objects import EasySetup
 from f5test.macros.tmosconf.scaffolding import Partition, Mirror, enumerate_stamps
 from f5test.macros.tmosconf.base import (SystemConfig, NetworkConfig,
                                          LTMConfig)
@@ -23,6 +23,7 @@ from f5test.macros.keyswap import KeySwap
 from f5test.base import Options as O
 from f5test.defaults import ROOT_USERNAME, ROOT_PASSWORD
 from netaddr import IPAddress, IPNetwork
+from f5test.commands.shell import WIPE_STORAGE
 import logging
 import re
 import sys
@@ -35,6 +36,7 @@ DEFAULT_POOLS = 60
 DEFAULT_MEMBERS = 1
 DEFAULT_VIPS = 8
 DEFAULT_PARTITIONS = 0
+DEFAULT_ROOT_USERNAME = ROOT_USERNAME
 DEFAULT_ROOT_PASSWORD = ROOT_PASSWORD
 DEFAULT_TIMEOUT = 180
 DEFAULT_SELF_PREFIX = 16
@@ -89,28 +91,45 @@ class ConfigPlacer(Macro):
         self.options.setifnone('vip_count', DEFAULT_VIPS)
         self.options.setifnone('node_start', DEFAULT_NODE_START)
         self.options.setifnone('partitions', DEFAULT_PARTITIONS)
-        self.options.setifnone('password', DEFAULT_ROOT_PASSWORD)
         self.options.setifnone('timeout', DEFAULT_TIMEOUT)
 
         if self.options.device:
-            device = ConfigInterface().get_device(options.device)
-            self.address = device.address
+            self.device = ConfigInterface().get_device(options.device)
+            self.address = self.device.address
         else:
+            self.device = None
             self.address = address
+            self.options.setifnone('username', DEFAULT_ROOT_USERNAME)
+            self.options.setifnone('password', DEFAULT_ROOT_PASSWORD)
 
         # can.* shortcuts to check for certain features based on the version
         self.can = O()
-        self.can.tmsh = lambda v: (v.product.is_bigip and v >= 'bigip 11.0.0' or
-                                   v.product.is_em and v >= 'em 2.0.0' or
-                                   v.product.is_bigiq)
-        self.can.provision = lambda v: (v.product.is_bigip and v >= 'bigip 10.0.1' or
-                                        v.product.is_em and v >= 'em 2.0.0' or
-                                        v.product.is_bigiq)
-        self.can.lvm = lambda sshifc: not sshifc('/usr/lib/install/lvmtest').status
+
+        def can_tmsh(v):
+            return (v.product.is_bigip and v >= 'bigip 11.0.0' or
+                    v.product.is_em and v >= 'em 2.0.0' or
+                    v.product.is_bigiq)
+        self.can.tmsh = can_tmsh
+
+        def can_provision(v):
+            return (v.product.is_bigip and v >= 'bigip 10.0.1' or
+                    v.product.is_em and v >= 'em 2.0.0' or
+                    v.product.is_bigiq)
+        self.can.provision = can_provision
+
+        def can_lvm(sshifc):
+            return not sshifc('/usr/lib/install/lvmtest').status
+        self.can.lvm = can_lvm
 
         self.has = O()
-        self.has.asm = lambda s: bool(SCMD.tmsh.get_provision(ifc=s).asm)
-        self.has.lvm = lambda s: not s('/usr/lib/install/lvmtest').status
+
+        def has_asm(s):
+            return bool(SCMD.tmsh.get_provision(ifc=s).asm)
+        self.has.asm = has_asm
+
+        def has_lvm(s):
+            return not s('/usr/lib/install/lvmtest').status
+        self.has.lvm = has_lvm
 
         super(ConfigPlacer, self).__init__(*args, **kwargs)
 
@@ -121,13 +140,13 @@ class ConfigPlacer(Macro):
                             timeout=timeout,
                             username=username,
                             password=apikey, proto='http') as irack:
-            params = dict(address_set__address__in=mgmtip)
+            params = dict(address_set__address__in=mgmtip, address_set__type=4)
             # Locate the static bag for the F5Asset with mgmtip
             ret = irack.api.staticbag.filter(asset__type=1, **params)
 
             if ret.data.meta.total_count == 0:
                 LOG.warning("No devices with mgmtip=%s found in iRack." % mgmtip)
-                return {}
+                return data
             if ret.data.meta.total_count > 1:
                 raise ValueError("More than one device with mgmtip=%s found in iRack." % mgmtip)
 
@@ -182,10 +201,10 @@ class ConfigPlacer(Macro):
         ctx.platform = SCMD.ssh.get_platform(ifc=self.sshifc)['platform']
         ctx.is_cluster = SCMD.ssh.is_cluster(ifc=self.sshifc)
         ctx.is_vcmp = ctx.platform == 'Z101'
-        ctx.status = SCMD.ssh.GetPrompt(ifc=self.sshifc).run_wait(
-                                  lambda x: x not in ('INOPERATIVE',),
-                                  progress_cb=lambda x: 'Still %s...' % x,
-                                  timeout=self.options.timeout)
+        ctx.status = SCMD.ssh.GetPrompt(ifc=self.sshifc)\
+            .run_wait(lambda x: x not in ('INOPERATIVE',),
+                      progress_cb=lambda x: 'Still %s...' % x,
+                      timeout=self.options.timeout)
 
         if self.can.provision(ctx.version):
             ctx.provision = {}
@@ -197,10 +216,10 @@ class ConfigPlacer(Macro):
         try:
             tokens = SCMD.ssh.parse_license(ifc=self.sshifc, tokens_only=True)
             ctx.modules = dict([(k[4:], v) for (k, v) in tokens.items()
-                                           if k.startswith('mod_')])
+                                if k.startswith('mod_')])
 
             ctx.features = dict([(k, v) for (k, v) in tokens.items()
-                                        if not k.startswith('mod_')])
+                                if not k.startswith('mod_')])
         except SCMD.ssh.LicenseParsingError as e:
             ctx.modules = {}
             ctx.features = {}
@@ -215,7 +234,9 @@ class ConfigPlacer(Macro):
         return ctx
 
     def prep(self):
-        self.sshifc = SSHInterface(address=self.address,
+        self.sshifc = SSHInterface(device=self.device,
+                                   address=self.address,
+                                   username=self.options.username,
                                    password=self.options.password,
                                    timeout=self.options.timeout,
                                    port=self.options.ssh_port)
@@ -245,7 +266,7 @@ class ConfigPlacer(Macro):
         # If None or IPAddress('0.0.0.0')
         if not o.gateway:
             o.gateway = IPAddress(self.options.mgmtgw) if self.options.mgmtgw \
-                                                       else o.mgmtip.broadcast - 1
+                else o.mgmtip.broadcast - 1
 
         # Preserve the DHCP flag for the management interface
         if self.can.tmsh(ctx.version):
@@ -443,40 +464,39 @@ class ConfigPlacer(Macro):
 
         LOG.info('Waiting for reconfiguration...')
         timeout = self.options.timeout
-        SCMD.ssh.FileExists('/var/run/mprov.pid', ifc=self.sshifc).run_wait(lambda x: x is False,
-                                             progress_cb=lambda x: 'mprov still running...',
-                                             timeout=timeout)
+        SCMD.ssh.FileExists('/var/run/mprov.pid', ifc=self.sshifc)\
+            .run_wait(lambda x: x is False,
+                      progress_cb=lambda x: 'mprov still running...',
+                      timeout=timeout)
         if (self.can.provision(ctx.version) and self.has.asm(self.sshifc) and
-            self.has.lvm(self.sshifc)):
-            SCMD.ssh.FileExists('/var/lib/mysql/.moved.to.asmdbvol',
-                                ifc=self.sshifc).run_wait(lambda x: x,
-                                                 progress_cb=lambda x: 'ASWADB still not there...',
-                                                 timeout=timeout)
+                self.has.lvm(self.sshifc)):
+            SCMD.ssh.FileExists('/var/lib/mysql/.moved.to.asmdbvol', ifc=self.sshifc)\
+                .run_wait(lambda x: x,
+                          progress_cb=lambda x: 'ASWADB still not there...',
+                          timeout=timeout)
         # Wait for ASM config server to come up.
         if self.can.provision(ctx.version) and self.has.asm(self.sshifc):
             LOG.info('Waiting for ASM config server to come up...')
-            SCMD.ssh.Generic(r'netstat -anp|grep "9781.*0\.0\.0\.0:\*.*LISTEN"|wc -l',
-                            ifc=self.sshifc).run_wait(lambda x: int(x.stdout),
-                                                   progress_cb=lambda x: 'ASM cfg server not up...',
-                                                   timeout=timeout)
+            SCMD.ssh.Generic(r'netstat -anp|grep -P ":9781\s+(0\.0\.0\.0|::):\*\s+LISTEN"|wc -l',
+                             ifc=self.sshifc).run_wait(lambda x: int(x.stdout),
+                                                       progress_cb=lambda x: 'ASM cfg server not up...',
+                                                       timeout=timeout)
 
         LOG.info('Waiting for Active prompt...')
-        s = SCMD.ssh.GetPrompt(ifc=self.sshifc).run_wait(lambda x: x in ('Active',
-                                                                     'Standby',
-                                                                     'ForcedOffline',
-                                                                     'RESTART DAEMONS',
-                                                                     'REBOOT REQUIRED'),
-                                                  progress_cb=lambda x: 'Still not active (%s)...' % x,
-                                                  timeout=timeout)
+        s = SCMD.ssh.GetPrompt(ifc=self.sshifc)\
+            .run_wait(lambda x: x in ('Active', 'Standby', 'ForcedOffline',
+                                      'monpd DOWN',  # TODO: Remove when BZ503608 is fixed!
+                                      'RESTART DAEMONS', 'REBOOT REQUIRED'),
+                      progress_cb=lambda x: 'Still not active (%s)...' % x,
+                      timeout=timeout)
 
         if s == 'RESTART DAEMONS':
             LOG.info('Restarting daemons...')
             self.call('bigstart restart')
-            SCMD.ssh.GetPrompt(ifc=self.sshifc).run_wait(lambda x: x in ('Active',
-                                                                     'Standby',
-                                                                     'ForcedOffline'),
-                                                      progress_cb=lambda x: 'Still not active (%s)...' % x,
-                                                      timeout=timeout)
+            SCMD.ssh.GetPrompt(ifc=self.sshifc)\
+                .run_wait(lambda x: x in ('Active', 'Standby', 'ForcedOffline'),
+                          progress_cb=lambda x: 'Still not active (%s)...' % x,
+                          timeout=timeout)
         elif s == 'REBOOT REQUIRED':
             LOG.warn('A manual reboot is required.')
 
@@ -488,6 +508,8 @@ class ConfigPlacer(Macro):
             return
 
         o = O()
+        o.device = self.device
+        o.username = self.options.username
         o.password = self.options.password
         o.port = self.options.ssh_port
         cs = KeySwap(o, address=self.address)
@@ -496,7 +518,7 @@ class ConfigPlacer(Macro):
     def ssl_signedcert_install(self, hostname):
         # BUG: Sometimes user 'a' role gets downgraded to 'guest' at this point.
         #      It's still unclear why this happens.
-        if self.context.version >= 'bigip 11.6':
+        if self.context.version >= 'bigip 11.6' or self.context.version >= 'bigiq 4.6':
             SCMD.ssh.generic('tmsh modify auth user %s partition-access modify  {all-partitions {role admin}}' % OUR_ADMIN_USERNAME,
                              ifc=self.sshifc)
         else:
@@ -504,7 +526,7 @@ class ConfigPlacer(Macro):
                              ifc=self.sshifc)
         o = O()
         o.admin_username = OUR_ADMIN_USERNAME
-        o.root_username = ROOT_USERNAME
+        o.root_username = self.options.username
         o.ssh_port = self.options.ssh_port
         o.ssl_port = self.options.ssl_port
         o.verbose = self.options.verbose
@@ -516,7 +538,8 @@ class ConfigPlacer(Macro):
         o.admin_password = OUR_ADMIN_PASSWORD
         o.root_password = self.options.password
 
-        o.alias = [hostname]
+        if hostname:
+            o.alias = [hostname]
         cs = WebCert(o, address=self.address)
         cs.run()
 
@@ -619,10 +642,10 @@ class ConfigPlacer(Macro):
             # We need to re-set the modules based on the new license
             tokens = SCMD.ssh.parse_license(ifc=self.sshifc, tokens_only=True)
             ctx.modules = dict([(k[4:], v) for (k, v) in tokens.items()
-                                           if k.startswith('mod_')])
+                               if k.startswith('mod_')])
 
             ctx.features = dict([(k, v) for (k, v) in tokens.items()
-                                        if not k.startswith('mod_')])
+                                if not k.startswith('mod_')])
 
             # Tomcat doesn't like the initial licensing through CLI
             if ctx.version.product.is_em:
@@ -630,8 +653,8 @@ class ConfigPlacer(Macro):
         elif ctx.status in ['LICENSE EXPIRED', 'REACTIVATE LICENSE']:
             LOG.info('Re-Licensing...')
             ret = self.call('SOAPLicenseClient --verbose --basekey `grep '
-                             '"Registration Key" /config/bigip.license|'
-                             'cut -d: -f2`')
+                            '"Registration Key" /config/bigip.license|'
+                            'cut -d: -f2`')
             LOG.debug("SOAPLicenseClient returned: %s", ret)
 
         else:
@@ -647,7 +670,7 @@ class ConfigPlacer(Macro):
             self.call('b import default')
 
         if ctx.version.product.is_bigiq:
-            self.call('bigstart stop restjavad && rm -rf /var/config/rest && bigstart start restjavad')
+            self.call(WIPE_STORAGE)
 
     def setup(self):
         irack = O()
@@ -663,18 +686,26 @@ class ConfigPlacer(Macro):
         o = O()
         o.partitions = self.options.partitions
         o.nameservers = DNS_SERVERS if self.options.dns_servers is None else \
-                        self.options.dns_servers
+            self.options.dns_servers
         o.suffixes = DNS_SUFFIXES if self.options.dns_suffixes is None else \
-                     self.options.dns_suffixes
+            self.options.dns_suffixes
         o.ntpservers = NTP_SERVERS if self.options.ntp_servers is None else \
-                       self.options.ntp_servers
+            self.options.ntp_servers
         o.smtpserver = 'mail.f5net.com'
         o.hostname = self.options.hostname or irack.get('hostname')
         o.timezone = self.options.timezone
         self.set_networking(o)
         self.set_provisioning(o)
         self.set_users(o)
+        if irack.mgmtip and (o.mgmtip.ip != irack.mgmtip.ip or
+                             o.mgmtip.cidr != irack.mgmtip.cidr):
+            LOG.warning('Management address mismatch. iRack has {0} but found {1}. iRack will take precedence.'.format(irack.mgmtip, o.mgmtip))
+            o.mgmtip = irack.mgmtip
         mgmtip = o.mgmtip
+
+        if irack.gateway and o.gateway != irack.gateway:
+            LOG.warning('Default gateway address mismatch. iRack has {0} but found {1}. iRack will take precedence.'.format(irack.gateway, o.gateway))
+            o.gateway = irack.gateway
         tree = self.SystemConfig(self.context, **o).run()
 
         if self.options.clean:
@@ -703,12 +734,12 @@ class ConfigPlacer(Macro):
         selfip_external = self.options.selfip_external or irack and irack.selfip.external
         if selfip_internal:
             o.selfips.internal = [O(address=selfip_internal)]
-            #o.selfips.internal.append(O(address=ip4to6(selfip_internal), name='int_6'))
+            # o.selfips.internal.append(O(address=ip4to6(selfip_internal), name='int_6'))
             o.selfips.internal.append(O(address=ip4to6(selfip_internal)))
 
         if selfip_external:
             o.selfips.external = [O(address=selfip_external)]
-            #o.selfips.external.append(O(address=ip4to6(selfip_external), name='ext_6'))
+            # o.selfips.external.append(O(address=ip4to6(selfip_external), name='ext_6'))
             o.selfips.external.append(O(address=ip4to6(selfip_external)))
         tree = self.NetworkConfig(self.context, **o).run()
 
@@ -743,7 +774,7 @@ class ConfigPlacer(Macro):
 
 def main(*args, **kwargs):
     import optparse
-    #import sys
+    # import sys
 
     class OptionWithDefault(optparse.Option):
         strREQUIRED = 'required'
@@ -772,11 +803,10 @@ def main(*args, **kwargs):
         usage = """%prog [options] <address>"""
 
         formatter = optparse.TitledHelpFormatter(max_help_position=30)
-        p = OptionParser(
-                usage=usage,
-                formatter=formatter,
-                version="Config Generator %s" % __version__,
-        )
+        p = OptionParser(usage=usage,
+                         formatter=formatter,
+                         version="Config Generator %s" % __version__,
+                         )
 
         p.add_option("", "--partitions", metavar="NUMBER",
                      default=DEFAULT_PARTITIONS, type="int",
@@ -798,6 +828,9 @@ def main(*args, **kwargs):
         p.add_option("-v", "--vip-count", metavar="NUMBER",
                      default=DEFAULT_VIPS, type="int",
                      help="How many Virtual IPs. (default: %d)" % DEFAULT_VIPS)
+        p.add_option("-u", "--username", metavar="STRING",
+                     type="string", default=DEFAULT_ROOT_USERNAME,
+                     help="SSH root username. (default: %s)" % DEFAULT_ROOT_USERNAME)
         p.add_option("-p", "--password", metavar="STRING",
                      type="string", default=DEFAULT_ROOT_PASSWORD,
                      help="SSH root Password. (default: %s)" % DEFAULT_ROOT_PASSWORD)

@@ -51,7 +51,7 @@ class User(Stamp):
         key = self.folder.SEPARATOR.join((self.folder.key(), self.name))
         value = obj.rename_key('auth user %(name)s', name=self.name)
         value['encrypted-password'] = crypt.crypt(self.password, self.salt)
-        if ctx.version >= 'bigip 11.6':
+        if ctx.version >= 'bigip 11.6' or ctx.version >= 'bigiq 4.6':
             value['partition-access'] = {'all-partitions': {'role': self.role}}
         else:
             value['role'] = self.role

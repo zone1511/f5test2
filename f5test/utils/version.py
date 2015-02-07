@@ -24,6 +24,7 @@ class Product(object):
     ARX = 'arx'
     SAM = 'sam'
     BIGIQ = 'bigiq'
+    NSX = 'nsx'
 
     def __init__(self, product_string):
         """String to Product class converter.
@@ -49,6 +50,8 @@ class Product(object):
             self.product = Product.ARX
         elif re.search("BIG-IP_SAM", str(product_string), re.IGNORECASE):
             self.product = Product.SAM
+        elif re.search("NSX", str(product_string), re.IGNORECASE):
+            self.product = Product.NSX
         else:
             self.product = ''
 
@@ -272,6 +275,16 @@ class Version(object):
                    "%(bnum)d.%(bhotfix)d>" % self.__dict__
         return "<Version: %(product)s %(pmajor)d.%(pminor)d.%(ppatch)d " \
                "%(bnum)d.%(bhotfix)d>" % self.__dict__
+
+    def __str__(self):
+        if self.is_none:
+            return ''
+        bits = []
+        if self.product:
+            bits.append(self.product.to_tmos)
+        bits.append(self.version)
+        bits.append(self.build)
+        return ' '.join(bits)
 
     def __int__(self):
         return self.pmajor * 10 ** 5 + \

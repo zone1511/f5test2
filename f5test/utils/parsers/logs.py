@@ -1,6 +1,6 @@
 '''
 Created on Jan 4, 2012
-Modified on: $DateTime: 2014/08/01 10:37:30 $
+Modified on: $DateTime: 2014/12/18 13:47:22 $
 
 @author: jono
 '''
@@ -24,6 +24,10 @@ class LogTester(object):
         self.setup()
 
     def __exit__(self, type, value, traceback):  # @ReservedAssignment
+        # If there is an exception inside the context block reraise it and don't
+        # bother tailing the log.
+        if type:
+            return False
         self.teardown()
 
     def setup(self):

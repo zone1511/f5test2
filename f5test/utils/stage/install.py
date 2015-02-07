@@ -12,6 +12,7 @@ from ...base import Options
 import f5test.commands.icontrol as ICMD
 import f5test.commands.shell as SCMD
 import logging
+import datetime
 
 DEFAULT_TIMEOUT = 600
 LOG = logging.getLogger(__name__)
@@ -69,6 +70,8 @@ class InstallSoftwareStage(Stage, InstallSoftware):
                 ICMD.management.GetDbvar('Trust.configupdatedone',
                                          device=self.options.device).\
                                          run_wait(lambda x: x == 'true', timeout=300)
+
+            self.options.device.specs.has_tmm_restarted = datetime.datetime.now()
 
         return ret
 

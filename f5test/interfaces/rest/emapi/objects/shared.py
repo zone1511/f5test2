@@ -7,7 +7,7 @@ Created on Jan 9, 2014
 '''
 from .....base import enum, AttrDict
 from .....defaults import ADMIN_USERNAME, ADMIN_PASSWORD
-from .base import Reference, ReferenceList, TaskError, DEFAULT_TIMEOUT
+from .base import Reference, ReferenceList, Task, TaskError, DEFAULT_TIMEOUT
 from ...base import BaseApiObject
 from .....utils.wait import wait
 import json
@@ -60,7 +60,8 @@ class NetworkDiscover(BaseApiObject):
 
 
 class UserRoles(BaseApiObject):
-    URI = '/mgmt/shared/authz/roles/%s'
+    URI = '/mgmt/shared/authz/roles/%s'  # keep for backwards compatible
+    ITEM_URI = '/mgmt/shared/authz/roles/%s'
     ONLYURI = '/mgmt/shared/authz/roles'
     TYPES = enum(ADMIN='Administrator',
                  SECURITY='Security_Manager',
@@ -72,6 +73,16 @@ class UserRoles(BaseApiObject):
         self.setdefault('name', UserRoles.TYPES.ADMIN)
         self.setdefault('userReferences', ReferenceList())
         self.setdefault('resources', [])
+
+# A wait method to check if the given role is removed on the user
+    @staticmethod
+    def wait_removed(restapi, userselflink, timeout=DEFAULT_TIMEOUT):  # @UndefinedVariable
+
+        ret = wait(lambda: restapi.get(UserRoles.ONLYURI)['items'], timeout=timeout, interval=1,
+                   condition=lambda ret: userselflink not in [x.link for x in ret],
+                   progress_cb=lambda __: "Waiting until user role is deleted")
+
+        return userselflink not in [x.link for x in ret]
 
 
 # Ref: https://indexing.f5net.com/source/xref/management-adc/tm_daemon/msgbusd/java/src/com/f5/rest/workers/GossipWorkerState.java
@@ -95,6 +106,7 @@ class DeviceResolver(BaseApiObject):
     DEVICES_URI = '%s/%%s/devices' % URI
     DEVICE_URI = '%s/%%s' % DEVICES_URI
     STATS_URI = '%s/%%s/stats' % URI
+    DEVICE_STATS_URI = '%s/stats' % DEVICE_URI
     PENDING_STATES = ('PENDING', 'PENDING_DELETE',
                       'FRAMEWORK_DEPLOYMENT_PENDING', 'TRUST_PENDING',
                       'CERTIFICATE_INSTALL')
@@ -146,7 +158,8 @@ class DeviceResolverDevice(BaseApiObject):
 
 class DeviceGroup(BaseApiObject):
     URI = '/mgmt/shared/resolver/device-groups'
-    ITEM_URI = '%s/' % URI
+    ITEM_URI = '{0}/%s'.format(URI)
+    DEVICES_URI = '{0}/%s/devices'.format(URI)
 
     def __init__(self, *args, **kwargs):
         super(DeviceGroup, self).__init__(*args, **kwargs)
@@ -290,6 +303,7 @@ class EventAggregationTasks(BaseApiObject):
     """To be used on each BQ to create a listening task"""
     URI = '/mgmt/shared/analytics/event-aggregation-tasks'
     ITEM_URI = '/mgmt/shared/analytics/event-aggregation-tasks/%s'
+    STATS_ITEM_URI = '/mgmt/shared/analytics/event-aggregation-tasks/%s/worker/stats'
     PORT = 9010  # some default test port
 
     def __init__(self, *args, **kwargs):
@@ -539,3 +553,191 @@ class AuthnLocalGroups(BaseApiObject):
     def __init__(self, *args, **kwargs):
         super(AuthnLocalGroups, self).__init__(*args, **kwargs)
         self.setdefault('name', '')
+
+
+# Ref - https://confluence.pdsea.f5net.com/display/PDCLOUD/RestDiagnosticsWorkerAPI
+class DiagnosticsRuntime(BaseApiObject):
+    URI = '/mgmt/shared/diagnostics/runtime'
+
+
+# Ref - https://confluence.pdsea.f5net.com/display/PDBIGIQPLATFORM/Task+Scheduler#
+# Ref - https://confluence.pdsea.f5net.com/display/PDCLOUD/TaskSchedulerAPI
+class TaskScheduler(BaseApiObject):
+    """defauults on the Task Schedule Payload"""
+    URI = '/mgmt/shared/task-scheduler/scheduler'
+    ITEM_URI = '/mgmt/shared/task-scheduler/scheduler/%s'
+
+    TYPE = enum('BASIC_WITH_INTERVAL',
+                'DAYS_OF_THE_WEEK',
+                'DAY_AND_TIME_OF_THE_MONTH',
+                'BASIC_WITH_REPEAT_COUNT')
+    UNIT = enum('MILLISECOND', 'SECOND', 'MINUTE', 'HOUR',
+                'DAY', 'WEEK', 'MONTH', 'YEAR')
+
+    def __init__(self, *args, **kwargs):
+        super(TaskScheduler, self).__init__(*args, **kwargs)
+
+        # "kind": "shared:task-scheduler:scheduler:schedulerworkerstate",
+        # "selfLink": "http://localhost:36160/shared/task-scheduler/scheduler/8e2095e9-ffee-4b8e-9de4-d7be0c85154f/worker"
+
+        # Good Optionals:
+        self.setdefault('name', "test-schedule-01")
+        self.setdefault('description', "description for this task - test")
+        # Type BASIC
+        self.setdefault('scheduleType', TaskScheduler.TYPE.BASIC_WITH_INTERVAL)
+        self.setdefault('interval', 30)
+        self.setdefault('intervalUnit', TaskScheduler.UNIT.SECOND)
+
+        # Type Weekly
+        # self.setdefault('scheduleType', TaskScheduler.TYPE.DAYS_OF_THE_WEEK)
+        # self.setdefault('daysOfTheWeekToRun', (1, 2, 3, 4, 5))  # 1-7 (type {} set)
+        # self.setdefault('timeToStartOn', "2014-09-18T11:30:00-07:00")
+
+        # Type Monthly
+        # self.setdefault('scheduleType', TaskScheduler.TYPE.DAY_AND_TIME_OF_THE_MONTH)
+        # self.setdefault('dayOfTheMonthToRun', 25)
+        # self.setdefault('hourToRunOn', 15)
+        # self.setdefault('minuteToRunOn', 30)
+
+        # Type Basic with repeat
+        # self.setdefault('scheduleType', TaskScheduler.TYPE.BASIC_WITH_REPEAT_COUNT)
+        # self.setdefault('repeatCount', 0)  # run only once
+
+        # Other Required
+        self.setdefault('deviceGroupName', 'cm-shared-all-big-iqs')
+        self.setdefault('taskReferenceToRun', '')  # URI to be run on this S
+        self.setdefault('taskBodyToRun', {})  # State Object (Eg: EventAnalyticsTaskState)
+        self.setdefault('taskRestMethodToRun', 'GET')
+
+        # Optionals
+        self.setdefault('endDate', None)  # date
+        self.setdefault('timeoutInMillis', 60000)  # wait for completion of task; Default from api is 60s
+        # self.setdefault('whenScheduleMisfiresTryAndRerun', False)  # default True
+
+        # Returns:
+        # self.setdefault('taskHistory', ReferenceList())
+        # self.setdefault('nextRunTime', '')
+
+
+class AvrTask(Task):
+
+    def wait_analysis(self, rest, resource, loop=None, timeout=30, interval=1,
+             timeout_message=None):
+        def get_status():
+            return rest.get(resource.selfLink)
+        if loop is None:
+            loop = get_status
+        ret = wait(loop, timeout=timeout, interval=interval,
+                   timeout_message=timeout_message,
+                   condition=lambda x: x.status not in ('STARTED',),
+                   progress_cb=lambda x: 'Status: {0}'.format(x.status))
+        assert ret.status == 'FINISHED', "{0.status}:{0.error}".format(ret)
+        return ret
+
+
+# Ref - https://confluence.pdsea.f5net.com/display/PDCLOUD/AnalyticsDesign
+class AvrAggregationTasks(BaseApiObject):
+# avrAggregationTask is a singleton created by restjavad. It's created at startup and no need to delete it
+    URI = "/mgmt/shared/analytics/avr-aggregation-tasks"
+    ITEM_URI = "/mgmt/shared/analytics/avr-aggregation-tasks/%s"
+
+    def __init__(self, *args, **kwargs):
+        super(AvrAggregationTasks, self).__init__(*args, **kwargs)
+
+
+class GroupTask(Task):
+    URI = "/mgmt/shared/group-task"
+
+    def __init__(self, *args, **kwargs):
+        super(GroupTask, self).__init__(*args, **kwargs)
+        self.setdefault('devicesReference', Reference())
+        self.setdefault('taskReference', Reference())
+        self.setdefault('taskBody', {})
+
+class WorkingLtmNode(BaseApiObject):
+    URI = '/mgmt/cm/shared/config/working/ltm/node'
+
+    def __init__(self, *args, **kwargs):
+        super(WorkingLtmNode, self).__init__(*args, **kwargs)
+        self.setdefault('name', '')
+        self.setdefault('address', '')
+        self.setdefault('fullPath', '')
+        self.setdefault('partition', '')
+        self.setdefault('deviceReference', Reference())
+        self.setdefault('monitor', '/Common/icmp')
+
+class WorkingLtmPool(BaseApiObject):
+    URI = '/mgmt/cm/shared/config/working/ltm/pool'
+
+    def __init__(self, *args, **kwargs):
+        super(WorkingLtmPool, self).__init__(*args, **kwargs)
+        self.setdefault('name', '')
+        self.setdefault('fullPath', '')
+        self.setdefault('partition', '')
+        self.setdefault('deviceReference', Reference())
+        self.setdefault('monitor', '/Common/http')
+
+class WorkingLtmPoolMember(BaseApiObject):
+    URI = '/mgmt/cm/shared/config/working/ltm/pool/%s/members'
+
+    def __init__(self, *args, **kwargs):
+        super(WorkingLtmPoolMember, self).__init__(*args, **kwargs)
+        self.setdefault('name', '')
+        self.setdefault('address', '')
+        self.setdefault('fullPath', '')
+        self.setdefault('partition', '')
+        self.setdefault('deviceReference', Reference())
+        self.setdefault('nodeReference', Reference())
+        self.setdefault('monitor', 'default')
+
+class SourceAddressTranslation(AttrDict):
+    def __init__(self, *args, **kwargs):
+        super(SourceAddressTranslation, self).__init__(*args, **kwargs)
+        self.setdefault('type', 'automap')
+
+class WorkingLtmVip(BaseApiObject):
+    URI = '/mgmt/cm/shared/config/working/ltm/virtual'
+
+    def __init__(self, *args, **kwargs):
+        super(WorkingLtmVip, self).__init__(*args, **kwargs)
+        self.setdefault('name', '')
+        self.setdefault('destination', '')
+        self.setdefault('fullPath', '')
+        self.setdefault('partition', '')
+        self.setdefault('deviceReference', Reference())
+        self.setdefault('poolReference', Reference())
+        self.setdefault('pool', '')
+        self.setdefault('disabled', False)
+        self.setdefault('enabled', True)
+        self.setdefault('translateAddress', 'enabled')
+        self.setdefault('translatePort', 'enabled')
+        self.setdefault('sourceAddressTranslation', SourceAddressTranslation())
+
+class SnapshotTask(Task):
+    URI = "/mgmt/shared/snapshot-task"
+
+    def __init__(self, *args, **kwargs):
+        super(SnapshotTask, self).__init__(*args, **kwargs)
+        self.setdefault('name', '')
+        self.setdefault('collectionReferences', ReferenceList())
+
+class ConfigDeploy(Task):
+    """ This can be used to do ADC deployment """
+    URI = '/mgmt/cm/shared/config/deploy'
+
+    def __init__(self, *args, **kwargs):
+        super(ConfigDeploy, self).__init__(*args, **kwargs)
+        self.setdefault('name', 'Deployment')
+        self.setdefault('description', 'Deployment')
+        self.setdefault('configPaths', [])
+        self.setdefault('kindTransformMappings', [])
+        self.setdefault('deviceReference', Reference())
+
+class RefreshWorkingConfig(Task):
+    URI = '/mgmt/cm/shared/config/refresh-working-config'
+
+    def __init__(self, *args, **kwargs):
+        super(RefreshWorkingConfig, self).__init__(*args, **kwargs)
+        self.setdefault('configPaths', [])
+        self.setdefault('deviceReference', Reference())
+

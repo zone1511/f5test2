@@ -43,17 +43,19 @@ class Repeat(Plugin):
         self.options = options
         if not options.no_repeat:
             # Monkey patch Test.__call__ to handle @repeat decorated tests.
-            def __call__(self, *arg, **kwarg):
+            def __call__(self, result, blocking_context):
                 testMethod = getattr(self.test, self.test._testMethodName)
                 attrs = getattr(testMethod, ATTR, {})
                 if not any(attrs.values()):
-                    return self.run(*arg, **kwarg)
+                    return self.run(result, blocking_context)
 
                 times = attrs.get('times') or -1
                 end = datetime.datetime.now() + datetime.timedelta(seconds=attrs.get('seconds') or -1)
                 ret = i = 0
                 while i < times or datetime.datetime.now() < end:
-                    ret = self.run(*arg, **kwarg)
+                    ret = self.run(result, blocking_context)
                     i += 1
+                    if blocking_context:
+                        break
                 return ret
             Test.__call__ = __call__

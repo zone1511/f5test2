@@ -4,11 +4,9 @@ Created on Feb 9, 2012
 @author: jono
 '''
 from __future__ import absolute_import
-from f5test.interfaces.testopia import TestopiaInterface
 from f5test.interfaces.config import (expand_devices, ConfigInterface)
 from f5test.macros.base import Macro, MacroThread
 from f5test.utils.stage.base import Stage, StageError
-import f5test.commands.icontrol as ICMD
 from nose.config import _bool
 import inspect
 import os
@@ -18,18 +16,16 @@ from Queue import Queue
 import traceback
 import logging
 
-from f5test.utils.stage.deploy import Ec2Stage  # @UnusedImport
 from f5test.utils.stage.install import InstallSoftwareStage  # @UnusedImport
 from f5test.utils.stage.em import EMDiscocveryStage, EMInstallSoftwareStage  # @UnusedImport
 from f5test.utils.stage.ha import HAStage  # @UnusedImport
 from f5test.utils.stage.config import ConfigStage, KeySwapStage, SetPasswordStage  # @UnusedImport
 from f5test.utils.stage.misc import TweaksStage  # @UnusedImport
+from f5test.utils.stage.check import ScaleCheckStage  # @UnusedImport
 
-__all__ = ['Ec2Stage',
-           'InstallSoftwareStage', 'EMDiscocveryStage', 'EMInstallSoftwareStage',
+__all__ = ['InstallSoftwareStage', 'EMDiscocveryStage', 'EMInstallSoftwareStage',
            'HAStage', 'ConfigStage', 'KeySwapStage', 'SetPasswordStage',
-           'TweaksStage',
-           'PrintDevicesInfo', 'SanityCheck']
+           'TweaksStage', 'SanityCheck', 'ScaleCheckStage']
 
 LOG = logging.getLogger(__name__)
 DEFAULT_PRIORITY = 100
@@ -169,49 +165,13 @@ def process_stages(stages, section, context, stop_on_error=True):
             while not q.empty():
                 ret = q.get(block=False)
                 thread, exc_info = ret.popitem()
-                stages.append(thread.getName())
+                stages.append((thread, exc_info))
                 LOG.error('Exception while "%s"', thread.getName())
                 for line in traceback.format_exception(*exc_info):
                     LOG.error(line.strip())
 
             if stop_on_error:
-                raise StageError('Check logs for exceptions in %s' % ' '.join(stages))
-
-
-class PrintDevicesInfo(Macro):
-    """
-    Gather some basic information about all devices included in the current run.
-    """
-
-    def run(self, config):
-        cfgifc = ConfigInterface()
-        devices = cfgifc.get_all_devices()
-
-        LOG.info('=' * 80)
-        LOG.info('Test environment:')
-        LOG.info('-' * 80)
-        tags = []
-        i = 1
-        for device in devices:
-            platform = ICMD.system.get_platform(device=device)
-            version = ICMD.system.get_version(device=device)
-            LOG.info("%s: %s - %s - %s" % (device.alias, device.address,
-                                           platform, version))
-            tags.append("device.%d.build=%s" % (i, version.build))
-            tags.append("device.%d.platform=%s" % (i, platform))
-            tags.append("device.%d.version=%s" % (i, version.version))
-            tags.append("device.%d.product=%s" % (i, version.product.product))
-            tags.append("device.%d.alias=%s" % (i, device.alias))
-            tags.append("device.%d.address=%s" % (i, device.address))
-            i += 1
-
-        LOG.info('=' * 80)
-
-        if config.testopia and config.testopia._testrun:
-            LOG.debug('Tagging testrun with devices specs...')
-            c = config.testopia
-            t = TestopiaInterface().open()
-            t.TestRun.add_tag(c._testrun, tags)
+                raise StageError(stages)
 
 
 class SanityCheck(Macro):

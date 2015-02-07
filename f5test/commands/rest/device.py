@@ -3,20 +3,26 @@ Created on Jan 30, 2013
 
 @author: jono
 '''
-from .base import IcontrolRestCommand
-from ..base import CommandError
-from ...base import Options
-from ...utils.wait import wait, wait_args, StopWait
-from ...interfaces.rest.emapi.objects import (ManagedDeviceCloud, DeviceResolver,
-    DeclareMgmtAuthorityTask, RemoveMgmtAuthorityTask, RemoveMgmtAuthorityTaskV2,
-    ManagedDevice)
-from ...interfaces.rest.emapi.objects.base import Reference
-from ...interfaces.rest.emapi.objects import asm, TaskError
-from ...interfaces.rest.emapi import EmapiResourceError
-import logging
-from netaddr import IPAddress, ipv6_full
-import time
 import datetime
+import logging
+import time
+
+from netaddr import IPAddress, ipv6_full
+
+from ...base import Options
+from ...interfaces.rest.emapi import EmapiResourceError
+from ...interfaces.rest.emapi.objects import (ManagedDeviceCloud, DeviceResolver,
+                                              DeclareMgmtAuthorityTask,
+                                              RemoveMgmtAuthorityTask,
+                                              RemoveMgmtAuthorityTaskV2,
+                                              ManagedDevice)
+from ...interfaces.rest.emapi.objects.adc import RefreshCurrentConfig
+from ...interfaces.rest.emapi.objects.firewall import SecurityTaskV2
+from ...interfaces.rest.emapi.objects import asm
+from ...utils.wait import wait, wait_args, StopWait
+from ..base import CommandError
+from .base import IcontrolRestCommand
+
 
 LOG = logging.getLogger(__name__)
 DEFAULT_DISCOVERY_DELAY = 180
@@ -29,7 +35,10 @@ DEFAULT_SECURITY_GROUP = 'cm-firewall-allFirewallDevices'
 DEFAULT_ASM_GROUP = 'cm-asm-allAsmDevices'
 DEFAULT_AUTODEPLOY_GROUP = 'cm-autodeploy-group-manager-autodeployment'
 DEFAULT_ALLBIGIQS_GROUP = 'cm-shared-all-big-iqs'
-
+ASM_ALL_GROUP = 'cm-asm-allDevices'
+FIREWALL_ALL_GROUP = 'cm-firewall-allDevices'
+SECURITY_SHARED_GROUP = 'cm-security-shared-allDevices'
+BIG_IP_HA_DEVICE_GROUP = 'tm-shared-all-big-ips'
 
 delete = None
 class Delete(IcontrolRestCommand):  # @IgnorePep8
@@ -132,6 +141,7 @@ class Discover(IcontrolRestCommand):  # @IgnorePep8
         payload.rootUser = device.get_root_creds().username
         payload.rootPassword = device.get_root_creds().password
         payload.automaticallyUpdateFramework = True
+        payload.state = 'ACTIVE'
         payload.update(self.options)
 
         resp = self.api.patch(state.selfLink, payload=payload)
@@ -159,12 +169,13 @@ class Discover(IcontrolRestCommand):  # @IgnorePep8
             except EmapiResourceError, e:
                 if 'Authorization failed' in e.msg:
                     raise StopWait(e)
+                raise
         self.resp = wait_args(is_up, func_args=[self.uri])
 
     def completed(self, device, ret):
         assert ret.state in ['ACTIVE'], \
-               'Discovery of {0} failed: {1}:{2}'.format(device, ret.state,
-                                                         ret.errors)
+            'Discovery of {0} failed: {1}:{2}'.format(device, ret.state,
+                                                      ret.errors)
 
     def setup(self):
         # Make mapping of what's on the server and what's in our config
@@ -180,7 +191,6 @@ class Discover(IcontrolRestCommand):  # @IgnorePep8
 
         # Add any devices that are not already discovered.
         # Discovery of multiple devices at once is not supported by API.
-        discovered_count = 0
         for address in set(ours) - theirs_set:
             device = ours[address]
 
@@ -188,8 +198,8 @@ class Discover(IcontrolRestCommand):  # @IgnorePep8
                 if device.specs.get('is_cluster', False) \
                 else DEFAULT_DISCOVERY_DELAY
 
-            if device.specs.configure_done:
-                diff = datetime.datetime.now() - device.specs.configure_done
+            if device.specs.has_tmm_restarted:
+                diff = datetime.datetime.now() - device.specs.has_tmm_restarted
                 if diff < datetime.timedelta(seconds=delay) \
                    and device.get_discover_address() != device.get_address():
                     delay -= diff.seconds
@@ -201,12 +211,14 @@ class Discover(IcontrolRestCommand):  # @IgnorePep8
             else:
                 ret = self.add_one(device)
                 self.completed(device, ret)
-            discovered_count += 1
 
+        return self.post_discovery_steps()
+
+    def post_discovery_steps(self):
         # Map our devices to their selfLinks
-        resp = self.api.get(self.uri) if discovered_count else self.resp
+        resp = self.api.get(self.uri)
         theirs = dict([(IPAddress(x.address), x) for x in resp['items']])
-        return dict((x, theirs[IPAddress(x.get_discover_address())].selfLink) for x in self.devices)
+        return dict((x, theirs[IPAddress(x.get_discover_address())]) for x in self.devices)
 
 
 delete_security = None
@@ -240,6 +252,10 @@ class DeleteSecurity(Delete):  # @IgnorePep8
             rma = self.task()
             rma.deviceReference.link = uri
             task = self.api.post(self.task.URI, payload=rma)
+
+        if self.v >= 'bigiq 4.5':
+            rma = SecurityTaskV2()
+            return rma.wait(self.ifc, task)
         return rma.wait(self.api, task)
 
 
@@ -267,6 +283,26 @@ class DiscoverSecurity(Discover):  # @IgnorePep8
             self.uri = DeviceResolver.DEVICES_URI % self.group
 
     def add_one(self, device):
+        if self.ifc.version >= 'bigiq 4.5':
+            LOG.info('Declare Management Authority for %s...', device)
+            dma = SecurityTaskV2()
+            dma.deviceIp = device.get_discover_address()
+            dma.deviceUsername = device.get_admin_creds().username
+            dma.devicePassword = device.get_admin_creds().password
+            dma.rootUser = device.get_root_creds().username
+            dma.rootPassword = device.get_root_creds().password
+            dma.snapshotWorkingConfig = True
+            dma.automaticallyUpdateFramework = True
+            dma.createChildTasks = True
+
+            task = self.api.post(self.task.URI, payload=dma)
+
+            return dma.wait(self.ifc, task, timeout=self.timeout,
+                            timeout_message="Security DMA task did not complete in {0} seconds")
+        else:
+            return self.add_one_legacy(device)
+
+    def add_one_legacy(self, device):
         LOG.info('Declare Management Authority for %s...', device)
         subtask = Options()
         subtask.deviceIp = device.get_discover_address()
@@ -296,9 +332,14 @@ class DiscoverSecurity(Discover):  # @IgnorePep8
                         timeout_message="Security DMA task did not complete in {0} seconds")
 
     def completed(self, device, ret):
-        state = ret.subtasks[0].status
-        assert state in ['COMPLETE'], \
-               'Discovery of {0} failed: {1}'.format(device, state)
+        if self.ifc.version >= 'bigiq 4.5':
+            state = ret.status
+            assert state == 'FINISHED', \
+                'Discovery of {0} failed: {1}'.format(device, state)
+        else:
+            state = ret.subtasks[0].status
+            assert state in ['COMPLETE'], \
+                'Discovery of {0} failed: {1}'.format(device, state)
 
 delete_cloud = None
 class DeleteCloud(Delete):  # @IgnorePep8
@@ -369,6 +410,24 @@ class DeleteAsm(DeleteSecurity):  # @IgnorePep8
     group = DEFAULT_ASM_GROUP
     task = asm.RemoveMgmtAuthority
 
+    def remove_one(self, device, uri):
+        LOG.info('RMA started for %s...', device)
+        if self.v < 'bigiq 4.1':
+            rma = RemoveMgmtAuthorityTask()
+            rma.deviceLink = uri
+            task = self.api.post(RemoveMgmtAuthorityTask.URI, payload=rma)
+            return rma.wait(self.api, task)
+        elif self.v < 'bigiq 4.5':
+            rma = self.task()
+            rma.deviceReference.link = uri
+            task = self.api.post(self.task.URI, payload=rma)
+            return rma.wait(self.api, task)
+        else:
+            rma = self.task()
+            rma.deviceReference.link = uri
+            task = self.api.post(self.task.URI, payload=rma)
+            return rma.wait_status(self.api, task)
+
 
 discover_asm = None
 class DiscoverAsm(DiscoverSecurity):  # @IgnorePep8
@@ -377,17 +436,24 @@ class DiscoverAsm(DiscoverSecurity):  # @IgnorePep8
 
     def add_one(self, device):
         LOG.info('Declare Management Authority for %s...', device)
-        dma = self.task()
-        dma.deviceAddress = device.get_discover_address()
-        dma.username = device.get_admin_creds().username
-        dma.password = device.get_admin_creds().password
+        if self.ifc.version < 'bigiq 4.5':
+            dma = self.task()
+            dma.deviceAddress = device.get_discover_address()
+            dma.username = device.get_admin_creds().username
+            dma.password = device.get_admin_creds().password
+        else:
+            dma = asm.DeclareMgmtAuthorityV2()
+            dma.deviceIp = device.get_discover_address()
+            dma.deviceUsername = device.get_admin_creds().username
+            dma.devicePassword = device.get_admin_creds().password
+            dma.createChildTasks = True
         dma.rootUser = device.get_root_creds().username
         dma.rootPassword = device.get_root_creds().password
         dma.automaticallyUpdateFramework = True
         # Unable to get version through rest interface before discovery...
         # discoverSharedSecurity Feature - Firestone and above only BZ474503
         if self.context.get_icontrol(device=device).version < 'bigip 11.5.1 4.0.128' or\
-           self.ifc.version < 'bigiq 4.5':
+                self.ifc.version < 'bigiq 4.5':
             dma.discoverSharedSecurity = False
         else:
             dma.discoverSharedSecurity = True
@@ -395,13 +461,75 @@ class DiscoverAsm(DiscoverSecurity):  # @IgnorePep8
 
         task = self.api.post(self.task.URI, payload=dma)
 
-        return dma.wait(self.api, task, timeout=self.timeout, interval=5,
-                        timeout_message="ASM DMA task did not complete in {0} seconds. Last status: {1.overallStatus}")
+        if self.ifc.version < 'bigiq 4.5':
+            msg = "ASM DMA task did not complete in {0} seconds. Last status: {1.overallStatus}"
+            return dma.wait(self.api, task, timeout=self.timeout, interval=5,
+                            timeout_message=msg)
+        else:
+            msg = "ASM DMA task did not complete in {0} seconds. Last status: {1.status}"
+            return dma.wait_status(self.api, task, timeout=self.timeout, interval=5,
+                                   timeout_message=msg)
 
     def completed(self, device, ret):
-        assert ret.status in ['COMPLETED'], \
-               'Discovery of {0} failed: {1}:{2}'.format(device, ret.status,
-                                                         ret.error)
+        if self.ifc.version < 'bigiq 4.5':
+            assert ret.status in ['COMPLETED'], \
+                'Discovery of {0} failed: {1}:{2}'.format(device, ret.overallStatus,
+                                                          ret.error)
+        else:
+            assert ret.status in ['FINISHED'], \
+                'Discovery of {0} failed: {1}:{2}'.format(device, ret.status,
+                                                          ret.errorMessage)
+
+discover_adc = None
+class DiscoverAdc(Discover):  # @IgnorePep8
+    """Makes sure all devices are discovered.
+
+    @param devices: A list of f5test.interfaces.config.DeviceAccess instances.
+    @param refresh: A bool flag, if set it will re-discover existing devices.
+    @rtype: None
+    """
+
+    def prep(self):
+        super(DiscoverAdc, self).prep()
+        self.discovered_count = 0
+
+        # Set the ADC specific properties
+        adc = Options(properties={})
+        prop = adc.properties
+        prop.dmaConfigPathScope = 'full'
+        prop.isRestProxyEnabled = True
+        prop.isSoapProxyEnabled = True
+        prop.isTmshProxyEnabled = False
+        self.options.update(adc)
+
+    def completed(self, device, ret):
+        super(DiscoverAdc, self).completed(device, ret)
+        self.discovered_count += 1
+        LOG.info('Waiting for any refresh task to finish...')
+
+        # odata = Options(filter='status eq STARTED')
+        odata = Options(orderby='lastUpdateMicros desc', top=1)
+        wait(lambda: self.api.get(RefreshCurrentConfig.URI, odata_dict=odata)['items'][0],
+             condition=lambda x: x.status == 'FINISHED', timeout=90, stabilize=15,
+             progress_message="{0.status}:{0.subStatus}",
+             interval=1)
+
+    def post_discovery_steps(self):
+        odata = Options(filter='status eq STARTED')
+
+        LOG.info('Waiting for any refresh task to finish...')
+        wait(lambda: self.api.get(RefreshCurrentConfig.URI, odata_dict=odata),
+             condition=lambda x: not x.totalItems, timeout=90, stabilize=5,
+             interval=1)
+
+        odata = Options(orderby='lastUpdateMicros desc', top=1)
+        ret = self.api.get(RefreshCurrentConfig.URI, odata_dict=odata)['items'][0]
+        assert ret.status == 'FINISHED', 'Most recent RefreshCurrentConfig task failed: {0.status}:{0.errorMessage}'.format(ret)
+
+        resp = self.api.get(self.uri)
+        theirs = dict([(IPAddress(x.address), x) for x in resp['items']])
+        return dict((x, theirs[IPAddress(x.get_discover_address())])
+                    for x in self.devices)
 
 clean_dg_certs = None
 class CleanDgCerts(IcontrolRestCommand):  # @IgnorePep8
@@ -475,13 +603,13 @@ class CleanDgCerts(IcontrolRestCommand):  # @IgnorePep8
                     LOG.info("Deleting {0} from {1}".format(device.address, device_group))
                     api.delete(device.selfLink)
                     is_deleted_from[device_group] = True if device.product == 'BIG-IP' else False
-                elif not device_group in CleanDgCerts.DEVICE_GROUPS:
+                elif device_group not in CleanDgCerts.DEVICE_GROUPS:
                     LOG.info("Deleting {0} from {1}".format(device.address, device_group))
                     api.delete(device.selfLink)
             DeviceResolver.wait(api, device_group)
 
             # Remove device groups that aren't the default ones
-            if not device_group in CleanDgCerts.DEVICE_GROUPS:
+            if device_group not in CleanDgCerts.DEVICE_GROUPS:
                 LOG.info("Deleting unknown device group: {0}".format(device_group))
                 api.delete(DeviceResolver.ITEM_URI % device_group)
 

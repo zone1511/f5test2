@@ -9,6 +9,7 @@ import threading
 import types
 from functools import wraps
 import logging
+from .wait import wait_args
 
 LOG = logging.getLogger(__name__)
 
@@ -81,6 +82,19 @@ def repeat(times):
             for i in range(0, times):
                 LOG.info('* Iteration %d *', i + 1)
                 f(*args, **kwargs)
+        return wraps(f)(test_wrapper)
+    return _my_decorator
+
+
+def retry(timeout=180, interval=5, negated=False):
+    def _my_decorator(f):
+        def test_wrapper(*args, **kwargs):
+            def f2():
+                f(*args, **kwargs)
+                return True
+            wait_args(f2, timeout=timeout, interval=interval, negated=negated,
+                      progress_message='* Test case failed. Retrying...',
+                      timeout_message='Test failed failed consistently for {0} seconds. Check logs for full traceback(s).')
         return wraps(f)(test_wrapper)
     return _my_decorator
 

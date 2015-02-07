@@ -2,10 +2,14 @@
 
 A macro is a collection of commands.
 """
+import logging
 import threading
+import traceback
 import sys
 from ..base import Aliasificator
 from ..interfaces.config import ConfigInterface
+
+LOG = logging.getLogger(__name__)
 
 
 class MacroError(Exception):
@@ -44,6 +48,9 @@ class Macro(object):
             self.prep()
             return self.setup()
         except:
+            err = sys.exc_info()
+            tb = ''.join(traceback.format_exception(*err))
+            LOG.error('Error in %s. (%s)', self, tb)
             self.revert()
             raise
         finally:

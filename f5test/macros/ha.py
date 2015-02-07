@@ -6,7 +6,7 @@ Created on May 31, 2011
 '''
 from f5test.macros.base import Macro
 from f5test.base import Options
-from f5test.interfaces.icontrol import IcontrolInterface
+from f5test.interfaces.icontrol import IcontrolInterface, IControlFault
 from f5test.interfaces.rest.emapi import EmapiInterface
 from f5test.interfaces.rest.emapi.objects.bigip import SyncStatus
 import f5test.commands.icontrol as ICMD
@@ -19,11 +19,13 @@ import uuid
 
 
 DEFAULT_DG = '/Common/f5test.ha-dg'
+ASM_DG = '/Common/datasync-global-dg'
 DEFAULT_DG_TYPE = 'DGT_FAILOVER'
 RESERVED_GROUPS = ('gtm', 'device_trust_group')
 DEFAULT_TG = 'traffic-group-1'
+SELFIP_NAME = '/Common/int_floating'
 LOG = logging.getLogger(__name__)
-__version__ = '0.2'
+__version__ = '0.3'
 
 
 class FailoverMacro(Macro):
@@ -34,7 +36,7 @@ class FailoverMacro(Macro):
         self.peers_spec = list(peers or [])
         self.cas = []
         self.peers = []
-        self.groups_specs = groups or []
+        self.groups_specs = groups or [DEFAULT_DG]
         self.sync_device = None  # Used only when do_config_all() is called.
 
         super(FailoverMacro, self).__init__()
@@ -91,13 +93,13 @@ class FailoverMacro(Macro):
                     device.alias = "device-%s" % device.address
 
                 if not device.groups:
-                    device.set_groups(DEFAULT_DG)
+                    device.set_groups(self.groups_specs)
 
                 dst.append(device)
 
     def set_groups(self):
         groups = {}
-        for spec in self.groups_specs or [DEFAULT_DG]:
+        for spec in self.groups_specs:
             if isinstance(self.groups_specs, (list, tuple, set)):
                 bits = spec.split(':')
                 if len(bits) > 1:
@@ -142,12 +144,18 @@ class FailoverMacro(Macro):
                                               authority_key='')
 
                 dgs = ic.Management.DeviceGroup.get_list()
-                for dg in groups:
-                    dg = '/Common/%s' % dg
-                    if dg in dgs:
+                for dg in groups + [ASM_DG]:
+                    if dg in dgs or '/Common/%s' % dg in dgs:
                         LOG.info('Removing %s from %s...', dg, device.alias)
                         ic.Management.DeviceGroup.remove_all_devices(device_groups=[dg])
                         ic.Management.DeviceGroup.delete_device_group(device_groups=[dg])
+
+                try:
+                    if self.options.floatingip:
+                        icifc.api.Networking.SelfIPV2.delete_self_ip(self_ips=[SELFIP_NAME])
+                except IControlFault, e:
+                    if 'was not found' not in e.faultstring:
+                        raise
 
     def do_BZ364939(self):
         devices = self.cas + self.peers
@@ -165,7 +173,7 @@ class FailoverMacro(Macro):
                    v.product.is_bigiq:
                     continue
 
-                #if icifc.version.product.is_bigip and icifc.version < 'bigip 11.2':
+                # if icifc.version.product.is_bigip and icifc.version < 'bigip 11.2':
                 ic = icifc.api
                 LOG.info('Working around BZ364939 on %s...', device.alias)
                 ic.System.Services.set_service(services=['SERVICE_TMM'],
@@ -182,7 +190,7 @@ class FailoverMacro(Macro):
         selfips = [(x[3], x[1]) for x in zip(selfips, addresses, states,
                                              vlans)
                    if IPAddress(x[1]).version == (6 if ipv6 else 4) and
-                      x[2] == 'STATE_DISABLED']
+                   x[2] == 'STATE_DISABLED']
 
         vlan_ip_map = dict(selfips)
         LOG.debug("VLAN map: %s", vlan_ip_map)
@@ -210,9 +218,9 @@ class FailoverMacro(Macro):
         LOG.info('Setting multicast failover on %s...', device.alias)
         ic.Management.Device.set_multicast_address(devices=[device.alias],
                                                    addresses=[dict(interface_name='eth0',
-                                                                  address=dict(address='224.0.0.245',
-                                                                               port=62960)
-                                                                  )]
+                                                                   address=dict(address='224.0.0.245',
+                                                                                port=62960)
+                                                                   )]
                                                    )
 
         LOG.info('Setting unicast failover on %s...', device.alias)
@@ -250,17 +258,17 @@ class FailoverMacro(Macro):
         for group_name, group_type in groups.items():
             LOG.info('Creating %s on %s...', group_name, device.alias)
             ic.Management.DeviceGroup.create(device_groups=[group_name],
-                                                 types=[group_type])
+                                             types=[group_type])
             if group_type == 'DGT_FAILOVER':
                 LOG.info('Enabling failover on %s...', group_name)
                 ic.Management.DeviceGroup.set_network_failover_enabled_state(device_groups=[group_name],
-                                                                                 states=['STATE_ENABLED'])
+                                                                             states=['STATE_ENABLED'])
                 ic.Management.DeviceGroup.set_autosync_enabled_state(device_groups=[group_name],
-                                                                         states=['STATE_ENABLED'])
+                                                                     states=['STATE_ENABLED'])
             elif group_type == 'DGT_SYNC_ONLY':
                 LOG.info('Enabling auto-sync on %s...', group_name)
                 ic.Management.DeviceGroup.set_autosync_enabled_state(device_groups=[group_name],
-                                                                         states=['STATE_ENABLED'])
+                                                                     states=['STATE_ENABLED'])
 
     def do_get_active(self):
         device_accesses = self.cas + self.peers
@@ -284,7 +292,7 @@ class FailoverMacro(Macro):
         return active_devices
 
     def do_wait_valid_state(self):
-        LOG.info('Waiting until BIG-IPs are not in Disconnected state...')
+        LOG.info('Waiting until BIG-IPs are out of Disconnected state...')
 
         def get_sync_statuses():
             ret = []
@@ -315,7 +323,7 @@ class FailoverMacro(Macro):
 
         if valid_bigips:
             wait(get_sync_statuses,
-                 condition=lambda ret: not 'Disconnected' in ret,
+                 condition=lambda ret: 'Disconnected' not in ret,
                  progress_cb=lambda ret: "Device sync-status: {0}".format(ret),
                  timeout=10)
         else:
@@ -342,6 +350,12 @@ class FailoverMacro(Macro):
                                password=cred.password,
                                port=first_active_device[0].ports['https']) as icifc:
             ic = icifc.api
+
+            # This device group appears starting in 11.6.0. Sync this as well.
+            dgs = ic.Management.DeviceGroup.get_list()
+            if ASM_DG in dgs:
+                LOG.info("This appears to be BIGIP11.6.0+ because of %s...", ASM_DG)
+                groups.append(ASM_DG)
             for dg in groups:
                 ic.System.ConfigSync.synchronize_to_group(group=dg)
 
@@ -379,7 +393,7 @@ class FailoverMacro(Macro):
 
         def _is_desired_device_active(devices):
             return [x for x in devices if x[1] == 'HA_STATE_ACTIVE'
-                                       and x[2] == device_map[desired_active]]
+                    and x[2] == device_map[desired_active]]
         if device_map.get(desired_active):
             LOG.info("Waiting for Active status...")
             wait(self.do_get_active, _is_desired_device_active, timeout=10,
@@ -449,13 +463,21 @@ class FailoverMacro(Macro):
 
                 LOG.info('Adding non-CA device %s to trust...', peer)
                 ca_api.Management.Trust.add_non_authority_device(address=peer_address,
-                                                             username=cred.username,
-                                                             password=cred.password,
-                                                             device_object_name=peer.alias,
-                                                             browser_cert_serial_number='',
-                                                             browser_cert_signature='',
-                                                             browser_cert_sha1_fingerprint='',
-                                                             browser_cert_md5_fingerprint='')
+                                                                 username=cred.username,
+                                                                 password=cred.password,
+                                                                 device_object_name=peer.alias,
+                                                                 browser_cert_serial_number='',
+                                                                 browser_cert_signature='',
+                                                                 browser_cert_sha1_fingerprint='',
+                                                                 browser_cert_md5_fingerprint='')
+
+            dgs = ca_api.Management.DeviceGroup.get_list()
+            if ASM_DG in dgs:
+                LOG.info('Found %s. Forcing it to use auto sync...', ASM_DG)
+                ca_api.Management.DeviceGroup.set_full_load_on_sync_state(device_groups=[ASM_DG],
+                                                                          states=['STATE_DISABLED'])
+                ca_api.Management.DeviceGroup.set_autosync_enabled_state(device_groups=[ASM_DG],
+                                                                         states=['STATE_ENABLED'])
 
             group_2_devices = {}
             for device in cas + peers:
@@ -475,19 +497,20 @@ class FailoverMacro(Macro):
                 if ip.prefixlen == 32:
                     raise ValueError("Did you forget the /16 prefix?")
 
-#                from SOAPpy import SOAPBuilder
-                ca_api.Networking.SelfIPV2.create(self_ips=['int_floating'],
-                                                  vlan_names=['internal'],
-                                                  addresses=[str(ip.ip)],
-                                                  netmasks=[str(ip.netmask)],
-                                                  traffic_groups=[DEFAULT_TG],
-                                                  floating_states=['STATE_ENABLED']
-                                                  )
+                selfips = ca_api.Networking.SelfIPV2.get_list()
+                if SELFIP_NAME not in selfips:
+                    ca_api.Networking.SelfIPV2.create(self_ips=[SELFIP_NAME],
+                                                      vlan_names=['internal'],
+                                                      addresses=[str(ip.ip)],
+                                                      netmasks=[str(ip.netmask)],
+                                                      traffic_groups=[DEFAULT_TG],
+                                                      floating_states=['STATE_ENABLED']
+                                                      )
 
-                # Change Port Lockdown to Allow Default.
-                ca_api.Networking.SelfIPV2.add_allow_access_list(self_ips=['int_floating'],
-                    access_lists=[dict(mode='ALLOW_MODE_DEFAULTS', protocol_ports=[])]
-                    )
+                    # Change Port Lockdown to Allow Default.
+                    ca_api.Networking.SelfIPV2.add_allow_access_list(self_ips=[SELFIP_NAME],
+                                                                     access_lists=[dict(mode='ALLOW_MODE_DEFAULTS', protocol_ports=[])]
+                                                                     )
             # BUG: BZ364939 (workaround restart tmm on all peers)
             # 01/22: Appears to work sometimes in 11.2 955.0
             self.do_BZ364939()
@@ -520,8 +543,8 @@ def main():
     formatter = optparse.TitledHelpFormatter(indent_increment=2,
                                              max_help_position=60)
     p = optparse.OptionParser(usage=usage, formatter=formatter,
-                            version="CMI Device Trust Configurator v%s" % __version__
-        )
+                              version="CMI Device Trust Configurator v%s" % __version__
+                              )
     p.add_option("-v", "--verbose", action="store_true",
                  help="Debug messages")
 
@@ -555,7 +578,7 @@ def main():
         level = logging.DEBUG
     else:
         level = logging.INFO
-        #logging.getLogger('paramiko.transport').setLevel(logging.ERROR)
+        # logging.getLogger('paramiko.transport').setLevel(logging.ERROR)
         logging.getLogger('f5test').setLevel(logging.INFO)
         logging.getLogger('f5test.macros').setLevel(logging.INFO)
 

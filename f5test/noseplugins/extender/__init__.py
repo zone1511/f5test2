@@ -50,7 +50,7 @@ class Extender(Plugin):
         for _, module_name, _ in pkgutil.walk_packages(parent.__path__):
             module = importlib.import_module('%s.%s' % (parent.__name__, module_name))
             for _, klass in inspect.getmembers(module, lambda x: inspect.isclass(x)):
-                if issubclass(klass, ExtendedPlugin) and klass is not ExtendedPlugin and klass.enabled:
+                if issubclass(klass, ExtendedPlugin) and klass is not ExtendedPlugin:
                     plugin = klass()
                     self.plugins.append(plugin)
 
@@ -74,7 +74,7 @@ class Extender(Plugin):
             self.enabled = False
 
         with ConfigInterface() as cfgifc:
-            plugin_options = cfgifc.api.plugins
+            plugin_options = cfgifc.api.plugins or O()
 
         for plugin in self.plugins:
             LOG.debug('Configuring plugin: %s', plugin.name)

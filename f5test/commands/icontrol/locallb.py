@@ -3,31 +3,34 @@ Created on May 26, 2011
 
 @author: jono
 '''
-from .base import IcontrolCommand
-from ...interfaces.icontrol.driver import IControlFault 
-from ..base import CommandError
-from ...base import Options
-from netaddr import IPAddress
 import copy
-
 import logging
-LOG = logging.getLogger(__name__) 
+
+from netaddr import IPAddress
+
+from ...base import Options
+from ...interfaces.icontrol.driver import IControlFault
+from ..base import CommandError
+from .base import IcontrolCommand
+
+
+LOG = logging.getLogger(__name__)
 
 
 get_nodes = None
-class GetNodes(IcontrolCommand):
+class GetNodes(IcontrolCommand):  # @IgnorePep8
     """Returns the Node list and their object statuses in a dictionary.
-    
+
     Example:
-    {'/Common/10.10.0.54': {'availability_status': 'AVAILABILITY_STATUS_GREEN', 
-                            'enabled_status': 'ENABLED_STATUS_ENABLED', 
+    {'/Common/10.10.0.54': {'availability_status': 'AVAILABILITY_STATUS_GREEN',
+                            'enabled_status': 'ENABLED_STATUS_ENABLED',
                             'status_description': 'Node address is available'}}
     """
-    
+
     def setup(self):
         ic = self.api
         v = self.ifc.version
-        
+
         if v.product.is_bigip and v < 'bigip 11.0':
             try:
                 if v.product.is_bigip and v > 'bigip 9.3.1':
@@ -38,7 +41,7 @@ class GetNodes(IcontrolCommand):
                 if v.product.is_bigip and v > 'bigip 9.3.1':
                     ic.Management.Partition.set_active_partition(active_partition='Common')
         elif v.product.is_bigip and v >= 'bigip 11.0':
-            #self.ifc.set_session()
+            # self.ifc.set_session()
             try:
                 ic.System.Session.set_active_folder(folder='/')
                 ic.System.Session.set_recursive_query_state(state='STATE_ENABLED')
@@ -48,24 +51,24 @@ class GetNodes(IcontrolCommand):
                 ic.System.Session.set_active_folder(folder='/Common')
         else:
             raise CommandError('Unsupported version: %s' % v)
-        
+
         return dict(zip(nodes, statuses))
 
 
 get_pools = None
-class GetPools(IcontrolCommand):
+class GetPools(IcontrolCommand):  # @IgnorePep8
     """Returns the Pool list and their object statuses in a dictionary.
 
     Example:
-    {'/Common/LTM10Pool-029': {'availability_status': 'AVAILABILITY_STATUS_GREEN', 
-                               'enabled_status': 'ENABLED_STATUS_ENABLED', 
+    {'/Common/LTM10Pool-029': {'availability_status': 'AVAILABILITY_STATUS_GREEN',
+                               'enabled_status': 'ENABLED_STATUS_ENABLED',
                                'status_description': 'The pool is available'}}
     """
-    
+
     def setup(self):
         ic = self.api
         v = self.ifc.version
-        
+
         if v.product.is_bigip and v < 'bigip 11.0':
             try:
                 if v.product.is_bigip and v > 'bigip 9.3.1':
@@ -85,25 +88,25 @@ class GetPools(IcontrolCommand):
                 ic.System.Session.set_active_folder(folder='/Common')
         else:
             raise CommandError('Unsupported version: %s' % v)
-        
+
         return dict(zip(pools, statuses))
 
 
 get_pool_members = None
-class GetPoolMembers(IcontrolCommand):
+class GetPoolMembers(IcontrolCommand):  # @IgnorePep8
     """Returns the Pool Member list.
 
     Example:
-    {'/LTM10Partition3/LTM10Pool-004@/LTM10Partition3/10.10.0.53:80': 
-                        {'availability_status': 'AVAILABILITY_STATUS_GREEN', 
-                        'enabled_status': 'ENABLED_STATUS_ENABLED', 
+    {'/LTM10Partition3/LTM10Pool-004@/LTM10Partition3/10.10.0.53:80':
+                        {'availability_status': 'AVAILABILITY_STATUS_GREEN',
+                        'enabled_status': 'ENABLED_STATUS_ENABLED',
                         'status_description': 'Pool member is available'}}
     """
-    
+
     def setup(self):
         ic = self.api
         v = self.ifc.version
-        
+
         if v.product.is_bigip and v < 'bigip 11.0':
             try:
                 if v.product.is_bigip and v > 'bigip 9.3.1':
@@ -111,11 +114,11 @@ class GetPoolMembers(IcontrolCommand):
                 pools = ic.LocalLB.Pool.get_list()
                 pool_members = ic.LocalLB.Pool.get_member(pool_names=pools)
                 statuses = ic.LocalLB.PoolMember.get_object_status(pool_names=pools)
-                
+
                 # On 11.0+ statuses are key-based
-                statuses = dict([("%s@%s:%s" % (x[0], y['member']['address'], 
-                                                      y['member']['port']), 
-                                  y['object_status']) 
+                statuses = dict([("%s@%s:%s" % (x[0], y['member']['address'],
+                                                y['member']['port']),
+                                  y['object_status'])
                                 for x in zip(pools, statuses)
                                 for y in x[1]])
             finally:
@@ -135,7 +138,7 @@ class GetPoolMembers(IcontrolCommand):
                 for pair in zip(pools, pool_members):
                     j = 0
                     for pool_member in pair[1]:
-                        name = "%s@%s:%s" % (pair[0], pool_member['address'], 
+                        name = "%s@%s:%s" % (pair[0], pool_member['address'],
                                              pool_member['port'])
                         statuses[name] = statuses_11x[i][j]
                         j += 1
@@ -144,25 +147,25 @@ class GetPoolMembers(IcontrolCommand):
                 ic.System.Session.set_active_folder(folder='/Common')
         else:
             raise CommandError('Unsupported version: %s' % v)
-        
+
         return statuses
 
 
 get_virtual_servers = None
-class GetVirtualServers(IcontrolCommand):
+class GetVirtualServers(IcontrolCommand):  # @IgnorePep8
     """Returns the Virtual Server list and their object statuses in a dictionary.
 
     Example:
-    {'/LTM10Partition3/LTM10VIP-058': 
-                        {'availability_status': 'AVAILABILITY_STATUS_GREEN', 
-                        'enabled_status': 'ENABLED_STATUS_ENABLED', 
+    {'/LTM10Partition3/LTM10VIP-058':
+                        {'availability_status': 'AVAILABILITY_STATUS_GREEN',
+                        'enabled_status': 'ENABLED_STATUS_ENABLED',
                         'status_description': 'The virtual server is available'}
     """
-    
+
     def setup(self):
         ic = self.api
         v = self.ifc.version
-        
+
         if v.product.is_bigip and v < 'bigip 11.0':
             try:
                 if v.product.is_bigip and v > 'bigip 9.3.1':
@@ -182,12 +185,12 @@ class GetVirtualServers(IcontrolCommand):
                 ic.System.Session.set_active_folder(folder='/Common')
         else:
             raise CommandError('Unsupported version: %s' % v)
-        
+
         return dict(zip(vips, statuses))
 
 
 create_ltm_app = None
-class CreateLtmApp(IcontrolCommand):
+class CreateLtmApp(IcontrolCommand):  # @IgnorePep8
     """Create a Virtual Server and all its dependencies.
 
     @param definition: Virtual Server definition
@@ -205,7 +208,7 @@ class CreateLtmApp(IcontrolCommand):
         self.options = options or Options()
         self.rollback = Options()
 
-        if options.folder:
+        if self.options.folder:
             self.folder_prefix = "%s/" % options.folder
         else:
             self.folder_prefix = ''
@@ -214,7 +217,7 @@ class CreateLtmApp(IcontrolCommand):
         super(CreateLtmApp, self).prep()
         v = abs(self.ifc.version)
         self.is_solstice = v >= 'bigip 11.0'
-        
+
         # Folders not supported on < 11.0
         if not self.is_solstice:
             self.folder_prefix = ''
@@ -224,7 +227,7 @@ class CreateLtmApp(IcontrolCommand):
         if self.rollback.virtual:
             virtual_server = self.rollback.virtual
             ic.LocalLB.VirtualServer.delete_virtual_server(virtual_servers=[virtual_server])
-        
+
         if self.rollback.pool:
             pool_name = self.rollback.pool
             ic.LocalLB.Pool.delete_pool(pool_names=[pool_name])
@@ -238,7 +241,7 @@ class CreateLtmApp(IcontrolCommand):
                     ic.LocalLB.NodeAddress.delete_node_address(node_addresses=nodes)
             except IControlFault:
                 LOG.warning('Some nodes could not be deleted')
-        
+
         # Cleanup Folder
         if self.rollback.folder:
             ic.Management.Folder.delete_folder(folders=[self.rollback.folder])
@@ -247,9 +250,9 @@ class CreateLtmApp(IcontrolCommand):
 
     def do_enable_monitor(self, enable, nodes):
         ic = self.api
-        addresses = [Options(address_type='ATYPE_EXPLICIT_ADDRESS', 
+        addresses = [Options(address_type='ATYPE_EXPLICIT_ADDRESS',
                              ipaddress=x) for x in nodes]
-        
+
         monitor_rule = Options()
         monitor_rule.quorum = 0
         if enable:
@@ -258,7 +261,7 @@ class CreateLtmApp(IcontrolCommand):
         else:
             monitor_rule.monitor_templates = ''
             monitor_rule.type = 'MONITOR_RULE_TYPE_NONE'
-            
+
         if self.is_solstice:
             monitor_rules = [monitor_rule] * len(nodes)
             ic.LocalLB.NodeAddressV2.set_monitor_rule(nodes=nodes,
@@ -266,12 +269,12 @@ class CreateLtmApp(IcontrolCommand):
         else:
             if enable:
                 monitor_associations = [Options(node_address=x,
-                                                monitor_rule=monitor_rule) 
+                                                monitor_rule=monitor_rule)
                                         for x in addresses]
                 ic.LocalLB.NodeAddress.set_monitor_association(monitor_associations=monitor_associations)
             else:
                 monitor_associations = [Options(node_address=x,
-                                                removal_rule='REMOVE_ALL_MONITOR_ASSOCIATION') 
+                                                removal_rule='REMOVE_ALL_MONITOR_ASSOCIATION')
                                         for x in addresses]
                 ic.LocalLB.NodeAddress.remove_monitor_association(monitor_associations=monitor_associations)
 
@@ -296,11 +299,11 @@ class CreateLtmApp(IcontrolCommand):
     def setup(self):
         ic = self.api
         o = self.options
-        
+
         if self.is_solstice and self.options.folder:
             current_folder = ic.System.Session.get_active_folder()
             self.rollback.initial_folder = current_folder
-            
+
             ic.System.Session.set_active_folder(folder='/')
             ic.System.Session.set_recursive_query_state(state='STATE_ENABLED')
             folders = ic.Management.Folder.get_list()
@@ -332,14 +335,13 @@ class CreateLtmApp(IcontrolCommand):
             state = o.nodes_forced_down and 'STATE_DISABLED' or 'STATE_ENABLED'
             nodes = [x.address for x in members]
             if self.is_solstice:
-                ic.LocalLB.NodeAddressV2.set_monitor_state(nodes=nodes, 
-                                                           states=[state]*len(members))
+                ic.LocalLB.NodeAddressV2.set_monitor_state(nodes=nodes,
+                                                           states=[state] * len(members))
             else:
-                ic.LocalLB.NodeAddress.set_monitor_state(node_addresses=nodes, 
-                                                         states=[state]*len(members))
+                ic.LocalLB.NodeAddress.set_monitor_state(node_addresses=nodes,
+                                                         states=[state] * len(members))
             self.rollback.nodes = nodes
-            
-            
+
             if o.monitor_enabled is True:
                 LOG.debug('Enabling icmp monitor on nodes...')
                 self.do_enable_monitor(enable=True, nodes=nodes)
@@ -353,19 +355,19 @@ class CreateLtmApp(IcontrolCommand):
             resource = Options()
             resource.type = 'RESOURCE_TYPE_POOL'
             resource.default_pool_name = ''
-        
+
         profiles = []
         for profile_name in o.profiles or []:
             http_profile = Options()
             http_profile.profile_context = 'PROFILE_CONTEXT_TYPE_ALL'
             http_profile.profile_name = profile_name
 
-        ip_vs = IPAddress(self.definition.address.split('%',1)[0]) # Take care of Route Domains
+        ip_vs = IPAddress(self.definition.address.split('%', 1)[0])  # Take care of Route Domains
         if ip_vs.version == 6:
             wildmask = 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff'
         else:
             wildmask = '255.255.255.255'
-        
+
         definition = copy.copy(self.definition)
         definition.name = "%s%s" % (self.folder_prefix, self.definition.name)
         ic.LocalLB.VirtualServer.create(definitions=[definition],
@@ -374,8 +376,9 @@ class CreateLtmApp(IcontrolCommand):
                                         profiles=[profiles])
         self.rollback.virtual = definition
 
+
 delete_ltm_app = None
-class DeleteLtmApp(IcontrolCommand):
+class DeleteLtmApp(IcontrolCommand):  # @IgnorePep8
     """Delete a Virtual Server and all its dependencies.
 
     @param name: Virtual Server name
@@ -394,7 +397,7 @@ class DeleteLtmApp(IcontrolCommand):
         super(DeleteLtmApp, self).prep()
         v = abs(self.ifc.version)
         self.is_solstice = v >= 'bigip 11.0'
-        
+
         # Folders not supported on < 11.0
         if not self.is_solstice:
             self.folder_prefix = ''
@@ -403,12 +406,12 @@ class DeleteLtmApp(IcontrolCommand):
         ic = self.api
         virtual_server = "%s%s" % (self.folder_prefix, self.name)
         pool_name = ic.LocalLB.VirtualServer.get_default_pool_name(virtual_servers=[virtual_server])[0]
-        
+
         if self.is_solstice:
             members = ic.LocalLB.Pool.get_member_v2(pool_names=[pool_name])[0]
         else:
             members = ic.LocalLB.Pool.get_member(pool_names=[pool_name])[0]
-        
+
         LOG.debug('Deleting Virtual Server...')
         ic.LocalLB.VirtualServer.delete_virtual_server(virtual_servers=[virtual_server])
         if pool_name:

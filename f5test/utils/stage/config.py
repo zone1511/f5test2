@@ -32,7 +32,6 @@ class ConfigStage(Stage, ConfigPlacer):
     def __init__(self, device, specs, *args, **kwargs):
         configifc = ConfigInterface()
         config = configifc.open()
-        password = configifc.get_device(device).get_root_creds().password
         self._context = specs.get('_context')
         common = config.get('platform', Options())
 
@@ -64,7 +63,7 @@ class ConfigStage(Stage, ConfigPlacer):
                                                  common.get('dns suffixes')),
                           ntp_servers=specs.get('ntp servers',
                                                 common.get('ntp servers')),
-                          password=password)
+                          clean=specs.get('clean', False))
 
         if config.irack:
             options.irack_address = config.irack.address
@@ -78,7 +77,7 @@ class ConfigStage(Stage, ConfigPlacer):
         LOG.debug('Locking device %s...', self.options.device)
         ICMD.system.SetPassword(device=self.options.device).run_wait(timeout=60)
         self.options.device.specs._x_tmm_bug = True
-        self.options.device.specs.configure_done = datetime.datetime.now()
+        self.options.device.specs.has_tmm_restarted = datetime.datetime.now()
         self.options.device.specs.is_cluster = SCMD.ssh.is_cluster(device=self.options.device)
 
         return ret

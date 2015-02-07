@@ -28,7 +28,7 @@ class GetAllInstanceIds(EC2Command):  # @IgnorePep8
         reservations = self.api.get_all_reservations()
         for reservation in reservations:
             for instance in reservation.instances:
-                if not instance.state in ('terminated', 'shutting-down'):
+                if instance.state not in ('terminated', 'shutting-down'):
                     ret.append(instance.id)
         return ret
 
@@ -95,8 +95,14 @@ class GetInstanceHealthById(EC2Command):  # @IgnorePep8
         self.iid = iid
 
     def setup(self):
+
         dicti = AttrDict()
-        instance = get_instance_by_id(self.iid, ifc=self.ifc)
+        instance = get_instance_by_id(self.iid,
+                                      ifc=self.ifc,
+                                      device=self.device,
+                                      region=self.region,
+                                      key_id=self.key_id,
+                                      access_key=self.key_id)
         dicti['id'] = instance.id
         dicti['state'] = None
         dicti['istate'] = None
@@ -134,7 +140,12 @@ class GetInstancesHealthById(EC2Command):  # @IgnorePep8
     def setup(self):
         health = []
         for iid in self.iidlist:
-            dicti = get_instance_health_by_id(iid, ifc=self.ifc)
+            dicti = get_instance_health_by_id(iid,
+                                              ifc=self.ifc,
+                                              device=self.device,
+                                              region=self.region,
+                                              key_id=self.key_id,
+                                              access_key=self.key_id)
             health.append(dicti)
         return health
 
@@ -162,7 +173,11 @@ class WaitToStopInstancesById(EC2Command):  # @IgnorePep8
         for self.iid in self.iidlist:
 
             def is_instance_stopped():
-                self.instance = get_instance_by_id(self.iid, ifc=self.ifc)
+                self.instance = get_instance_by_id(self.iid, ifc=self.ifc,
+                                                   device=self.device,
+                                                   region=self.region,
+                                                   key_id=self.key_id,
+                                                   access_key=self.key_id)
                 self.statenow = self.instance.state
                 LOG.debug("Instance {0} state: {1}".format(self.instance.id,
                                                            self.statenow))
@@ -172,9 +187,9 @@ class WaitToStopInstancesById(EC2Command):  # @IgnorePep8
                     LOG.info("Instance {0} is stopped.".format(self.instance.id))
                     return True
             wait(is_instance_stopped, timeout=self.timeout, interval=15,
-                    progress_cb=lambda x: 'Stopping {0}. State now: {1}...'
-                                   .format(self.instance, self.statenow),
-                    timeout_message="Instances Not Stopped in {0}s")
+                 progress_cb=lambda x: 'Stopping {0}. State now: {1}...'
+                 .format(self.instance, self.statenow),
+                 timeout_message="Instances Not Stopped in {0}s")
         return True
 
 
@@ -204,19 +219,24 @@ class WaitToStartInstancesById(EC2Command):  # @IgnorePep8
             self.healthnow = None
 
             def is_instance_started_and_healthy():
-                self.healthnow = get_instance_health_by_id(self.iid, ifc=self.ifc)
+                self.healthnow = get_instance_health_by_id(self.iid,
+                                                           ifc=self.ifc,
+                                                           device=self.device,
+                                                           region=self.region,
+                                                           key_id=self.key_id,
+                                                           access_key=self.key_id)
                 LOG.debug("Instance {0} health now: {1}".format(self.iid, self.healthnow))
                 if self.healthnow.state != "running" or \
                     self.healthnow.sstate != 'Status:ok' or \
-                    self.healthnow.istate != 'Status:ok':
-                        return False
+                        self.healthnow.istate != 'Status:ok':
+                    return False
                 else:
                     LOG.info("Instance {0} is healthy.".format(self.iid))
                 return True
             wait(is_instance_started_and_healthy, timeout=self.timeout, interval=15,
-                    progress_cb=lambda x: "Starting Instance {0}. Health: {1}..."
-                                   .format(self.iid, self.healthnow),
-                    timeout_message="Instances Not Healthy after {0}s")
+                 progress_cb=lambda x: "Starting Instance {0}. Health: {1}..."
+                 .format(self.iid, self.healthnow),
+                 timeout_message="Instances Not Healthy after {0}s")
 
         return True
 
@@ -251,7 +271,12 @@ class WaitToTerminateInstancesById(EC2Command):  # @IgnorePep8
             self.healthnow = None
 
             def is_instance_terminated():
-                self.healthnow = get_instance_health_by_id(self.iid, ifc=self.ifc)
+                self.healthnow = get_instance_health_by_id(self.iid,
+                                                           ifc=self.ifc,
+                                                           device=self.device,
+                                                           region=self.region,
+                                                           key_id=self.key_id,
+                                                           access_key=self.key_id)
                 LOG.debug("Instance {0} health now: {1}".format(self.iid, self.healthnow))
                 if self.healthnow.state != "terminated":
                         return False
@@ -259,8 +284,8 @@ class WaitToTerminateInstancesById(EC2Command):  # @IgnorePep8
                     LOG.info("Instance {0} is terminated.".format(self.iid))
                 return True
             wait(is_instance_terminated, timeout=self.timeout, interval=15,
-                    progress_cb=lambda x: "Instance {0}. Health: {1}..."
-                                   .format(self.iid, self.healthnow),
-                    timeout_message="Instances Not Terminated after {0}s")
+                 progress_cb=lambda x: "Instance {0}. Health: {1}..."
+                 .format(self.iid, self.healthnow),
+                 timeout_message="Instances Not Terminated after {0}s")
 
         return True

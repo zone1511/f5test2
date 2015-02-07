@@ -103,7 +103,7 @@
         </div>
         <footer class="footer" style="clear: both; padding-top: 10px">
             <div class="container">
-	            <p><a href="#">Home</a> &copy; 2013 F5 Networks, Inc. All rights reserved.</p> 
+	            <p><a href="#">Home</a> &copy; 2013-2015 F5 Networks, Inc. All rights reserved.</p> 
 	            <p><small>Contact: <a href="mailto:i.turturica@f5.com?subject=Shiraz question">Ionut Turturica</a></small></p>
             </div> 
         </footer>

@@ -392,7 +392,10 @@ class SecureSMTPServer(smtpd.SMTPServer):
         self.credential_validator = credential_validator
         self.ssl = ssl
         self.tls = tls
-        #self.debug = True
+        # self.debug = True
+
+    def listen(self, num):
+        return smtpd.SMTPServer.listen(self, num * 10)
 
     def handle_accept(self):
         pair = self.accept()

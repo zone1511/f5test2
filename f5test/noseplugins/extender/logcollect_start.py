@@ -1,29 +1,28 @@
 '''
 Created on Sep 4, 2014
 
+This plugin collects logs from all devices used during a failed/errored test.
+
 @author: jono
 '''
-"""
-This plugin collects logs from all devices used during a failed/errored test.
-"""
 import base64
 import codecs
-from inspect import ismodule, isclass
+from inspect import getmodule
 import logging
 import os
 import sys
 import threading
 import traceback
 
-from nose.case import Test
 from nose.plugins import logcapture
 from nose.plugins.base import Plugin
 from nose.plugins.skip import SkipTest
+from nose.suite import ContextSuite
 from nose.util import safe_str
 import yaml
 
 from . import ExtendedPlugin
-
+from ...utils.stages import StageError
 
 LOG = logging.getLogger(__name__)
 STDOUT = logging.getLogger('stdout')
@@ -31,6 +30,7 @@ CONSOLE_LOG = 'console.log'
 SESSION_LOG = 'session.log'
 TEST_LOG = 'test.log'
 INC_TEST_ATTRIBUTES = ('author', 'rank')
+CONTEXT_NAME = __name__
 
 
 class DummyPlugin(Plugin):
@@ -67,14 +67,14 @@ class LoggingProxy(object):
         self.buffer = []
 
     def write(self, data):
-        self.buffer.append(data)
+        self.buffer.append(data.strip())
+        if data[-1] == '\n':
+            self.flush()
 
     def writeln(self, arg=None):
         if arg:
             self.write(arg)
-        data = ''.join(self.buffer)
-        self.logger.log(self.loglevel, data)
-        self.buffer[:] = []
+        self.flush()
 
     def writelines(self, sequence):
         """`writelines(sequence_of_strings) -> None`.
@@ -91,11 +91,15 @@ class LoggingProxy(object):
     def flush(self):
         """This object is not buffered so any :meth:`flush` requests
         are ignored."""
-        pass
+        if self.buffer:
+            data = ''.join(self.buffer)
+            self.logger.log(self.loglevel, data)
+            self.buffer[:] = []
 
     def close(self):
         """When the object is closed, no write requests are forwarded to
         the logging object anymore."""
+        self.flush()
         self.closed = True
 
     def isatty(self):
@@ -143,15 +147,16 @@ class LogCollect(ExtendedPlugin):
         if not self.can_configure:
             return
         self.conf = conf
-        self.enabled = False if getattr(options, 'no_logcollect', False) else True
+        self.enabled = False if getattr(conf.options, 'no_logcollect', False) else True
 
-        self.context = ContextHelper(self.name)
+        self.context = ContextHelper(CONTEXT_NAME)
         self.logformat = options.format or self.logformat
         self.logdatefmt = options.datefmt or self.logdatefmt
         self.clear = options.get('clear') or self.clear
         self.loglevel = options.level or 'NOTSET'
         if options.filters:
             self.filters = options.filters
+        self.blocked_contexts = {}
 
     def _get_session_dir(self):
         cfgifc = self.context.get_config()
@@ -182,6 +187,40 @@ class LogCollect(ExtendedPlugin):
         for x in logger.handlers:
             logger.removeHandler(x)
         logger.addHandler(handler)
+
+        def findCaller():
+            """
+            Modified findCaller() that digs down in the frame stack until it
+            finds the method that wrote to the stdout/stderr.
+            """
+            f = logging.currentframe()
+            if f is not None:
+                f = f.f_back
+            rv = "(unknown file)", 0, "(unknown function)"
+
+            if __file__[-4:].lower() in ['.pyc', '.pyo']:
+                _thisfile = __file__[:-4] + '.py'
+            else:
+                _thisfile = __file__
+            _thisfile = os.path.normcase(_thisfile)
+
+            while hasattr(f, "f_code"):
+                co = f.f_code
+                filename = os.path.normcase(co.co_filename)
+                if filename in (logging._srcfile, _thisfile):
+                    f = f.f_back
+                    continue
+                rv = (co.co_filename, f.f_lineno, co.co_name)
+                logger.name = getmodule(f).__name__
+                break
+            return rv
+
+        logger.findCaller = findCaller
+        sl = LoggingProxy(logger, logging.INFO)
+        sys.stdout = sl
+
+        sl = LoggingProxy(logger, logging.ERROR)
+        sys.stderr = sl
 
         proxy = LoggingProxy(logger)
         return proxy
@@ -241,25 +280,28 @@ class LogCollect(ExtendedPlugin):
         handler.setFormatter(fmt)
         root_logger.addHandler(handler)
 
-        STDOUT.info('Session path: %s', log_dir)
+        #STDOUT.info('Session path: %s', log_dir)
         session = cfgifc.get_session()
         url = session.get_url()
         if url:
             STDOUT.info('Session URL: %s', url)
+        STDOUT.info('Watch the progress of this run with: tail -f %s/session.log or edit logging.conf to display INFO level at the console.', log_dir)
 
     def _get_or_create_dirs(self, name, root=None):
         if root is None:
             root = self._get_session_dir()
 
+        created = False
         path = os.path.join(root, name)
         if not os.path.exists(path):
             oldumask = os.umask(0)
             os.makedirs(path)
             os.umask(oldumask)
+            created = True
 
-        return path
+        return path, created
 
-    def _collect_forensics(self, test, err):
+    def _collect_forensics(self, test, err, context=None):
         """Collects screenshots and logs."""
         from ...interfaces.selenium import SeleniumInterface
         from ...interfaces.ssh import SSHInterface
@@ -271,40 +313,26 @@ class LogCollect(ExtendedPlugin):
         from ...interfaces.testcase import (InterfaceHelper,
                                             INTERFACES_CONTAINER,
                                             LOGCOLLECT_CONTAINER)
-        from ...base import TestCase, Interface
+        from ...base import Interface
         from selenium.common.exceptions import WebDriverException
 
-        if isinstance(test, Test) and isinstance(test.test, TestCase):
+        if context:
+            blocked_tests = self.blocked_contexts.setdefault(context, [])
+            test_name = context.id()
+
+            # print (test, err, context)
+            # We already collected logs for this context
+            if blocked_tests:
+                return
+
+            blocked_tests.append((test, err))
+        else:
             test_name = test.id()
 
-            # XXX: Dig into traceback to a *known* location to get the real
-            # context. This is a limitation of nose in a way that it passes the
-            # test file context instead of the failed ancestor context. This
-            # occurs when setup_module() throws an exception.
-            try:
-                context = err[2].tb_next.tb_next.tb_frame.f_locals.get('context')
-                # Error happened inside a setup_module
-                if ismodule(context):
-                    if getattr(context, '_logcollect_done', False):
-                        return
-                    test_name = context.__name__
-                    context._logcollect_done = True
-                # Error happened inside a setup_class
-                elif isclass(context):
-                    if getattr(context, '_logcollect_done', False):
-                        return
-                    test_name = "%s.%s" % (context.__module__, context.__name__)
-                    # Avoid double passes
-                    context._logcollect_done = True
-            except:
-                pass
-
-            ih = InterfaceHelper()
-            ih._setup(test_name)
-            interfaces = ih.get_container(container=INTERFACES_CONTAINER).values()
-            extra_files = ih.get_container(container=LOGCOLLECT_CONTAINER)
-        else:
-            return
+        ih = InterfaceHelper()
+        ih._setup(test_name)
+        interfaces = ih.get_container(container=INTERFACES_CONTAINER).values()
+        extra_files = ih.get_container(container=LOGCOLLECT_CONTAINER)
 
         # Disregard skipped tests
         if issubclass(err[0], SkipTest):
@@ -321,13 +349,20 @@ class LogCollect(ExtendedPlugin):
 
         # Save the test log
         LOG.debug('Collecting logs...')
-        test_root = self._get_or_create_dirs(test_name)
+        test_root, created = self._get_or_create_dirs(test_name)
+        if not created:
+            i = 1
+            while not created:
+                test_root, created = self._get_or_create_dirs("%s.%d" % (test_name, i))
+                i += 1
         records = self.formatLogRecords()
         filename = os.path.join(test_root, TEST_LOG)
+        self.context.set_data('test_root', test_root)
         if records:
             # I wish there was a better way to dump a whole "attr container",
             # but the attr plugin mixes the attrs with the test object attrs.
-            test_meta = ["%s: %s" % (k, getattr(test.test, k, None))
+            tmp = test.context if isinstance(test, ContextSuite) else test.test
+            test_meta = ["%s: %s" % (k, getattr(tmp, k, None))
                          for k in INC_TEST_ATTRIBUTES]
             with open(filename, "wt") as f:
                 f.write('\n'.join(records))
@@ -337,7 +372,11 @@ class LogCollect(ExtendedPlugin):
                 f.write('\n'.join(test_meta))
                 f.write('\n\n')
 
-                f.write(''.join(traceback.format_exception(*err)))
+                if err[0] is StageError:
+                    for line in err[1].format_errors():
+                        f.write(line)
+                else:
+                    f.write(''.join(traceback.format_exception(*err)))
 
         # Sort interfaces by priority.
         interfaces.sort(key=lambda x: x._priority if hasattr(x, '_priority')
@@ -345,7 +384,7 @@ class LogCollect(ExtendedPlugin):
 
         # Tests may define extra files to be picked up by the logcollect plugin
         # in case of a failure.
-        for local_name, item in extra_files.iteritems():
+        for item, local_name in extra_files.iteritems():
             if isinstance(item, tuple):
                 ifc, src = item
                 assert isinstance(ifc, (SSHInterface, ShellInterface))
@@ -358,7 +397,11 @@ class LogCollect(ExtendedPlugin):
                 ifc.open()
 
             try:
-                ifc.api.get(src, os.path.join(test_root, local_name))
+                address = ifc.address
+                log_root, _ = self._get_or_create_dirs(address, test_root)
+                if local_name is None:
+                    local_name = os.path.basename(src)
+                ifc.api.get(src, os.path.join(log_root, local_name))
             except IOError, e:
                 LOG.error("Could not copy file '%s' (%s)", src, e)
             finally:
@@ -394,7 +437,7 @@ class LogCollect(ExtendedPlugin):
                             address = credentials.address or window
 
                         if address not in visited['selenium']:
-                            log_root = self._get_or_create_dirs(address, test_root)
+                            log_root, _ = self._get_or_create_dirs(address, test_root)
                             try:
                                 self.UI.common.screen_shot(log_root, window=window,
                                                            ifc=interface)
@@ -414,11 +457,15 @@ class LogCollect(ExtendedPlugin):
                         LOG.debug('Error switching to main window.')
 
             elif isinstance(interface, SSHInterface):
-                sshifcs.append(SSHInterface(device=interface.device))
+                sshifcs.append(SSHInterface(device=interface.device,
+                                            address=interface.address,
+                                            username=interface.username,
+                                            password=interface.password,
+                                            key_filename=interface.key_filename))
 
             elif isinstance(interface, (IcontrolInterface, EMInterface,
                                         RestInterface)):
-                if interface.device:
+                if interface.device and interface.device.address == interface.address:
                     sshifcs.append(SSHInterface(device=interface.device))
 
             else:
@@ -429,7 +476,7 @@ class LogCollect(ExtendedPlugin):
                     with sshifc:
                         address = sshifc.address
                         if address not in visited['ssh']:
-                            log_root = self._get_or_create_dirs(address, test_root)
+                            log_root, _ = self._get_or_create_dirs(address, test_root)
                             LOG.debug('Collecting logs from %s', address)
                             try:
                                 version = self.SSH.get_version(ifc=sshifc)
@@ -457,6 +504,12 @@ class LogCollect(ExtendedPlugin):
         except Exception, e:
             LOG.critical('BUG: Uncaught exception in logcollect! %s', e)
 
+    def handleBlocked(self, test, err, context):
+        try:
+            self._collect_forensics(test, err, context)
+        except Exception, e:
+            LOG.critical('BUG: Uncaught exception in logcollect! %s', e)
+
     # These are needed to override LogCapture's behavior
     def formatError(self, test, err):
         return err
@@ -464,13 +517,15 @@ class LogCollect(ExtendedPlugin):
     def formatFailure(self, test, err):
         return err
 
-    def beforeTest(self, test):
+    def startContext(self, context):
         """Clear buffers and handlers before test.
         """
         self.handler.truncate()
 
     def afterTest(self, test):
-        pass
+        sys.stdout.flush()
+        sys.stderr.flush()
+        self.handler.truncate()
 
     def _logging_leak_check(self, root_logger):
         LOG.debug("Logger leak check...ugh!")

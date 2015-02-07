@@ -14,6 +14,7 @@ import logging
 
 LOG = logging.getLogger(__name__)
 
+
 class TokenBucket(object):
     """An implementation of the token bucket algorithm.
     source: http://code.activestate.com/recipes/511490/
@@ -38,12 +39,12 @@ class TokenBucket(object):
         sufficient tokens, otherwise the expected time until enough
         tokens become available."""
         self.lock.acquire()
-        tokens = max(tokens,self.tokens)
+        tokens = max(tokens, self.tokens)
         expected_time = (tokens - self.tokens) / self.fill_rate
         if expected_time <= 0:
             self._tokens -= tokens
         self.lock.release()
-        return max(0,expected_time)
+        return max(0, expected_time)
 
     @property
     def tokens(self):
@@ -75,7 +76,7 @@ class RateLimit(object):
         just_downloaded = downloaded_kb - self.last_downloaded_kb
         self.last_downloaded_kb = downloaded_kb
 
-        predicted_size = block_size/1024.
+        predicted_size = block_size / 1024.
 
         wait_time = self.bucket.consume(predicted_size)
         while wait_time > 0:

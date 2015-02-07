@@ -3,11 +3,13 @@ Created on Feb 22, 2012
 
 @author: jono
 '''
-from restkit import Resource
+from restkit import Resource, ResourceError
 from restkit.filters import BasicAuth
+from restkit.datastructures import MultiDict
 import urllib
 from ...base import AttrDict
 import xmltodict
+import logging
 try:
     import simplejson as json
 except ImportError:
@@ -17,7 +19,11 @@ except ImportError:
         json = False
 
 
+CURL_LOG = "curl -sk {credentials} -X {method} -d '{payload}' '{url}'"
 RAW_MIMETYPE = 'application/do-not-parse-this-content'
+LOG = logging.getLogger(__name__)
+STDOUT = logging.getLogger('stdout')
+MAX_LINE_LENGTH = 65536
 
 
 # Monkey patch BasicAuth to handle encoded username and passwords containing
@@ -76,7 +82,7 @@ class WrappedResponse(object):
             return self._data
 
         mimetype = RAW_MIMETYPE if self.raw \
-                                else mimetype_from_headers(self.response.headers)
+            else mimetype_from_headers(self.response.headers)
         # indent body
         body = self.body
         if body:
@@ -85,9 +91,12 @@ class WrappedResponse(object):
         return AttrDict()
 
 
-class RestResource(Resource):
+class BaseRestResource(Resource):
+    """All requests return a response object """
     trailing_slash = False
     no_keepalive = False
+    default_content_type = 'application/json'
+    verbose = False
 
     @staticmethod
     def _parse_json(data):
@@ -107,14 +116,14 @@ class RestResource(Resource):
             'application/json': RestResource._parse_json,
             'application/xml': RestResource._parse_xml,
         }
-        if mimetype in common_indent:
-            return common_indent[mimetype](data)
-        return data
+        return common_indent.get(mimetype, str)(data)
 
     def request(self, method, path=None, payload=None, headers=None,
                 params_dict=None, raw=False, **params):
-        if headers is None:
-            headers = {}
+
+        headers = MultiDict(headers or {})
+        if payload is not None and not headers.iget('content-type'):
+            headers.update({'Content-Type': self.default_content_type})
 
         # Default Keep-Alive is set to 4 seconds in TMOS.
         if self.no_keepalive:
@@ -124,17 +133,38 @@ class RestResource(Resource):
             if self.trailing_slash and path[-1] != '/':
                 path += '/'
 
-        if payload is not None and headers and headers.get('Content-Type'):
+        if payload is not None and headers and headers.iget('Content-Type'):
             mimetype = RAW_MIMETYPE if raw \
-                                    else mimetype_from_headers(headers)
-            payload = RestResource._parse(mimetype, payload)
+                else mimetype_from_headers(headers)
+            payload = BaseRestResource._parse(mimetype, payload)
 
-        response = super(RestResource, self).request(method, path=path,
-                                                     payload=payload,
-                                                     headers=headers,
-                                                     params_dict=params_dict,
-                                                     **params)
-        return WrappedResponse(response, raw=raw)
+        wrapped_response = response = None
+        try:
+            response = super(BaseRestResource, self).request(method, path=path,
+                                                             payload=payload,
+                                                             headers=headers,
+                                                             params_dict=params_dict,
+                                                             **params)
+            wrapped_response = WrappedResponse(response, raw=raw)
+        except ResourceError, e:
+            response = e.response
+            raise e
+        finally:
+            if self.client.filters:
+                credentials = self.client.filters[0].credentials
+                credentials = '-u {0[0]}:{0[1]}'.format(credentials)
+            else:
+                credentials = ''
+            log = STDOUT if self.verbose else LOG
+            if response is not None:
+                log.debug(CURL_LOG.format(method=method, uri=self.uri,
+                                          path=path, url=response.final_url,
+                                          credentials=credentials,
+                                          payload=(response.request.body or '').replace("'", "\\'"))[:MAX_LINE_LENGTH])
+            if wrapped_response is not None:
+                log.debug(wrapped_response.body[:MAX_LINE_LENGTH])
+
+        return wrapped_response
 
     def get_by_id(self, *args):
         slash = '/' if self.trailing_slash else ''
@@ -145,3 +175,10 @@ class RestResource(Resource):
 
     def filter(self, **kwargs):  # @ReservedAssignment
         return self.get(params_dict=kwargs)
+
+
+class RestResource(BaseRestResource):
+    """All requests return a parsed response, based on content-type"""
+
+    def request(self, *args, **kwargs):
+        return super(RestResource, self).request(*args, **kwargs).data

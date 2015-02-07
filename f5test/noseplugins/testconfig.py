@@ -58,7 +58,7 @@ class TestConfig(Plugin):
 
         if options.overrides:
             self.overrides = []
-            overrides = tolist(options.overrides)
+            overrides = set(tolist(options.overrides))
             for override in overrides:
                 keys, val = override.split(":")
                 # Attempt to convert the string into int/bool/float or default

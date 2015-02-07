@@ -1,25 +1,28 @@
 """Friendly Python SSH2 interface."""
 
+import glob
+import logging
 import os
 import socket
 import stat
-import paramiko
-import logging
 import time
-import glob
-#from  f5test.interfaces.ssh.paramikospawn import ParamikoSpawn
+
+import paramiko
+
 from ...utils.net import get_local_ip
+
 
 LOG = logging.getLogger(__name__)
 SSH_DIR = os.path.join(os.path.expanduser('~'), '.ssh')
 KEEPALIVE = 60
+
 
 class SSHTimeoutError(Exception):
     pass
 
 
 class SSHResult(object):
-    
+
     def __init__(self, status, stdout, stderr, command=None):
         self.status = int(status) or 0
         self.stdout = stdout
@@ -29,22 +32,22 @@ class SSHResult(object):
     def __str__(self):
         outdict = self.__dict__
         cutoff = 512
-        
+
         if len(self.stdout) > cutoff:
             outdict['stdout'] = self.stdout[:cutoff] + '...'
         if len(self.stderr) > cutoff:
             outdict['stderr'] = self.stderr[:cutoff] + '...'
-        
+
         if self.command:
             return "SSHResult: '%(command)s' -> " \
-                  "status=%(status)d:stdout=%(stdout)s:stderr=%(stderr)s" % outdict
+                "status=%(status)d:stdout=%(stdout)s:stderr=%(stderr)s" % outdict
         return "SSHResult: " \
-                  "status=%(status)d:stdout=%(stdout)s:stderr=%(stderr)s" % outdict
+            "status=%(status)d:stdout=%(stdout)s:stderr=%(stderr)s" % outdict
 
 
 class Connection(paramiko.SSHClient):
     """A friendlier wrapper around paramiko.SSHClient.
-    
+
     It provides 4 important methods:
         run - execute comands on a remote machine
         put - transfer a file to the remote machine
@@ -69,12 +72,12 @@ class Connection(paramiko.SSHClient):
     """
     def __init__(self,
                  address,
-                 username = None,
-                 password = None,
-                 key_filename = None,
-                 port = 22,
-                 timeout = 180,
-                 look_for_keys = False
+                 username=None,
+                 password=None,
+                 key_filename=None,
+                 port=22,
+                 timeout=180,
+                 look_for_keys=False
                  ):
         self._sftp_live = False
         self._sftp = None
@@ -92,19 +95,25 @@ class Connection(paramiko.SSHClient):
         self.close()
 
     def __repr__(self):
-        return '<SSH Connection: %s:%s@%s:%d>' % (self.username, self.password, 
+        return '<SSH Connection: %s:%s@%s:%d>' % (self.username, self.password,
                                                   self.address, self.port)
 
     def is_connected(self):
         return bool(self._transport and self._transport.active)
 
+    def exists(self, filename):
+        try:
+            self.stat(filename)
+            return True
+        except IOError:
+            return False
+
     def connect(self):
         self.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        #self.load_system_host_keys()
-        super(Connection, self).connect(self.address, self.port, 
-                                        self.username, self.password, 
+        super(Connection, self).connect(self.address, self.port,
+                                        self.username, self.password,
                                         key_filename=self.key_filename,
-                                        timeout=self.timeout, 
+                                        timeout=self.timeout,
                                         look_for_keys=self.look_for_keys)
         self.get_transport().set_keepalive(KEEPALIVE)
 
@@ -118,7 +127,6 @@ class Connection(paramiko.SSHClient):
         LOG.debug('run: %s on %s...', command, self)
         chan.settimeout(self.timeout)
         chan.exec_command(command)
-        #stdin = chan.makefile('wb', bufsize)
         stdout = chan.makefile('rb', bufsize)
         stderr = chan.makefile_stderr('rb', bufsize)
 
@@ -131,6 +139,7 @@ class Connection(paramiko.SSHClient):
                 LOG.warning("Non zero status: %s", ret)
             return ret
         except socket.timeout:
+            self.close()
             raise SSHTimeoutError("running `%s`" % command)
 
     def run_wait(self, command, progress=None, bufsize=-1, interval=1):
@@ -143,12 +152,12 @@ class Connection(paramiko.SSHClient):
         chan.settimeout(self.timeout)
         LOG.debug('run_wait: %s on %s', command, self)
         chan.exec_command(command)
-        max_loops = 1.0/interval * self.timeout
+        max_loops = 1.0 / interval * self.timeout
         LOG.debug('exec timeout: %d', self.timeout)
-        
+
         stdout = []
         stderr = []
-        
+
         def read_channel(chan):
             chunkout = chunkerr = ''
             if chan.recv_ready():
@@ -160,7 +169,7 @@ class Connection(paramiko.SSHClient):
                 chunkerr = chan.recv_stderr(bufsize)
                 if chunkerr:
                     stderr.append(chunkerr)
-            
+
             if chunkout or chunkerr:
                 progress(chunkout.strip(), chunkerr.strip())
 
@@ -177,12 +186,15 @@ class Connection(paramiko.SSHClient):
             status = chan.recv_exit_status()
             return SSHResult(status, ''.join(stdout), ''.join(stderr), command)
         except socket.timeout:
+            self.close()
             raise SSHTimeoutError("running `%s`" % command)
 
     def _sftp_connect(self):
         """Establish the SFTP connection.
         """
-        assert self.is_connected(), "SSH channel not connected"
+        if not self.is_connected():
+            LOG.warning('SSH channel lost. Reconnecting...')
+            self.connect()
         if not self._sftp_live:
             self._sftp = paramiko.SFTPClient.from_transport(self._transport)
             self._sftp_live = True
@@ -190,7 +202,7 @@ class Connection(paramiko.SSHClient):
     def sftp(self):
         self._sftp_connect()
         return self._sftp
-    
+
     def get(self, remotepath, localpath=None, move=False):
         """Download a remote file or multiple matching a glob pattern.
         get('/var/log/file.out', '/tmp')
@@ -199,7 +211,7 @@ class Connection(paramiko.SSHClient):
             localpath = os.path.basename(remotepath)
         self._sftp_connect()
         LOG.debug('get: %s -> %s on %s...', remotepath, localpath, self)
-        
+
         if glob.has_magic(remotepath):
             assert os.path.isdir(localpath)
             wildname = os.path.basename(remotepath)
@@ -222,7 +234,7 @@ class Connection(paramiko.SSHClient):
         if not remotepath:
             remotepath = os.path.split(localpath)[1]
         LOG.debug('put: %s -> %s on %s...', localpath, remotepath, self)
-        
+
         self._sftp_connect()
         self._sftp.put(localpath, remotepath)
 
@@ -326,7 +338,7 @@ class Connection(paramiko.SSHClient):
             name = get_local_ip(self.address)
 
         sftp = self._transport.open_sftp_client()
-        if not '.ssh' in sftp.listdir():
+        if '.ssh' not in sftp.listdir():
             sftp.mkdir('.ssh')
 
         hkey = key.get_base64()
@@ -349,12 +361,16 @@ class Connection(paramiko.SSHClient):
             f.close()
 
     def interactive(self):
-        from  .paramikospawn import ParamikoSpawn
-        
+        from .paramikospawn import ParamikoSpawn
+
         assert self.is_connected(), "SSH channel not connected"
         client = ParamikoSpawn(None)
         client.channel = self.invoke_shell()
+        # TODO: timeout this loop
+        while not client.channel.recv_ready():
+            time.sleep(.1)
         return client
+
 
 def main():
     """Little test when called directly."""

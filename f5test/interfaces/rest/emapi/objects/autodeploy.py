@@ -150,7 +150,7 @@ class UpgradeAdvisor(BaseApiObject):
     URI = '/mgmt/cm/autodeploy/upgrades/upgrade-advisor'
     ITEM_URI = 'mgmt/cm/autodeploy/upgrades/upgrade-advisor/%s'
 
-    STATUS = enum('READY_FOR_UPGRADE', 'UPGRADE_IMPOSSIBLE', 'IN_PROGRESS',
+    STATUS = enum('READY_FOR_UPGRADE', 'UPGRADE_IMPOSSIBLE', 'IN_PROGRESS', 'INITIALIZING',
                   'UPGRADING', 'FINISHED', 'FAILED', 'INTERNAL_FAILURE')
 
     def __init__(self, *args, **kwargs):
@@ -165,13 +165,14 @@ class UpgradeAdvisor(BaseApiObject):
         self.setdefault('status', '')
 
     @staticmethod
-    def wait_for_ready(rest, uri, timeout=30, interval=1):
+    def wait_for_ready(rest, uri, timeout=1800, interval=5):
 
         def check_done(uri):
             return rest.get(uri)
 
         resp = wait(lambda: check_done(uri), condition=lambda temp: temp.status not in [UpgradeAdvisor.STATUS.IN_PROGRESS,
-                                                                                        UpgradeAdvisor.STATUS.UPGRADING],
+                                                                                        UpgradeAdvisor.STATUS.UPGRADING,
+                                                                                        UpgradeAdvisor.STATUS.INITIALIZING],
                      progress_cb=lambda temp: 'Status: {0}' .format(temp.status),
                      timeout=timeout, interval=interval)
 
@@ -210,5 +211,27 @@ class Check(BaseApiObject):
             return rest.get(uri)
 
         wait(lambda: check_ready(uri), condition=lambda temp: temp.status not in [Check.STATUS.UNCHECKED, Check.STATUS.CHECKING, Check.STATUS.VALIDATING],
+             progress_cb=lambda temp: '{0} Status: {1}' .format(temp.name, temp.status),
+             timeout=timeout, interval=interval)
+
+
+# Ref - https://confluence.pdsea.f5net.com/pages/viewpage.action?title=QkViewCollectionWorker+API&spaceKey=~gkulkarni
+class QkViewCollectionWorker(BaseApiObject):
+    URI = '/mgmt/cm/autodeploy/qkview/'
+    ITEM_URI = '/mgmt/cm/autodeploy/qkview/%s'
+
+    STATUS = enum('IN_PROGRESS', 'SUCCEEDED', 'FAILED')
+
+    def __init__(self, *args, **kwargs):
+        super(QkViewCollectionWorker, self).__init__(*args, **kwargs)
+        self.setdefault('name', '')
+
+    @staticmethod
+    def wait_for_qkview(rest, uri, timeout=180, interval=1):
+
+        def qkview_ready(uri):
+            return rest.get(uri)
+
+        wait(lambda: qkview_ready(uri), condition=lambda temp: temp.status not in [QkViewCollectionWorker.STATUS.IN_PROGRESS],
              progress_cb=lambda temp: '{0} Status: {1}' .format(temp.name, temp.status),
              timeout=timeout, interval=interval)

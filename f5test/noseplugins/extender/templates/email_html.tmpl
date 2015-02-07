@@ -27,18 +27,27 @@ DUTs info:
 
 Skipped:
 ========
-{% for result in result.skipped -%}
-<b>*</b> {{ result.0.test.id() }}
-Author: {{ result.0.test.author }} 
-{{ result.1.1.message|string|trim|indent(2, true)|bzify  }}
+{% for test, err in test_result.skipped -%}
+<b>*</b> {{ test.test.id() }}
+Author: {{ test.test.author }} 
+{{ err|string|trim|indent(2, true)|bzify  }}
+{% endfor %}
+
+Blocking:
+=========
+{% for label, contexts in result.blocked_groups.items() -%}
+{% for context, results in contexts.items() -%}
+<b>*</b> {{ context.id() }} ({{ results|length }} tests {{ label }})
+{{ results[0].1.1|string|trim|truncate(10000, true)|indent(2, true)|bzify  }}
+{% endfor -%}
 {% endfor %}
 
 Bad:
 ====
-{% for result in result.failures + result.errors -%}
-<b>*</b> {{ result.0.test.id() }}
-Author: {{ result.0.test.author }} 
-{{ result.1.1.message|string|trim|truncate(10000, true)|indent(2, true)|bzify  }}
+{% for test, err in test_result.failures + test_result.errors -%}
+<b>*</b> {{ test.id() }}
+Author: {{ test.test and test.test.author }} 
+{{ err.1|string|trim|truncate(10000, true)|indent(2, true)|bzify  }}
 {% endfor %}
 
 Test Runner:

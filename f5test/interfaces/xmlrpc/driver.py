@@ -1,18 +1,11 @@
 #!/usr/bin/env python
 """
-Use this class to access Testopia via XML-RPC
-
-from testopia import Testopia
-
-Or, more directly:
-t = Testopia('jdoe@mycompany.com',
-             'jdoepassword',
-             'https://myhost.mycompany.com/bugzilla/tr_xmlrpc.cgi')
-t.TestPlan.get(10)
+Use this class to access Bugzilla or Testopia via XML-RPC
 """
 
-__version__ = "0.1"
+__version__ = "2.0"
 
+from ...base import AttrDict
 from cookielib import CookieJar
 import logging
 import xmlrpclib
@@ -21,24 +14,29 @@ import sys
 DEFAULT_TIMEOUT = 90
 LOG = logging.getLogger(__name__)
 
-
-# class TestopiaError(Exception):
-#    pass
-#
-#
-# class TestopiaXmlrpcError(Exception):
-#    def __init__(self, verb, params, wrappedError):
-#        self.verb = verb
-#        self.params = params
-#        self.wrappedError = wrappedError
-#
-#    def __str__(self):
-#        return "Error while executing cmd '%s' --> %s" \
-#               % (self.verb + "(" + self.params + ")", self.wrappedError)
+# AttrDict is basically a dict, but xmlrpclib doesn't know about it.
+# Monkey patch it here.
+xmlrpclib.Marshaller.dispatch[AttrDict] = xmlrpclib.Marshaller.dispatch[dict]
 
 
-class Testopia(xmlrpclib.ServerProxy):
-    """Initialize the Testopia driver.
+# Monkey patch the XmlRpc parser to return AttrDicts instead
+class _Method:
+    # some magic to bind an XML-RPC method to an RPC server.
+    # supports "nested" methods (e.g. examples.getStateName)
+    def __init__(self, send, name):
+        self.__send = send
+        self.__name = name
+
+    def __getattr__(self, name):
+        return _Method(self.__send, "%s.%s" % (self.__name, name))
+
+    def __call__(self, *args):
+        return AttrDict(self.__send(self.__name, args))
+xmlrpclib._Method = _Method
+
+
+class XmlRpc(xmlrpclib.ServerProxy):
+    """Initialize the XmlRpc driver.
 
     @param url: the URL of the XML-RPC interface
     @type url: str
@@ -54,8 +52,7 @@ class Testopia(xmlrpclib.ServerProxy):
                           'https://myhost.mycompany.com/bugzilla/tr_xmlrpc.cgi')
     """
 
-    def __init__(self, url, username, password, timeout=DEFAULT_TIMEOUT,
-                 *args, **kwargs):
+    def __init__(self, url, timeout=DEFAULT_TIMEOUT, *args, **kwargs):
 
         if sys.version_info[0:2] < (2, 7):
             from .transport_26 import SafeCookieTransport, CookieTransport  # @UnusedImport
@@ -72,11 +69,6 @@ class Testopia(xmlrpclib.ServerProxy):
         transport.cookiejar = CookieJar()
         xmlrpclib.ServerProxy.__init__(self, url, transport=transport,
                                        *args, **kwargs)
-
-        # Login, get a cookie into our cookie jar:
-        ret = self.User.login(dict(login=username, password=password))
-        # Record the user ID in case the script wants this
-        self.user_id = ret['id']
 
     def __nonzero__(self):
         return 1

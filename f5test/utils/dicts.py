@@ -41,11 +41,37 @@ def inverse(src, keys=None):
         keys = {}
 
     for k, lst in src.items():
-        if type(lst) is types.StringType:
-            lst = lst.split()
+        if type(lst) not in (types.TupleType, types.ListType, set,
+                             types.DictType):
+            lst = [lst]
         for entry in lst:
             entry = keys.get(entry, entry)
             outdict.setdefault(entry, set())
             outdict[entry].add(k)
 
     return outdict
+
+
+def tuple2dict(data):
+    """
+    Converts nested lists into nested dicts.
+
+    >>> tuple2dict([(1, [(2, {3:4}), (2,{4:1})])])
+    {1: {2: {3: 4, 4: 1}}}
+
+    @param data: Source nested list
+    @type src: list
+    """
+    d = {}
+    for item in data:
+        key = item[0]
+        value = item[1]
+        if isinstance(value, list):
+            value = tuple2dict(value)
+        old = d.get(key)
+        if not isinstance(old, dict):
+            d[key] = value
+        else:
+            old.update(value)
+
+    return d

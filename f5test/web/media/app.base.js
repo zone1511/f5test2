@@ -124,6 +124,7 @@ $(function(){
         interval: 1000,
         revoke_uri: '/revoke',
         status_uri: '/status',
+        tip: 0,
         
         start_btn: '#start-btn',
         updated: false,
@@ -214,13 +215,15 @@ $(function(){
         refresh: function () {
             var self = this,
                 interval,
-                url = this.status_uri + '/' + this.task_id() + '?s=' + this.logs().length;
+                url = this.status_uri + '/' + this.task_id() + '?s=' + self.tip;
 
             $.getJSON(url, function (data) {
                 if (data.result && data.result.logs) {
                     ko.utils.arrayPushAll(self.logs, data.result.logs);
+                    self.tip = data.result.tip;
                 } else {
                     self.logs([])
+                    self.tip = 0;
                 }
 
                 self.value(data.value);

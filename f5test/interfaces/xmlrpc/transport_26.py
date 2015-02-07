@@ -4,17 +4,18 @@ Created on Jun 6, 2011
 @author: jono
 '''
 from cookielib import CookieJar
+import httplib
 import logging
 import urllib2
 import xmlrpclib
-import httplib
+
 
 DEFAULT_TIMEOUT = 90
 LOG = logging.getLogger(__name__)
 
 
 class TimeoutHTTPConnection(httplib.HTTPConnection):
-    
+
     def connect(self):
         httplib.HTTPConnection.connect(self)
         self.sock.settimeout(self.timeout)
@@ -22,17 +23,17 @@ class TimeoutHTTPConnection(httplib.HTTPConnection):
 
 class TimeoutHTTP(httplib.HTTP):
     _connection_class = TimeoutHTTPConnection
-    
+
     def set_timeout(self, timeout):
         self._conn.timeout = timeout
 
 
 class TimeoutTransport(xmlrpclib.Transport):
-    
+
     def __init__(self, timeout=DEFAULT_TIMEOUT, *args, **kwargs):
-        xmlrpclib.Transport.__init__(self,*args,**kwargs)
+        xmlrpclib.Transport.__init__(self, *args, **kwargs)
         self.timeout = timeout
-    
+
     def make_connection(self, host):
         conn = TimeoutHTTP(host)
         conn.set_timeout(self.timeout)
@@ -62,7 +63,7 @@ class CookieTransport(TimeoutTransport):
 
     # This is the same request() method from xmlrpclib.Transport,
     # with a couple additions noted below
-    def request(self, host, handler, request_body, verbose = 0):
+    def request(self, host, handler, request_body, verbose=0):
         h = self.make_connection(host)
         if verbose:
             h.set_debuglevel(1)
@@ -72,7 +73,7 @@ class CookieTransport(TimeoutTransport):
 
         self.send_request(h, handler, request_body)
         self.send_host(h, host)
-        self.send_cookies(h, cookie_request) # ADDED. creates cookiejar if None.
+        self.send_cookies(h, cookie_request)  # ADDED. creates cookiejar if None.
         self.send_user_agent(h)
         self.send_content(h, request_body)
 
@@ -81,8 +82,11 @@ class CookieTransport(TimeoutTransport):
         # ADDED: parse headers and get cookies here
         # fake a response object that we can fill with the headers above
         class CookieResponse:
-            def __init__(self, headers): self.headers = headers
-            def info(self): return self.headers
+            def __init__(self, headers):
+                self.headers = headers
+
+            def info(self):
+                return self.headers
         cookie_response = CookieResponse(headers)
         # Okay, extract the cookies from the headers
         self.cookiejar.extract_cookies(cookie_response, cookie_request)
@@ -95,7 +99,7 @@ class CookieTransport(TimeoutTransport):
                 host + handler,
                 errcode, errmsg,
                 headers
-                )
+            )
 
         self.verbose = verbose
 
@@ -107,7 +111,6 @@ class CookieTransport(TimeoutTransport):
         return self._parse_response(h.getfile(), sock)
 
 
-class SafeCookieTransport(xmlrpclib.SafeTransport, CookieTransport):
+class SafeCookieTransport(xmlrpclib.SafeTransport, CookieTransport, object):
     '''SafeTransport subclass that supports cookies.'''
     scheme = 'https'
-

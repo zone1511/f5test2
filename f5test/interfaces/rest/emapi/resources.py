@@ -6,16 +6,13 @@ Created on Feb 26, 2012
 from ..core import RestInterface, AUTH
 from .objects.system import AuthnLogin
 from .objects.shared import DeviceInfo
-from ..driver import RestResource, WrappedResponse
+from ..driver import BaseRestResource, WrappedResponse
 from ....utils.querydict import QueryDict
 from restkit import ResourceError, RequestError
 import urlparse
 import logging
 
 LOG = logging.getLogger(__name__)
-STDOUT = logging.getLogger('stdout')
-CURL_LOG = "curl -sk {credentials} -X {method} -d '{payload}' '{url}'"
-CONTENT_JSON = {'Content-Type': 'application/json'}
 LOCALHOST_URL_PREFIX = 'http://localhost:8100'
 
 
@@ -38,20 +35,20 @@ class EmapiResourceError(ResourceError):
         MAX_BODY_LENGTH = 1024
         if self.response.data and isinstance(self.response.data, dict):
             return ("{response.request.method} {response.final_url} failed:\n"
-                   "{tb}\n"
-                   "Operation ID: {data.restOperationId}\n"
-                   "Code: {data.code}\n"
-                   "Message: {data.message}\n"
-                   "".format(tb='  \n'.join(map(lambda x: "  " + x,
-                                                self.response.data.errorStack)),
-                             data=self.response.data,
-                             response=self.response.response))
+                    "{tb}\n"
+                    "Operation ID: {data.restOperationId}\n"
+                    "Code: {data.code}\n"
+                    "Message: {data.message}\n"
+                    "".format(tb='  \n'.join(map(lambda x: "  " + x,
+                                                 self.response.data.errorStack)),
+                              data=self.response.data,
+                              response=self.response.response))
         else:
             return ("{response.request.method} {response.final_url} failed:\n"
-                   "{body}\n"
-                   "Status: {response.status}\n"
-                   "".format(response=self.response.response,
-                             body=self.response.body[:MAX_BODY_LENGTH]))
+                    "{body}\n"
+                    "Status: {response.status}\n"
+                    "".format(response=self.response.response,
+                              body=self.response.body[:MAX_BODY_LENGTH]))
 
     def __repr__(self):
         return ("{name}({response.request.method} {response.final_url}) {response.status}"
@@ -59,7 +56,7 @@ class EmapiResourceError(ResourceError):
                         name=type(self).__name__))
 
 
-class EmapiRestResource(RestResource):
+class EmapiRestResource(BaseRestResource):
     api_version = 1
     verbose = False
 
@@ -70,7 +67,7 @@ class EmapiRestResource(RestResource):
         See POST for params description.
         """
         return self.request("PATCH", path=path, payload=payload,
-                        headers=headers, params_dict=params_dict, **params)
+                            headers=headers, params_dict=params_dict, **params)
 
     def request(self, method, path=None, payload=None, headers=None,
                 params_dict=None, odata_dict=None, **params):
@@ -88,12 +85,6 @@ class EmapiRestResource(RestResource):
                            automatically prepended.
         :param params: Optionnal parameterss added to the request
         """
-
-        if headers is None:
-            headers = {}
-
-        if payload is not None and not headers:
-            headers.update(CONTENT_JSON)
 
         if odata_dict:
             dollar_keys = dict(('$%s' % x, y) for x, y in odata_dict.iteritems())
@@ -113,31 +104,14 @@ class EmapiRestResource(RestResource):
 
         # Strip the schema and hostname part.
         path = urlparse.urlparse(path).path
-        response = wrapped_response = None
         try:
             wrapped_response = super(EmapiRestResource, self).request(method, path=path,
-                                                              payload=payload,
-                                                              headers=headers,
-                                                              params_dict=params_dict,
-                                                              **params)
-            response = wrapped_response.response
+                                                                      payload=payload,
+                                                                      headers=headers,
+                                                                      params_dict=params_dict,
+                                                                      **params)
         except ResourceError, e:
-            response = e.response
             raise EmapiResourceError(e)
-        finally:
-            if self.client.filters:
-                credentials = self.client.filters[0].credentials
-                credentials = '-u {0[0]}:{0[1]}'.format(credentials)
-            else:
-                credentials = ''
-            log = STDOUT if self.verbose else LOG
-            if response is not None:
-                log.debug(CURL_LOG.format(method=method, uri=self.uri,
-                                          path=path, url=response.final_url,
-                                          credentials=credentials,
-                                          payload=(response.request.body or '').replace("'", "\\'")))
-            if wrapped_response is not None:
-                log.debug(wrapped_response.body)
 
         return wrapped_response.data
 
@@ -159,10 +133,10 @@ class EmapiInterface(RestInterface):
             request.headers['X-F5-Auth-Token'] = self.token.token
 
     def __init__(self, device=None, address=None, username=None, password=None,
-                 port=None, proto='https', timeout=90, auth=AUTH.BASIC,
+                 port=None, proto='https', timeout=90, auth=AUTH.BASIC, url=None,
                  login_ref=None, token=None, *args, **kwargs):
         super(EmapiInterface, self).__init__(device, address, username, password,
-                                            port, proto, timeout, auth)
+                                             port, proto, timeout, auth, url)
         self.login_ref = login_ref
         self.token = token
 
