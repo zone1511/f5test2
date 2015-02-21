@@ -159,6 +159,9 @@ class Email(ExtendedPlugin):
             headers['Subject'] = template_subject.render(self.data, spec=spec)
             headers['To'] = list(recipients)
 
+            if int(self.data.result.bars.good_no_skips.percent_done) == 0:
+                headers['Importance'] = 'high'
+
             msg = MIMEMultipart('alternative')
             for key, value in headers.items():
                 if isinstance(value, (tuple, list)):

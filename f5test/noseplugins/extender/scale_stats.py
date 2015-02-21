@@ -36,16 +36,10 @@ class ScaleStatsCollector(Thread):
 
     def run(self):
         LOG.info('Getting Stats for Scale...')
-        with IcontrolInterface(device=self.device) as icifc:
-            is_biq = icifc.version.product.is_bigiq
-
         with SSHInterface(device=self.device, timeout=TIMEOUT) as sshifc:
             try:
                 # Create directory for stats
-                if is_biq:
-                    device_dir = self.device.get_address() + 'IQ'
-                else:
-                    device_dir = self.device.get_address()
+                device_dir = self.device.get_address() + "-" + self.device.alias
 
                 stat_dir = os.path.join(self.session.path, DIRECTORY,
                                         device_dir)

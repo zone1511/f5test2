@@ -213,29 +213,6 @@ class Navigate(SeleniumCommand):  # @IgnorePep8
         waitforspinners_x = '//*[contains(concat(normalize-space(@class), " "),"spinner ") and not(contains(concat(" ", @class, " "), " cell-spinner ")) and not(contains(concat(" ", @class, " "), " security-spinner ")) and not(contains(concat(" ", @class, " "), " loading-spinner "))]'
         if len(webel_grab(xpath=waitforspinners_x, ifc=self.ifc)) == 0:
             waitforspinners = False
-
-#         waitforspinners_x = '//*[contains(concat(normalize-space(@class), " "),"spinner ")]'
-#         # do not wait for non angular pages
-#         if self.ver >= 'bigiq 4.6':
-#             waitforspinners_x = '//*[contains(concat(normalize-space(@class), " "),"spinner ") and not(contains(concat(" ", @class, " "), " cell-spinner ")) and not(contains(concat(" ", @class, " "), " security-spinner ")) and not(contains(concat(" ", @class, " "), " loading-spinner "))]'
-#         elif self.ver == 'bigiq 4.5':
-#             if len(bits) > 1:
-#                 if bits[1] in ['Network Security']:
-#                     if len(bits) > 2 and bits[2] in ['Audit Log', 'Reporting', 'Policy Editor']:
-#                         waitforspinners = False
-#                 elif bits[1] in ['Web Application Security']:
-#                     waitforspinners = False
-#         elif self.ver == 'bigiq 4.4':
-#             if len(bits) > 1 and bits[1] in ['Network Security', 'Shared Security',
-#                                              'Configuration',  # Device/System
-#                                              'Provisioning', 'Access Control',  # Device/System
-#                                              'Monitor', 'Design', 'Deployment',  # ADC
-#                                              ]:
-#                 if len(bits) > 2 and bits[2] in ['Object Editor', 'Audit Logs']:
-#                     waitforspinners = False
-#
-#         else:
-#             waitforspinners = False
         if waitforspinners:
             self.api.wait(waitforspinners_x, By.XPATH, negated=True, timeout=60)
             wait_ftw(text='ng-hide',
@@ -503,7 +480,7 @@ class ExpandBlade(SeleniumCommand):  # @IgnorePep8
             self.blade_x = '//panel[@id="{0}"]'.format(self.blade)
             self.waitfor_c = "#{0} .panelSubHeader".format(self.blade)
             self.stabilize = 0
-            self.fly_innercontainer_x = '//panel[@id="{0}"]/flyout/div[contains(@class, "innerContainer")]/div'.format(self.blade)
+            self.fly_innercontainer_x = '//panel[@id="{0}"]/flyout/div[contains(@class, "innerContainer")]/*'.format(self.blade)
         else:  # version  < 'bigiq 4.4':
             self.blade_top_css_c = '#{0}_blade .bladeHeader'.format(self.blade)
             if not use_this_c_button:
@@ -613,7 +590,7 @@ class ExpandGroup(SeleniumCommand):  # @IgnorePep8
                                                            self.blade, self.directions,
                                                            menutext if menutext else "DefaultNew")
 
-        if self.ver >= 'bigiq 4.4':  # used with angular (BQ>=4.4) by default:
+        if self.ver >= 'bigiq 4.6':  # used with angular (BQ>=4.4) by default:
             # self.menu_x = '//panel[@id="{0}"]/div/div[contains(@class, "panelHeader")]/span[contains(@class, "addBtn")]/ul[contains(@class, "dropdown-menu")]'.format(self.blade)
             self.menu_x = '//panel[@id="{0}"]/div/panel-group-dropdown//span[contains(@class, "groupHeader")]/ul[contains(@class, "dropdown-menu")]'.format(self.blade)
             if menutext:
@@ -622,21 +599,38 @@ class ExpandGroup(SeleniumCommand):  # @IgnorePep8
             else:
                 self.menu_item_x = '{0}/li/a[contains(@class,"fntSemibold")]'.format(self.menu_x)
             self.blade_x = '//panel[@id="{0}"]'.format(self.blade)
-            self.fly_innercontainer_x = '//panel[@id="{0}"]/flyout/div[contains(@class, "innerContainer")]/div'.format(self.blade)
+            self.fly_innercontainer_x = '//panel[@id="{0}"]/flyout/div[contains(@class, "innerContainer")]/*'.format(self.blade)
+            self.panelbase = '//panel[@id="{0}"]/div[contains(@class,"panelMain")]/div[contains(@class,"innerContainer")]'.format(self.blade)
+            self.thisgroup_x = '{0}//li/div[a[contains(., "{1}")]]'.format(self.panelbase, self.group)
+            self.thisgroup_div_x = '{0}//li[div/a[contains(., "{1}")]]/div[contains(@class, "treePanelItems")]'.format(self.panelbase, self.group)
+            self.group_link_x = '{0}//a[contains(., "{1}")]'.format(self.panelbase, self.group)
+            self.icon_down_x = '{0}/a[contains(@class, "expandIconWrapper")]'.format(self.thisgroup_x)
+            self.icon_down_span_x = '{0}/a[contains(@class, "expandIconWrapper")]/span'.format(self.thisgroup_x)
+            self.icon_right_x = '{0}//div[contains(@class,"sprite propertiesIcon")]'.format(self.thisgroup_x)
+            self.highlight_c = "highlight"
+            self.carrot_down_expanded_c = "carrot-down-light-gray"
+            self.carrot_down_retracted_c = "carrot-up-light-gray"
+        elif self.ver >= 'bigiq 4.4':  # used with angular (BQ>=4.4) by default:
+            # self.menu_x = '//panel[@id="{0}"]/div/div[contains(@class, "panelHeader")]/span[contains(@class, "addBtn")]/ul[contains(@class, "dropdown-menu")]'.format(self.blade)
+            self.menu_x = '//panel[@id="{0}"]/div/panel-group-dropdown//span[contains(@class, "groupHeader")]/ul[contains(@class, "dropdown-menu")]'.format(self.blade)
+            if menutext:
+                # choose the default link.
+                self.menu_item_x = '{0}/li/a[contains(.,"{1}")]'.format(self.menu_x, menutext)
+            else:
+                self.menu_item_x = '{0}/li/a[contains(@class,"fntSemibold")]'.format(self.menu_x)
+            self.blade_x = '//panel[@id="{0}"]'.format(self.blade)
+            self.fly_innercontainer_x = '//panel[@id="{0}"]/flyout/div[contains(@class, "innerContainer")]/*'.format(self.blade)
             self.panelbase = '//panel[@id="{0}"]/div[contains(@class,"panelMain")]/div[contains(@class,"innerContainer")]' \
                              .format(self.blade)
-            self.thisgroup_x = self.panelbase + \
-                '//li[contains(., "{0}")]'.format(self.group)
-            self.thisgroup_div_x = self.panelbase + \
-                '//li[contains(., "{0}")]/div'.format(self.group)
-            self.group_link_x = self.thisgroup_x + \
-                '//a[contains(., "{0}")]'.format(self.group)
-            self.icon_down_x = self.thisgroup_x + \
-                '//div/a[contains(@class,"expandIconWrapper")]/span'
-            self.icon_right_x = self.thisgroup_x + \
-                '//div[contains(@class,"sprite propertiesIcon")]'
+            self.thisgroup_x = '{0}//li[contains(., "{1}")]'.format(self.panelbase, self.group)
+            self.thisgroup_div_x = '{0}//li[contains(., "{1}")]/div'.format(self.panelbase, self.group)
+            self.group_link_x = '{0}//a[contains(., "{1}")]'.format(self.thisgroup_x, self.group)
+            self.icon_down_x = '{0}//div/a[contains(@class,"expandIconWrapper")]/span'.format(self.thisgroup_x)
+            self.icon_down_span_x = '{0}//div/a[contains(@class,"expandIconWrapper")]/span'.format(self.thisgroup_x)
+            self.icon_right_x = '{0}//div[contains(@class,"sprite propertiesIcon")]'.format(self.thisgroup_x)
             self.highlight_c = "highlight"
-
+            self.carrot_down_expanded_c = "carrot-down-light-gray"
+            self.carrot_down_retracted_c = "carrot-down-up-gray"
         else:  # version  < 'bigiq 4.4':
             LOG.error("Expand Group Method not supported for this version.")
             raise NoSuchElementException(msg="/expand_group/Expand Group Method not supported for this version.")
@@ -690,11 +684,11 @@ class ExpandGroup(SeleniumCommand):  # @IgnorePep8
         # expand down
         if "down" in self.directions:
             is_expanded = None
-            iec = webel_grab(xpath=self.icon_down_x, attr=["class"], ifc=self.ifc)
+            iec = webel_grab(xpath=self.icon_down_span_x, attr=["class"], ifc=self.ifc)
             if iec:
-                if "carrot-down-up-gray" in iec[0].get('class'):
+                if self.carrot_down_retracted_c in iec[0].get('class'):
                     is_expanded = False
-                elif "carrot-down-light-gray" in iec[0].get('class'):
+                elif self.carrot_down_expanded_c in iec[0].get('class'):
                     is_expanded = True
             if is_expanded is False:
                 webel_click(xpath=self.icon_down_x, ifc=self.ifc)
@@ -800,7 +794,6 @@ class CountOnBlade(SeleniumCommand):  # @IgnorePep8
                          ifc=self.ifc,
                          ver=self.ver)
 
-        # //panel[@id="device"]/div/div[3]/div/ul/div/li/div[2]
         if self.ver >= "bigiq 4.4":
             allels = s.find_elements_by_xpath(self.all_els_x)
             max_inview_no = len(allels)
@@ -830,7 +823,7 @@ class CountOnBlade(SeleniumCommand):  # @IgnorePep8
 #                 if finalcount > max_inview_no:
 #                     finalcount = max_inview_no
         else:  # all versions prior to 4.4
-                    # Remember Autorefresh and disable it:
+            # Remember Autorefresh and disable it:
             js_no_autorefresh = s.execute_script('return window._debug_disable_autorefresh;')
             if js_no_autorefresh is None:
                 js_no_autorefresh = "null"
@@ -967,22 +960,21 @@ class ClickBladeOnText(SeleniumCommand):  # @IgnorePep8
             self.panelbase = '//panel[@id="{0}"]/div[contains(@class,"panelMain")]/div[contains(@class,"innerContainer")]' \
                              .format(self.blade)
             if self.group:
-                self.innercontainer_x = self.panelbase + \
-                    '//li[contains(., "{0}")]//ul'.format(self.group)
-                self.all_els_x = self.innercontainer_x + \
-                    '/li[*]/div'
-                self.myel_x = self.innercontainer_x + \
-                    '/li[contains(concat(" ", normalize-space(), " "),"{0}")]/div'.format(self.text)
-                self.mygear_el_x = self.myel_x + \
-                    '/div[contains(concat(" ", normalize-space(@class), " ")," sprite propertiesIcon ")]'
+                self.innercontainer_x = '{0}//li[contains(., "{1}")]//ul' \
+                                        .format(self.panelbase, self.group)
+                self.all_els_x = '{0}/li[*]/div'.format(self.innercontainer_x)
+                self.myel_x = '{0}/li[contains(concat(" ", normalize-space(), " "),"{1}")]/div' \
+                              .format(self.innercontainer_x, self.text)
+                self.mygear_el_x = '{0}/div[contains(concat(" ", normalize-space(@class), " ")," sprite propertiesIcon ")]' \
+                                   .format(self.myel_x)
             else:
-                self.innercontainer_x = self.panelbase + '//div[contains(@class,"panelListContainer")]'
-                self.all_els_x = self.innercontainer_x + \
-                    '/ul/li[*]'
-                self.myel_x = self.innercontainer_x + \
-                    '/ul/li[contains(concat(" ", normalize-space(), " "),"{0}")]'.format(self.text)
-                self.mygear_el_x = self.innercontainer_x + \
-                    '/ul/li[contains(concat(" ", normalize-space(), " "), "{0}")]/div[contains(concat(" ", normalize-space(@class), " ")," sprite propertiesIcon ")]'.format(self.text)
+                self.innercontainer_x = '{0}//div[contains(@class,"panelListContainer")]' \
+                                        .format(self.panelbase)
+                self.all_els_x = '{0}/ul/li[*]'.format(self.innercontainer_x)
+                self.myel_x = '{0}/ul/li[contains(concat(" ", normalize-space(), " "),"{1}")]' \
+                              .format(self.innercontainer_x, self.text)
+                self.mygear_el_x = '{0}/ul/li[contains(concat(" ", normalize-space(), " "), "{1}")]/div[contains(concat(" ", normalize-space(@class), " ")," sprite propertiesIcon ")]' \
+                                   .format(self.innercontainer_x, self.text)
             self.menu_x = '//panel[@id="{0}"]/div/panel-{1}-dropdown//span[contains(@class, "{2}")]/ul[contains(@class, "dropdown-menu")]' \
                           .format(self.blade, "item", "itemHeader")
             if menutext:
@@ -1029,7 +1021,8 @@ class ClickBladeOnText(SeleniumCommand):  # @IgnorePep8
 
     def setup(self):
         s = self.api
-        if not self.remember_jsrefresh:
+        js_no_autorefresh = False
+        if not self.remember_jsrefresh and self.ver <= "bigiq 4.3":
             # Remember Autorefresh and disable it:
             js_no_autorefresh = s.execute_script('return window._debug_disable_autorefresh;')
             if js_no_autorefresh is None:
@@ -1547,7 +1540,7 @@ class ClickBladeOnText(SeleniumCommand):  # @IgnorePep8
             else:  # prior to 4.4
                 bladewebel.wait(self.waitfor_c, By.CSS_SELECTOR, stabilize=1.5)
         LOG.info("{0}Wait for brush and error check...".format(self.usedin))
-        if not self.remember_jsrefresh and js_no_autorefresh != "true":
+        if self.ver <= "bigiq 4.3" and not self.remember_jsrefresh and js_no_autorefresh != "true":
             s.execute_script('window._debug_disable_autorefresh={0};'
                              .format(js_no_autorefresh))
             LOG.debug("{0}Returned _debug_disable_autorefresh={1}"
@@ -1677,7 +1670,7 @@ class RetractBlade(SeleniumCommand):  # @IgnorePep8
             self.blade = blade
             if not use_this_x_button and not use_this_d_button and not use_this_c_button:
                 use_this_x_button = '//panel[@id="{0}"]//button[contains(@id,"closeFlyout") or (normalize-space()="Cancel") or (normalize-space()="Close")]'.format(self.blade)
-            self.fly_innercontainer_x = '//panel[@id="{0}"]/flyout/div[contains(@class, "innerContainer")]/div'.format(self.blade)
+            self.fly_innercontainer_x = '//panel[@id="{0}"]/flyout/div[contains(@class, "innerContainer")]/*'.format(self.blade)
         else:
             self.blade_d = '{0}_blade'.format(self.blade)
             self.bladesub_c = "#{0} .bladeSub".format(self.blade_d)
@@ -1804,7 +1797,7 @@ class SaveRetract(SeleniumCommand):  # @IgnorePep8
             self.blade_d = self.blade
             if not use_this_x_button and not use_this_d_button and not use_this_c_button:
                 use_this_x_button = '//panel[@id="{0}"]//button[contains(@id,"save") or contains(@id,"add") or (normalize-space()="Save")]'.format(self.blade)
-            self.fly_innercontainer_x = '//panel[@id="{0}"]/flyout/div[contains(@class, "innerContainer")]/div'.format(self.blade)
+            self.fly_innercontainer_x = '//panel[@id="{0}"]/flyout/div[contains(@class, "innerContainer")]/*'.format(self.blade)
             if not waittoverify:
                 waittoverify = 1
         else:
@@ -1837,18 +1830,20 @@ class SaveRetract(SeleniumCommand):  # @IgnorePep8
 
     def setup(self):
         s = self.api
-        # Remember Autorefresh and disable it:
-        js_no_autorefresh = s.execute_script('return window._debug_disable_autorefresh;')
-        if js_no_autorefresh is None:
-            js_no_autorefresh = "null"
-            # Disable Autorefresh:
-            s.execute_script('window._debug_disable_autorefresh=true;')
-        elif js_no_autorefresh:
-            js_no_autorefresh = "true"
-        elif js_no_autorefresh == False:
-            js_no_autorefresh = "false"
-            # Disable Autorefresh:
-            s.execute_script('window._debug_disable_autorefresh=true;')
+        js_no_autorefresh = False
+        if self.ver <= "bigiq 4.3":
+            # Remember Autorefresh and disable it:
+            js_no_autorefresh = s.execute_script('return window._debug_disable_autorefresh;')
+            if js_no_autorefresh is None:
+                js_no_autorefresh = "null"
+                # Disable Autorefresh:
+                s.execute_script('window._debug_disable_autorefresh=true;')
+            elif js_no_autorefresh:
+                js_no_autorefresh = "true"
+            elif js_no_autorefresh is False:
+                js_no_autorefresh = "false"
+                # Disable Autorefresh:
+                s.execute_script('window._debug_disable_autorefresh=true;')
 
         LOG.info("SaveRetract/Blade '{0}'...".format(self.blade))
         blade = s.find_element_by_id(self.blade_d)
@@ -1873,9 +1868,7 @@ class SaveRetract(SeleniumCommand):  # @IgnorePep8
                                             usedin="SaveRetract", timeout=self.timeout)
                 popup_error_check(negative=True, ifc=self.ifc, ver=self.ver)
                 s.wait(self.fly_innercontainer_x, By.XPATH,
-                                           negated=True,
-                                           # stabilize=1,
-                                           timeout=self.timeout)
+                       negated=True, timeout=self.timeout)
             else:
                 LOG.error("SaveRetract/{0}/Blade Does not appear to be expanded. Can't Save!".format(self.blade))
                 raise NoSuchElementException(msg="SaveRetract/{0}/Blade Does not appear to be expanded. Can't Save!".format(self.blade))
@@ -1899,22 +1892,23 @@ class SaveRetract(SeleniumCommand):  # @IgnorePep8
             if not self.jsclick:
                 btn.click()
                 s.wait(self.waitfor_c, By.CSS_SELECTOR,
-                                       negated=True, timeout=self.timeout, stabilize=1)
+                       negated=True, timeout=self.timeout, stabilize=1)
             else:
                 s.execute_script("return arguments[0].click()", btn)
                 s.wait(self.waitfor_c, By.CSS_SELECTOR,
-                                       negated=True, timeout=self.timeout, stabilize=1)
+                       negated=True, timeout=self.timeout, stabilize=1)
             if self.withrefresh:
                 s = self.api
                 s.refresh()
                 see_blade(blade=self.blade, ifc=self.ifc, ver=self.ver)
 
         if self.with_verify:
-            if js_no_autorefresh != "true":
-                s.execute_script('window._debug_disable_autorefresh={0};'
-                                 .format(js_no_autorefresh))
-                LOG.debug("SaveRetract/Returned _debug_disable_autorefresh={0}"
-                          .format(js_no_autorefresh))
+            if self.ver <= "bigiq 4.3":
+                if js_no_autorefresh != "true":
+                    s.execute_script('window._debug_disable_autorefresh={0};'
+                                     .format(js_no_autorefresh))
+                    LOG.debug("SaveRetract/Returned _debug_disable_autorefresh={0}"
+                              .format(js_no_autorefresh))
             # wait some time before verifying the blade:
             if self.waittoverify > 0:
                 LOG.info("/SaveRetractVerify/Waiting {0}s before verify. ..."
@@ -1938,11 +1932,12 @@ class SaveRetract(SeleniumCommand):  # @IgnorePep8
                                     usedin="SaveRetract", timeout=self.timeout)
         # regain control of the same blade and return it
         blade = s.find_element_by_id(self.blade_d)
-        if js_no_autorefresh != "true":
-            s.execute_script('window._debug_disable_autorefresh={0};'
-                             .format(js_no_autorefresh))
-            LOG.debug("SaveRetract/Returned _debug_disable_autorefresh={0}"
-                      .format(js_no_autorefresh))
+        if self.ver <= "bigiq 4.3":
+            if js_no_autorefresh != "true":
+                s.execute_script('window._debug_disable_autorefresh={0};'
+                                 .format(js_no_autorefresh))
+                LOG.debug("SaveRetract/Returned _debug_disable_autorefresh={0}"
+                          .format(js_no_autorefresh))
         popup_error_check(negative=True, ifc=self.ifc, ver=self.ver)
         return blade
 
@@ -2014,21 +2009,16 @@ class SearchBlade(SeleniumCommand):  # @IgnorePep8
             self.incss = None
             self.blade_x = '//panel[@id="{0}"]'.format(self.blade)
             self.panelbase = '//panel[@id="{0}"]/div[contains(@class,"panelMain")]/div[contains(@class,"innerContainer")]' \
-                            .format(self.blade)
+                             .format(self.blade)
             if self.group:
-                self.innercontainer_x = self.panelbase + \
-                    '//li[contains(., "{0}")]//ul'.format(self.group)
-                self.all_els_x = self.innercontainer_x + \
-                    '/li[*]/div'
+                self.innercontainer_x = '{0}//li[contains(., "{1}")]//ul'.format(self.panelbase, self.group)
+                self.all_els_x = '{0}/li[*]/div'.format(self.innercontainer_x)
             else:
-                self.innercontainer_x = self.panelbase + \
-                     '//div[contains(@class,"panelListContainer")]'
-                self.all_els_x = self.innercontainer_x + \
-                    '/ul/li[*]'
-
+                self.innercontainer_x = '{0}//div[contains(@class,"panelListContainer")]'.format(self.panelbase)
+                self.all_els_x = '{0}/ul/li[*]'.format(self.innercontainer_x)
             self.selectedcss_c = "highlight"
             self.fly_header_c = "#{0} .panelSubHeader".format(self.blade)
-            self.fly_innercontainer_x = '//panel[@id="{0}"]/flyout/div[contains(@class, "innerContainer")]/div'.format(self.blade)
+            self.fly_innercontainer_x = '//panel[@id="{0}"]/flyout/div[contains(@class, "innerContainer")]/*'.format(self.blade)
             self.bladelist_cells_x = '//panel[@id="{0}"]/div/div[contains(@class, "innerContainer")]/panel-list/div[contains(@class, "panelListContainer")]/ul/li[*]'.format(self.blade)
         elif self.ver < 'bigiq 4.4':
             if not ui_inner_cell_height:
@@ -2044,7 +2034,7 @@ class SearchBlade(SeleniumCommand):  # @IgnorePep8
             self.incss = "#{0}_blade .listCell".format(self.blade)
         self.ui_inner_cell_height = ui_inner_cell_height
         usedin = "{0}SearchBlade/{1}/".format(usedin + "/" if usedin else "",
-                                                self.blade)
+                                              self.blade)
         self.usedin = usedin
         self.visible = visible
         self.dontscroll = dontscroll
@@ -2054,7 +2044,7 @@ class SearchBlade(SeleniumCommand):  # @IgnorePep8
     def setup(self):
         s = self.api
         js_no_autorefresh = None
-        if not self.remember_jsrefresh:
+        if not self.remember_jsrefresh and self.ver <= "bigiq 4.3":
             # Remember Autorefresh and disable it:
             js_no_autorefresh = s.execute_script('return window._debug_disable_autorefresh;')
             if js_no_autorefresh is None:
@@ -2063,7 +2053,7 @@ class SearchBlade(SeleniumCommand):  # @IgnorePep8
                 s.execute_script('window._debug_disable_autorefresh=true;')
             elif js_no_autorefresh:
                 js_no_autorefresh = "true"
-            elif js_no_autorefresh == False:
+            elif js_no_autorefresh is False:
                 js_no_autorefresh = "false"
                 # Disable Autorefresh:
                 s.execute_script('window._debug_disable_autorefresh=true;')
@@ -2094,7 +2084,7 @@ class SearchBlade(SeleniumCommand):  # @IgnorePep8
                 else:  # blade with no groups (regular)
                     inner_container = s.find_element_by_xpath(self.innercontainer_x)
                     scroll_height = s.execute_script('return arguments[0].scrollHeight',
-                                                          inner_container)
+                                                     inner_container)
                 if self.dontscroll or self.group:
                     LOG.info("{0}Searching with NO Scroll ...".format(self.usedin))
                     rlist = []
@@ -2127,12 +2117,10 @@ class SearchBlade(SeleniumCommand):  # @IgnorePep8
                     for pos in range(count):
                         reach = pos * self.ui_inner_cell_height
                         do_scroll_element_to(inner_container, reach)
-                        xpath_row = self.innercontainer_x + \
-                                    '/ul/li[contains(concat(" ", normalize-space(@style), " "),"top: {0}px; ")]'.format(reach)
+                        xpath_row = '{0}/ul/li[contains(concat(" ", normalize-space(@style), " "),"top: {1}px; ")]'.format(self.innercontainer_x, reach)
                         this_text = webel_grab(xpath=xpath_row, ifc=self.ifc)
                         this_text[0]["pos"] = reach
                         all_texts.append(this_text[0])
-
                     for text in self.text:  # for each text to compare to
                         dic_per_tag = {"text": text, "pos": []}
                         cell_count_on_this_text = 0
@@ -2150,7 +2138,7 @@ class SearchBlade(SeleniumCommand):  # @IgnorePep8
                 bladewebel = s.find_element_by_id(self.blade_d)
                 inner_container = bladewebel.find_element_by_css_selector(self.bladecont_c)
                 scroll_height = s.execute_script('return arguments[0].scrollHeight',
-                                                      inner_container)
+                                                 inner_container)
                 if self.dontscroll:
                     LOG.info("{0}Searching with NO Scroll ...".format(self.usedin))
                     rlist = []
@@ -2204,7 +2192,7 @@ class SearchBlade(SeleniumCommand):  # @IgnorePep8
         # if blade was blank
         else:
             LOG.info("{0}Blade was found blank.".format(self.usedin))
-        if not self.remember_jsrefresh and js_no_autorefresh != "true":
+        if self.ver <= "bigiq 4.3" and not self.remember_jsrefresh and js_no_autorefresh != "true":
             s.execute_script('window._debug_disable_autorefresh={0};'
                              .format(js_no_autorefresh))
             LOG.debug("{0}Returned _debug_disable_autorefresh={1}"
@@ -2338,18 +2326,20 @@ class DeleteObjectOnText(SeleniumCommand):  # @IgnorePep8
 
     def setup(self):
         s = self.api
-        # Remember Autorefresh and disable it:
-        js_no_autorefresh = s.execute_script('return window._debug_disable_autorefresh;')
-        if js_no_autorefresh is None:
-            js_no_autorefresh = "null"
-            # Disable Autorefresh:
-            s.execute_script('window._debug_disable_autorefresh=true;')
-        elif js_no_autorefresh:
-            js_no_autorefresh = "true"
-        elif js_no_autorefresh is False:
-            js_no_autorefresh = "false"
-            # Disable Autorefresh:
-            s.execute_script('window._debug_disable_autorefresh=true;')
+        js_no_autorefresh = None
+        if self.ver <= "bigiq 4.3":
+            # Remember Autorefresh and disable it:
+            js_no_autorefresh = s.execute_script('return window._debug_disable_autorefresh;')
+            if js_no_autorefresh is None:
+                js_no_autorefresh = "null"
+                # Disable Autorefresh:
+                s.execute_script('window._debug_disable_autorefresh=true;')
+            elif js_no_autorefresh:
+                js_no_autorefresh = "true"
+            elif js_no_autorefresh is False:
+                js_no_autorefresh = "false"
+                # Disable Autorefresh:
+                s.execute_script('window._debug_disable_autorefresh=true;')
 
         LOG.info("DeleteObj/Will Delete: '{0}' on blade '{1}'..."
                  .format(self.text, self.blade))
@@ -2409,11 +2399,12 @@ class DeleteObjectOnText(SeleniumCommand):  # @IgnorePep8
 
         # wait some time before verifying the blade:
         if self.with_verify:
-            if js_no_autorefresh != "true":
-                s.execute_script('window._debug_disable_autorefresh={0};'
-                                 .format(js_no_autorefresh))
-                LOG.debug("DeleteObj/Returned _debug_disable_autorefresh={0}"
-                          .format(js_no_autorefresh))
+            if self.ver <= "bigiq 4.3":
+                if js_no_autorefresh != "true":
+                    s.execute_script('window._debug_disable_autorefresh={0};'
+                                     .format(js_no_autorefresh))
+                    LOG.debug("DeleteObj/Returned _debug_disable_autorefresh={0}"
+                              .format(js_no_autorefresh))
             if self.waittoverify > 0:
                 LOG.info("DeleteObjVerify/{1}/Obj: {2}; Waiting {0}s before verify. ..."
                          .format(self.waittoverify, self.blade, self.text))
@@ -2425,25 +2416,26 @@ class DeleteObjectOnText(SeleniumCommand):  # @IgnorePep8
 
             def is_el_removed_from_blade():
                 self.result = search_blade(blade=self.blade, text=self.text, group=self.group,
-                                  usedin="DeleteObjVerify",
-                                  ui_inner_cell_height=self.ui_cell_height,
-                                  ver=self.ver,
-                                  dontscroll=self.dontscroll,
-                                  ifc=self.ifc)
+                                           usedin="DeleteObjVerify",
+                                           ui_inner_cell_height=self.ui_cell_height,
+                                           ver=self.ver,
+                                           dontscroll=self.dontscroll,
+                                           ifc=self.ifc)
                 if self.result is None:
                     return True
             wait(is_el_removed_from_blade, interval=10, timeout=self.timeout,
-             timeout_message="DeleteObjVerify/%s/After {0}s, Objects: '%s' were still "
-                             "found after delete. (Use with_verify=False if multiple "
-                             "objects same name.)" % (self.blade, self.result))
+                 timeout_message="DeleteObjVerify/%s/After {0}s, Objects: '%s' were still "
+                 "found after delete. (Use with_verify=False if multiple "
+                 "objects same name.)" % (self.blade, self.result))
 
         LOG.info("DeleteObj/Deleted object(s) with text(s) '{0}' on blade '{1}'..."
-                  .format(self.text, self.blade))
-        if js_no_autorefresh != "true":
-            s.execute_script('window._debug_disable_autorefresh={0};'
-                             .format(js_no_autorefresh))
-            LOG.debug("DeleteObj/Returned _debug_disable_autorefresh={0}"
-                      .format(js_no_autorefresh))
+                 .format(self.text, self.blade))
+        if self.ver <= "bigiq 4.3":
+            if js_no_autorefresh != "true":
+                s.execute_script('window._debug_disable_autorefresh={0};'
+                                 .format(js_no_autorefresh))
+                LOG.debug("DeleteObj/Returned _debug_disable_autorefresh={0}"
+                          .format(js_no_autorefresh))
         popup_error_check(negative=True, ifc=self.ifc, ver=self.ver)
         return s
 
@@ -2513,10 +2505,10 @@ class DragAndDrop(SeleniumCommand):  # @IgnorePep8
                 use_this_x_button = "//*[@id='confirmdeleteuser']//button[contains(., 'Confirm')]"
             if not fincss and not finxpath and not findid:
                 finxpath = '//*[@id="{0}"]//panel-list//ul/li[div[contains(concat(" ", normalize-space(), " ")," {1} ")]]' \
-                            .format(self.fromblade, self.fromtext)
+                           .format(self.fromblade, self.fromtext)
             if not tincss and not tinxpath and not tindid:
                 tinxpath = '//*[@id="{0}"]//panel-list//ul/li[div[contains(concat(" ", normalize-space(), " ")," {1} ")]]' \
-                            .format(self.toblade, self.totext)
+                           .format(self.toblade, self.totext)
             self.dialogtitle_c = "#confirmdeleteuser .dialogTitle"
         else:  # older than 4.5
             if not use_this_c_button and not use_this_x_button and not use_this_d_button:
@@ -2554,18 +2546,20 @@ class DragAndDrop(SeleniumCommand):  # @IgnorePep8
         if self.withrefresh:
             s = self.api
             s.refresh()
-        # Remember Autorefresh and disable it:
-        js_no_autorefresh = s.execute_script('return window._debug_disable_autorefresh;')
-        if js_no_autorefresh is None:
-            js_no_autorefresh = "null"
-            # Disable Autorefresh:
-            s.execute_script('window._debug_disable_autorefresh=true;')
-        elif js_no_autorefresh:
-            js_no_autorefresh = "true"
-        elif js_no_autorefresh == False:
-            js_no_autorefresh = "false"
-            # Disable Autorefresh:
-            s.execute_script('window._debug_disable_autorefresh=true;')
+        js_no_autorefresh = None
+        if self.ver <= "bigiq 4.3":
+            # Remember Autorefresh and disable it:
+            js_no_autorefresh = s.execute_script('return window._debug_disable_autorefresh;')
+            if js_no_autorefresh is None:
+                js_no_autorefresh = "null"
+                # Disable Autorefresh:
+                s.execute_script('window._debug_disable_autorefresh=true;')
+            elif js_no_autorefresh:
+                js_no_autorefresh = "true"
+            elif js_no_autorefresh is False:
+                js_no_autorefresh = "false"
+                # Disable Autorefresh:
+                s.execute_script('window._debug_disable_autorefresh=true;')
 
         # see_blade(blade=self.fromblade, ifc=self.ifc, ver=self.ver)
         # see_blade(blade=self.toblade, ifc=self.ifc, ver=self.ver)
@@ -2599,15 +2593,15 @@ class DragAndDrop(SeleniumCommand):  # @IgnorePep8
         def give_a_valid_to_webel():
             ff = False
             to_webel = click_blade_on_text(blade=self.toblade,
-                                             text=self.totext,
-                                             visible=True,
-                                             center_el_on_blade=True,
-                                             usedin="Drag&Drop",
-                                             ui_cell_height=self.ui_cell_height,
-                                             threshold=self.threshold,
-                                             remember_jsrefresh=True,
-                                             ver=self.ver, timeout=self.dead_timeout,
-                                             ifc=self.ifc)
+                                           text=self.totext,
+                                           visible=True,
+                                           center_el_on_blade=True,
+                                           usedin="Drag&Drop",
+                                           ui_cell_height=self.ui_cell_height,
+                                           threshold=self.threshold,
+                                           remember_jsrefresh=True,
+                                           ver=self.ver, timeout=self.dead_timeout,
+                                           ifc=self.ifc)
             if to_webel is not None:
                 ff = True
                 LOG.debug("/Drag&Drop/Success. To Webel was fetched.")
@@ -2683,7 +2677,7 @@ class DragAndDrop(SeleniumCommand):  # @IgnorePep8
             except StaleElementReferenceException:
                 tobeornottobe = False
                 LOG.warning("/Drag&Drop/StaleElementReferenceException happened "
-                          " during ActionChains. Will retry a few times...")
+                            " during ActionChains. Will retry a few times...")
                 pass
             return tobeornottobe
 
@@ -2778,11 +2772,12 @@ class DragAndDrop(SeleniumCommand):  # @IgnorePep8
                                     usedin="Drag&Drop", timeout=self.timeout)
         wait_for_brush_to_disappear(self.toblade, ifc=self.ifc, ver=self.ver,
                                     usedin="Drag&Drop", timeout=self.timeout)
-        if js_no_autorefresh != "true":
-            s.execute_script('window._debug_disable_autorefresh={0};'
-                             .format(js_no_autorefresh))
-            LOG.debug("/Drag&Drop/Returned _debug_disable_autorefresh={0}"
-                      .format(js_no_autorefresh))
+        if self.ver <= "bigiq 4.3":
+            if js_no_autorefresh != "true":
+                s.execute_script('window._debug_disable_autorefresh={0};'
+                                 .format(js_no_autorefresh))
+                LOG.debug("/Drag&Drop/Returned _debug_disable_autorefresh={0}"
+                          .format(js_no_autorefresh))
         popup_error_check(negative=True, ifc=self.ifc, ver=self.ver)
         return s
 

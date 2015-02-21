@@ -147,7 +147,8 @@ class SeleniumInterface(Interface):
                                                            #javascriptEnabled=True,
                                                            browserName=browser,
                                                            platform=platform
-                                 ))
+                                 ),
+                                 keep_alive=False)
 
         # Special casing htmlunit which doesn't like to execute JS before a page
         # has been loaded.

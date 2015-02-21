@@ -22,10 +22,11 @@ from f5test.utils.stage.ha import HAStage  # @UnusedImport
 from f5test.utils.stage.config import ConfigStage, KeySwapStage, SetPasswordStage  # @UnusedImport
 from f5test.utils.stage.misc import TweaksStage  # @UnusedImport
 from f5test.utils.stage.check import ScaleCheckStage  # @UnusedImport
+from f5test.utils.stage.ha_bigiq import HABigiqStage  # @UnusedImport
 
 __all__ = ['InstallSoftwareStage', 'EMDiscocveryStage', 'EMInstallSoftwareStage',
            'HAStage', 'ConfigStage', 'KeySwapStage', 'SetPasswordStage',
-           'TweaksStage', 'SanityCheck', 'ScaleCheckStage']
+           'TweaksStage', 'SanityCheck', 'ScaleCheckStage', 'HABigiqStage']
 
 LOG = logging.getLogger(__name__)
 DEFAULT_PRIORITY = 100

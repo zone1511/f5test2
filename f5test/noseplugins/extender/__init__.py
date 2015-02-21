@@ -22,6 +22,11 @@ class ExtendedPlugin(Plugin):
         pass
 
     def configure(self, options, noseconfig):
+        # Auto-enable plugin when --with_<name> argument is passed
+        args = (noseconfig.options, 'with_%s' % self.name)
+        if hasattr(*args):
+            self.enabled = bool(getattr(*args))
+
         if options.enabled is not None:
             self.enabled = bool(options.enabled)
         if options.get('score'):

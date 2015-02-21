@@ -1,4 +1,15 @@
-(function(ko) {
+// knockout.x-editable library v0.1.0
+// (c) Brian Chance - https://github.com/brianchance/knockout-x-editable
+// Licensed MIT
+(function(factory) {
+    if (typeof define === "function" && define.amd) {
+        // AMD anonymous module
+        define(["knockout", "jquery"], factory);
+    } else {
+        // No module loader (plain <script> tag) - put directly in global namespace
+        factory(window.ko, window.jQuery);
+    }
+})(function(ko, $) {
 	ko.bindingHandlers.editable = {
 		init: function (element, valueAccessor, allBindingsAccessor, viewModel, bindingContext) {
 			var $element = $(element),
@@ -24,13 +35,13 @@
 					//not pretty, but works
 					var initalValue = value();
 					value(testValue);
-					var res = value.isValid() ? null : value.error;
+					var res = value.isValid() ? null : ko.utils.unwrapObservable(value.error);
 					value(initalValue);
 					return res;
 				}
 			}
 
-			if ((editableOptions.type === 'select' || editableOptions.type === 'checklist') && !editableOptions.source && editableOptions.options) {
+			if ((editableOptions.type === 'select' || editableOptions.type === 'checklist'|| editableOptions.type === 'typeahead') && !editableOptions.source && editableOptions.options) {
 				if (editableOptions.optionsCaption)
 					editableOptions.prepend = editableOptions.optionsCaption;
 
@@ -46,9 +57,9 @@
 				}
 
 				editableOptions.source = function() {
-					return ko.utils.arrayMap(editableOptions.options(), function (item) {
+					return ko.utils.arrayMap(ko.utils.unwrapObservable(editableOptions.options), function (item) {
 						var optionValue = applyToObject(item, editableOptions.optionsValue, item);
-						var optionText = applyToObject(item, editableOptions.optionsText, optionText);
+						var optionText = applyToObject(item, editableOptions.optionsText, optionValue);
 
 						return {
 							value: ko.utils.unwrapObservable(optionValue),
@@ -81,7 +92,8 @@
 			ko.computed({
 				read: function () {
 					var val = ko.utils.unwrapObservable(valueAccessor());
-					$editable.editable('setValue', val || '', true)
+					if (val === null) val = '';
+					$editable.editable('setValue', val, true)
 				},
 				owner: this,
 				disposeWhenNodeIsRemoved: element
@@ -104,4 +116,4 @@
 			}
 		}
 	};
-})(ko);
+});

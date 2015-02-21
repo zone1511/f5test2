@@ -10,6 +10,12 @@ import re
 import sys
 import warnings
 
+# Monkey patch for Python 2.7.9 CERT_REQUIRED enforcing.
+# TODO: Update HTTPS clients to pass CERT_NONE explicitly, then remove this.
+import ssl
+if hasattr(ssl, '_create_unverified_context'):
+    ssl._create_default_https_context = ssl._create_unverified_context
+
 
 def enum(*args, **kwargs):
     enums = dict(zip(args, args), **kwargs)

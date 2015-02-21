@@ -293,6 +293,9 @@ class LogCollect(ExtendedPlugin):
 
         created = False
         path = os.path.join(root, name)
+
+        # Windows-based NAS doesn't support :'s in names
+        path = path.replace(':', '@')
         if not os.path.exists(path):
             oldumask = os.umask(0)
             os.makedirs(path)

@@ -161,3 +161,6 @@ class Report(ExtendedPlugin):
         d.time.stop = datetime.datetime.now()
         d.time.delta = d.time.stop - d.time.start
         d.time.delta_str = timesince(d.time.start)
+        # In case startTest() is never executed (e.g. 0 tests found)
+        if not self.data.duts:
+            self.set_duts_stats(expand_devices(self.duts))

@@ -2,8 +2,8 @@
 Example:
 
     with BugzillaInterface('http://mgmtdata.mgmt.pdsea.f5net.com/xmlrpc.cgi',
-                           'i.turturica@f5.com', 'f5site02', debug=0) as bzifc:
-        print bzifc.api.Bug.search(dict(id=493024))
+                           'user@abc.com', 'password', debug=0) as bzifc:
+        print bzifc.api.Bug.search(dict(id=123456))
 """
 
 from .driver import XmlRpc

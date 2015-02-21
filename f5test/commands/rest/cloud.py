@@ -535,7 +535,7 @@ class SetupHa(IcontrolRestCommand):  # @IgnorePep8
         self.peers = peers
 
     def prep(self):
-        WaitRestjavad(self.peers).run()
+        WaitRestjavad(self.peers, ifc=self.ifc).run()
 
     def setup(self):
         LOG.info("Setting up Clustered HA with %s...", self.peers)
@@ -545,13 +545,13 @@ class SetupHa(IcontrolRestCommand):  # @IgnorePep8
         options.automaticallyUpdateFramework = False
 
         Discover(self.peers, group=DEFAULT_ALLBIGIQS_GROUP,
-                 options=options).run()
+                 options=options, ifc=self.ifc).run()
 
         # Wait until until peer BIG-IQs are added to the device groups.
         for device_group in SetupHa.DEVICE_GROUPS:
             if self.ifc.version < 'bigiq 4.5.0' and device_group == 'cm-websafe-logging-nodes-trust-group':
                 continue
-            wait(lambda: self.api.get(DeviceResolver.DEVICES_URI % device_group),
+            wait(lambda: self.ifc.api.get(DeviceResolver.DEVICES_URI % device_group),
                  condition=lambda ret: len(peer_ips) == len(peer_ips.intersection(set(x.address for x in ret['items']))),
                  progress_cb=lambda ret: 'Waiting until {0} appears in {1}'.format(peer_ips, device_group),
                  interval=10, timeout=600)

@@ -20,21 +20,16 @@ from .logcollect_start import CONTEXT_NAME
 
 
 LOG = logging.getLogger(__name__)
-URL = 'https://bugzilla.olympus.f5net.com/xmlrpc.cgi'
-LOGIN = 'cloud_automation@f5.com'
-PASSWORD = '2sJgHbvB'
-
-# URL = 'http://mgmtdata.mgmt.pdsea.f5net.com/xmlrpc.cgi'
-# LOGIN = 'i.turturica@f5.com'
-# PASSWORD = 'f5site02'
 
 DEFAULT_BRANCH = 'bigiq-mgmt'
 DEFAULT_VERSION = 'Unspecified'
+DEFAULT_RUN_TYPE = 'BVT'
+STATUS_NEW = 'NEW'
+STATUS_RESOLVED = 'Resolved'
 OPEN_BUG_STATES = ['New', 'Accepted', 'Reopened']
 FOUND_BY = 'Test Automation'
 BZ_KEYWORD = 'TestRunnerFailure'
 REPRODUCIBLE = 'Always'
-STATUS_NEW = 'NEW'
 MAINTAINER = 'i.turturica@f5.com'
 DEFAULT_RUN_TYPE = 'Adhoc'
 BZ_REGEX = '((?:BZ|BUG)\s*(\d{6}))'
@@ -65,13 +60,14 @@ class Bugzilla(ExtendedPlugin):
         self.enabled = noseconfig.options.with_bugzilla
         self.context = ContextHelper(CONTEXT_NAME)
 
-        self.bzifc = BugzillaInterface(URL, LOGIN, PASSWORD, debug=0)
+        s = options.site
+        self.bzifc = BugzillaInterface(s.url, s.login, s.password, debug=0)
         self.blocking = set()
 
     def guess_component(self, test):
         o = self.options
         test_id = test.id()
-        for pair in o.components:
+        for pair in o.components or []:
             pattern, combo = pair.items().pop()
             if re.search(pattern, test_id):
                 return combo.split('|', 1)
@@ -101,7 +97,8 @@ class Bugzilla(ExtendedPlugin):
         LOG.info("Looking for an existing bug(s)...")
         # Strip the first level off the test names which is the project name.
         test_name = test.id()[test.id().find('.') + 1:]
-        summary = "BVT {}: {}".format(err[0].__name__, test_name)
+        run_type = cfgifc.api.testrun.get('type', DEFAULT_RUN_TYPE)
+        summary = "{} {}: {}".format(run_type, err[0].__name__, test_name)
 
         # Prepare variables used for substitution in the template text.
         var = AttrDict()
@@ -125,7 +122,7 @@ class Bugzilla(ExtendedPlugin):
         # payload.token = self.bzifc.token  # For Bugzilla 4.4.6+
         payload.version = o.version.get(dut.version.version, DEFAULT_VERSION)
 
-        payload.status = OPEN_BUG_STATES
+        payload.status = OPEN_BUG_STATES + [STATUS_RESOLVED]
         # Using a hidden/unused custom field to store a hash that describes the
         # current test failure. We use this to do an exact match on subsequent
         # fails.
@@ -134,6 +131,9 @@ class Bugzilla(ExtendedPlugin):
         payload.cf_bzid_sea = hashlib.md5(summary + exc_type).hexdigest()
 
         ret = self.bzifc.api.Bug.search(dict(payload))
+        bug_id = None
+
+        # Try to find any existing open bug, or a resolved:duplicate
         if ret.bugs:
             TEMPLATE = "Re-occurred on harness:\n" \
                 "{harness}\n" \
@@ -142,15 +142,25 @@ class Bugzilla(ExtendedPlugin):
                 "Results: {url}\n"
 
             LOG.info("Found {}.".format(len(ret.bugs)))
-            if len(ret.bugs) > 1:
-                LOG.warning("More than one open BZ found!")
-            payload = AttrDict()
-            # payload.token = self.bzifc.token  # For Bugzilla 4.4.6+
-            payload.id = ret.bugs[0].id
-            payload.comment = TEMPLATE.format(**var)
-            ret = self.bzifc.api.Bug.add_comment(dict(payload))
-            LOG.info("Updated bug {}.".format(payload.id))
-        else:
+
+            for bug in ret.bugs:
+                # payload.token = self.bzifc.token  # For Bugzilla 4.4.6+
+                if bug.status == STATUS_RESOLVED:
+                    if bug.resolution == 'DUPLICATE':
+                        bug_id = bug.dupe_of
+                else:
+                    bug_id = bug.id
+
+                if bug_id:
+                    payload = AttrDict()
+                    payload.id = bug_id
+                    payload.comment = TEMPLATE.format(**var)
+                    ret = self.bzifc.api.Bug.add_comment(dict(payload))
+                    LOG.info("Updated bug {}.".format(payload.id))
+                    break
+
+        # We couldn't find any
+        if bug_id is None:
             TEMPLATE = "Test failed:\n"\
                 "{harness}\n" \
                 "\n" \
@@ -163,6 +173,7 @@ class Bugzilla(ExtendedPlugin):
             LOG.info("Creating a new bug...")
             # payload.token = self.bzifc.token  # For Bugzilla 4.4.6+
             payload.product, payload.component = self.guess_component(test)
+            payload.cf_tcid = test_name
             payload.status = STATUS_NEW
             payload.summary = summary
             payload.classification = o.classification
@@ -172,7 +183,7 @@ class Bugzilla(ExtendedPlugin):
             payload.url = session.get_url()
             payload.cc = o.cc
             payload.assigned_to = author
-            payload.keywords = [BZ_KEYWORD]
+            payload.keywords = o.keywords if o.keywords else [BZ_KEYWORD]
 
             payload.description = TEMPLATE.format(**var)
 

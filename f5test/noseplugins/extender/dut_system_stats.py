@@ -50,7 +50,7 @@ class DutSystemStats(ExtendedPlugin):
                                  'results': []})
 
         # Check to see if jvm_diagnostics information is desired
-        config = self.cfgifc.config.get('plugins')
+        config = self.cfgifc.config.get('plugins', {})
         if self.name in config:
             if 'jvm_diagnostics' in config[self.name]:
                 jvm_diag = config[self.name]['jvm_diagnostics']

@@ -485,7 +485,7 @@ class ConfigPlacer(Macro):
         LOG.info('Waiting for Active prompt...')
         s = SCMD.ssh.GetPrompt(ifc=self.sshifc)\
             .run_wait(lambda x: x in ('Active', 'Standby', 'ForcedOffline',
-                                      'monpd DOWN',  # TODO: Remove when BZ503608 is fixed!
+                                      'restjavad DOWN',  # TODO: Remove when BZ506400 is fixed!
                                       'RESTART DAEMONS', 'REBOOT REQUIRED'),
                       progress_cb=lambda x: 'Still not active (%s)...' % x,
                       timeout=timeout)
@@ -562,7 +562,7 @@ class ConfigPlacer(Macro):
                                                          iface=iface))
                 LOG.debug('EasySetup payload: %s', payload)
                 wait_args(rstifc.api.patch, func_args=(EasySetup.URI, payload),
-                          timeout=120, interval=5,
+                          timeout=180, interval=5,
                           timeout_message="Can't patch selfIPs ready after {0}s")
 
 #     def bigiq_special_selfip_handling(self, tree, ctx):

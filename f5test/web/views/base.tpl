@@ -15,7 +15,7 @@
         <script src="/media/bootstrap/js/bootstrap.min.js"></script>
         <script src="/media/spinjs/spin.min.js"></script>
 
-        <script src="/media/knockoutjs/knockout-3.0.0.js"></script>
+        <script src="/media/knockoutjs/knockout-3.2.0.js"></script>
         <script src="/media/knockoutjs/knockout.x-editable.js"></script>
         <script src="/media/knockoutjs/knockout.validation.min.js"></script>
         <script src="/media/knockoutjs/knockout.app.min.js"></script>

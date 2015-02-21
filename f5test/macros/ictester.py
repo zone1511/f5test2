@@ -28,7 +28,7 @@ class Ictester(Macro):
                 for name, value in parser(params):
                     self.params.append("%s=%r" % (name, value))
         else:
-            self.params = params
+            self.params = params or []
 
         self.icparams = Options(device=self.options.device,
                          address=address, timeout=self.options.timeout,

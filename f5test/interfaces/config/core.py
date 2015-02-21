@@ -307,6 +307,8 @@ class ConfigInterface(Interface):
         return device_access.address
 
     def get_all_devices(self, kind=KIND_TMOS, only_enabled=True):
+        if not self.config.get(CFG_DEVICES):
+            raise StopIteration
         for device in self.config[CFG_DEVICES]:
             device = self.get_device(device)
             if device.kind == kind and (not only_enabled or device.enabled):

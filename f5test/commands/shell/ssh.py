@@ -513,6 +513,11 @@ class CollectLogs(SSHCommand):  # @IgnorePep8
         or v.product.is_bigiq:
             files.append('/var/log/restjavad.0.log')
 
+        # SELinux API
+        if v.product.is_bigip and v >= 'bigip 11.5' \
+        or v.product.is_bigiq:
+            files.append('/var/log/auditd/audit.log')
+
         if v.product.is_bigiq and v >= 'bigiq 4.4':
             files.append('/var/log/restjavad*.0.log')
 
