@@ -69,7 +69,7 @@ class DutSystemStats(ExtendedPlugin):
 
         return return_dict
 
-    def startTest(self, test, blocking_context):
+    def startTest(self, test, blocking_context=None):
         """Collect system stats for each dut"""
 
         self.current_test = {}

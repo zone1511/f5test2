@@ -8,6 +8,16 @@ from .....base import AttrDict
 from .....utils.wait import wait
 import json
 
+NSX_VERSIONS = {
+    '4.5.0': 'NSX 6.1.3',
+    '4.5.1': 'NSX 6.1.3',
+    '4.6.0': 'NSX 6.2.0'
+}
+
+NSX_CALLBACK_NAME = "NSX_Callback_Role-%s"
+NSX_DEFAULT_TENANT = "NSX-Default-%s"
+NSX_DEFAULT_TENANT_ROLE = "CloudTenantAdministrator_NSX-Default-%s"
+
 
 class TaskError(Exception):
     pass
@@ -67,6 +77,7 @@ class ServiceInstances(BaseApiObject):
     ITEM_URI = 'api/2.0/si/serviceinstance'
     RUNTIME_URI = ITEM_URI + '/%s/runtimeinfos'
     RUNTIME_ITEM_URI = ITEM_URI + '/%s/runtimeinfo/%s/config'
+    RUNTIME_ITEM_DELETE_URI = ITEM_URI + '/%s/runtimeinfo/%s'
 
     def __init__(self, *args, **kwargs):
         super(ServiceInstances, self).__init__(*args, **kwargs)
@@ -114,8 +125,7 @@ class Runtime(BaseApiObject):
     def wait(rest, service_instance, runtime_id, timeout=1200, interval=30):
         ret = wait(lambda: rest.get(Runtime.ITEM_URI % (service_instance, runtime_id)),
                    condition=lambda ret: not ret.serviceInstanceRuntimeInfo.installState in Runtime.UNINSTALLED_STATE,
-                   progress_cb=lambda ret: "installState: %s" %
-                               (ret.serviceInstanceRuntimeInfo.installState),
+                   progress_cb=lambda ret: "installState: %s" % (ret.serviceInstanceRuntimeInfo.installState),
                    timeout=timeout, interval=interval)
 
         if ret.serviceInstanceRuntimeInfo.installState != 'ENABLED':
@@ -171,8 +181,16 @@ class HeartBeat(BaseApiObject):
         super(HeartBeat, self).__init__(*args, **kwargs)
 
 
+class SystemSummary(BaseApiObject):
+    URI = 'api/1.0/appliance-management/summary/system'
+
+    def __init__(self, *args, **kwargs):
+        super(SystemSummary, self).__init__(*args, **kwargs)
+
+
 class AddressPool(BaseApiObject):
     URI = '/api/2.0/services/ipam/pools/scope/globalroot-0'
+    ALLOCATED_ADDRESSES_URI = '/api/2.0/services/ipam/pools/%s/ipaddresses'
 
     def __init__(self, *args, **kwargs):
         super(AddressPool, self).__init__(*args, **kwargs)

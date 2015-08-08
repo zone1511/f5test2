@@ -9,7 +9,6 @@ from f5test.interfaces.config.core import ConfigInterface
 from f5test.interfaces.ssh.core import SSHInterface
 from f5test.interfaces.ssh.driver import SSHTimeoutError
 from f5test.interfaces.testcase import ContextHelper
-from f5test.interfaces.icontrol import IcontrolInterface
 from socket import inet_aton
 import f5test.commands.shell as SCMD
 import logging
@@ -20,8 +19,9 @@ import json
 
 LOG = logging.getLogger(__name__)
 TIMEOUT = 180
-LOGS = ['/var/log/tmm*', '/var/log/ltm*', '/var/log/restjavad*', '/var/log/restnoded/*']
-RESTJAVAD_ERR = '/var/service/restjavad/hs_err*.log'
+LOGS = ['/var/log/tmm*', '/var/log/ltm*', '/var/log/restjavad*',
+        '/var/log/restnoded/*', '/var/service/restjavad/hs_err*.log']
+FILE = '/var/tmp/restjavad.out'
 STATS = ['top -b -n 1', 'iostat']
 DIRECTORY = 'Scale'
 
@@ -29,7 +29,8 @@ DIRECTORY = 'Scale'
 class ScaleStatsCollector(Thread):
 
     def __init__(self, device, data):
-        super(ScaleStatsCollector, self).__init__(name='ScaleStatsCollector@%s' % device)
+        super(ScaleStatsCollector, self).__init__(name='ScaleStatsCollector@%s'
+                                                  % device)
         self.device = device
         self.data = data
         self.session = ConfigInterface().get_session()
@@ -56,15 +57,12 @@ class ScaleStatsCollector(Thread):
                 if not os.path.exists(log_dir):
                     os.makedirs(log_dir)
 
-                # Collect specific files from /var/log
+                # Collect specific files
                 for log in LOGS:
-                    SCMD.ssh.scp_get(ifc=sshifc, source=log,
-                                     destination=log_dir)
-
-                ret = sshifc.api.run('ls -1 %s | wc -l' % RESTJAVAD_ERR)
-                if not ret.status and int(ret.stdout):
-                    SCMD.ssh.scp_get(ifc=sshifc, source=RESTJAVAD_ERR,
-                                     destination=log_dir)
+                    ret = sshifc.api.run('ls -1 %s | wc -l' % log)
+                    if not ret.status and int(ret.stdout):
+                        SCMD.ssh.scp_get(ifc=sshifc, source=log,
+                                         destination=log_dir)
 
                 context = ContextHelper(__name__)
                 r = context.get_icontrol_rest(device=self.device).api
@@ -72,8 +70,9 @@ class ScaleStatsCollector(Thread):
                 with open(os.path.join(stat_dir, 'diagnostics'), 'wt') as f:
                     json.dump(output, f, indent=4)
 
-                SCMD.ssh.scp_get(ifc=sshifc, source='/var/tmp/restjavad.out',
-                                 destination=stat_dir)
+                if SCMD.ssh.file_exists(ifc=sshifc, filename=FILE):
+                    SCMD.ssh.scp_get(ifc=sshifc, source=FILE,
+                                     destination=stat_dir)
 
                 # Collect stats
                 for stat in STATS:
@@ -81,7 +80,8 @@ class ScaleStatsCollector(Thread):
                     with open(os.path.join(stat_dir, stat.split()[0]), 'wt') as f:
                         f.write(output.stdout)
 
-                java_pid = SCMD.ssh.generic("top -b -n 1 | grep java | grep root | awk '{print $1}'", ifc=sshifc).stdout
+                java_pid = SCMD.ssh.generic("cat /service/restjavad/supervise/pid",
+                                            ifc=sshifc).stdout
                 output = SCMD.ssh.generic('lsof -p %s' % java_pid, ifc=sshifc)
                 with open(os.path.join(stat_dir, 'lsof'), 'wt') as f:
                     f.write(output.stdout)

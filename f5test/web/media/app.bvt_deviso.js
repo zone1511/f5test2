@@ -3,14 +3,23 @@ $(function(){
     //defaults
     $.fn.editable.defaults.send = 'never'; 
     $.fn.editable.defaults.emptytext = 'Click to edit';
+    var default_modules = ['access', 'adc', 'afm', 'asm', 'avr', 'cloud', 'device', 'system', 'platform'];
 
     //editables
-    $('#suite').editable({
-        showbuttons: false,
+    $('#module').editable({
+        inputclass: 'input-large',
+        select2: {
+           tags: default_modules,
+           multiple: true
+        }
+    });
+    $('#ha').editable({
+        showbuttons: true,
+        emptytext: 'Anything',
         source: [
-              {value: 'bvt', text: "Test Team's BVT"},
-              {value: 'dev', text: "Dev's Functionals"},
-              {value: 'dev-cloud', text: "Cloud Team Functionals"}
+              {value: 'standalone', text: "Standalone"},
+              {value: 'aa', text: "Active-Active"},
+              {value: 'pa', text: "Primary-Active"}
         ]
     });
 
@@ -41,8 +50,12 @@ $(function(){
         task_uri: '/bvt/deviso',
         inputs: ko.mapping.fromJS({
           iso: ko.observable().extend({ remote: { type: 'file' }, required: false }),
+          hfiso: ko.observable().extend({ remote: { type: 'file' }, required: false }),
           email: ko.observable(),
-          suite: ko.observable("bvt"),
+          //suite: ko.observable("bvt"),
+          ha: ko.observableArray([]),
+          module: ko.observableArray(default_modules),
+          ui: ko.observable(false),
         }),
 
         // Methods

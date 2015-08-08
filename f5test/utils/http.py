@@ -69,7 +69,7 @@ def server(handler_class, address=None, port=None, timeout=TIMEOUT,
     return address, port, t
 
 
-def request(url, method='GET', payload=u'', headers={}):
+def request(url, method='GET', payload=u'', headers={}, timeout=30):
     """A super-simplistic http/s client with no SSL cert validation.
 
     >>> print request('http://google.com').status_code
@@ -77,7 +77,9 @@ def request(url, method='GET', payload=u'', headers={}):
     >>> print request('https://google.com').read()
     <HTML><HEAD>...
     """
-    client = HTTPClient.from_url(url, ssl_options={'cert_reqs': gevent.ssl.CERT_NONE})  # @UndefinedVariable
+    client = HTTPClient.from_url(url, ssl_options={'cert_reqs': gevent.ssl.CERT_NONE},  # @UndefinedVariable
+                                 network_timeout=timeout,
+                                 connection_timeout=timeout)
     try:
         return client.request(method, url, payload, headers)
     finally:

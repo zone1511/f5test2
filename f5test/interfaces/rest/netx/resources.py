@@ -4,11 +4,11 @@ Created on Feb 26, 2012
 @author: jono
 '''
 from ..core import RestInterface
-from .objects.nsx import HeartBeat
 from ..driver import BaseRestResource, WrappedResponse
 from restkit import ResourceError
 import urlparse
 import logging
+from .objects.nsx import SystemSummary
 
 LOG = logging.getLogger(__name__)
 
@@ -43,15 +43,6 @@ class NetxRestResource(BaseRestResource):
     api_version = 2
     verbose = False
     default_content_type = 'application/xml'
-
-    def patch(self, path=None, payload=None, headers=None,
-              params_dict=None, **params):
-        """HTTP PATCH
-
-        See POST for params description.
-        """
-        return self.request("PATCH", path=path, payload=payload,
-                            headers=headers, params_dict=params_dict, **params)
 
     def request(self, method, path=None, payload=None, headers=None,
                 params_dict=None, odata_dict=None, **params):
@@ -96,5 +87,6 @@ class NetxInterface(RestInterface):
     @property
     def version(self):
         from ....utils.version import Version, Product
-        ret = self.api.get(HeartBeat.URI)
-        return Version(ret.vsmGlobalConfig.versionInfo, Product.NSX)
+        ret = self.api.get(SystemSummary.URI)
+        versionInfo = '{0.majorVersion}.{0.minorVersion}.{0.patchVersion} build{0.buildNumber}'.format(ret.versionInfo)
+        return Version(versionInfo, Product.NSX)

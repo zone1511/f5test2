@@ -535,10 +535,7 @@ class HotfixFinder(IsoFinder):
         # Matches:
         # Hotfix-BIGIP-11.4.1-637.0-HF3.iso
         # Hotfix-BIGIP-11.5.0.1.0.224-HF1.iso
-        hotfix_regex = re.compile(r'hotfix-%s-'
-                                  '%s[\-\.]%s-%s\.(iso|im)$'
-                                  % (PRODUCT_REGEX, self._original_identifier,
-                                     build, self.hotfix), re.IGNORECASE)
+        hotfix_regex = re.compile(r'hotfix-.*\.iso$', re.IGNORECASE)
         regexes.append(hotfix_regex)
 
         if self.is_eng:

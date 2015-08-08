@@ -19,6 +19,8 @@ from ...interfaces.rest.emapi.objects import (ManagedDeviceCloud, DeviceResolver
 from ...interfaces.rest.emapi.objects.adc import RefreshCurrentConfig
 from ...interfaces.rest.emapi.objects.firewall import SecurityTaskV2
 from ...interfaces.rest.emapi.objects import asm
+from ...interfaces.rest.emapi.objects import access
+from ...interfaces.rest.emapi.objects.shared import DeviceGroup
 from ...utils.wait import wait, wait_args, StopWait
 from ..base import CommandError
 from .base import IcontrolRestCommand
@@ -27,7 +29,9 @@ from .base import IcontrolRestCommand
 LOG = logging.getLogger(__name__)
 DEFAULT_DISCOVERY_DELAY = 180
 VIPRION_DISCOVERY_DELAY = 300
-DISCOVERY_TIMEOUT = 180
+DISCOVERY_TIMEOUT = 600
+ACCESS_DISCOVERY_TIMEOUT = 600
+ACCESS_DELETE_TIMEOUT = 65
 CLOUD_BACKWARD = 'bigiq 4.3'
 DEFAULT_CONFLICT = 'USE_RUNNING'
 DEFAULT_CLOUD_GROUP = 'cm-cloud-managed-devices'
@@ -39,6 +43,7 @@ ASM_ALL_GROUP = 'cm-asm-allDevices'
 FIREWALL_ALL_GROUP = 'cm-firewall-allDevices'
 SECURITY_SHARED_GROUP = 'cm-security-shared-allDevices'
 BIG_IP_HA_DEVICE_GROUP = 'tm-shared-all-big-ips'
+DEFAULT_ACCESS_GROUP = 'cm-access-allBigIpDevices'
 
 delete = None
 class Delete(IcontrolRestCommand):  # @IgnorePep8
@@ -72,8 +77,8 @@ class Delete(IcontrolRestCommand):  # @IgnorePep8
 
         # Join our devices with theirs by the discover address (self IP)
         resp = self.api.get(self.uri)
-        uris_by_address = dict((IPAddress(x.address), x.selfLink) for x in resp['items'])
-        devices = dict((x, uris_by_address.get(IPAddress(x.get_discover_address())))
+        uris_by_address = dict((IPAddress(x.managementAddress), x.selfLink) for x in resp['items'])
+        devices = dict((x, uris_by_address.get(IPAddress(x.get_address())))
                        for x in self.devices)
 
         self.v = self.ifc.version
@@ -114,6 +119,14 @@ class Discover(IcontrolRestCommand):  # @IgnorePep8
         self.timeout = timeout
         self.options = options
 
+    def wait_for_availability(self, resource, timeout):
+        stats_link = resource.selfLink + '/stats'
+        return wait_args(self.api.get, func_args=[stats_link],
+                         condition=lambda x: x.entries.get('health.summary.available', {}).get('value') == 1,
+                         progress_cb=lambda x: 'Pending health check...',
+                         timeout=timeout,
+                         timeout_message="Object %s not available after {0} seconds" % resource.selfLink)
+
     def add_one(self, device):
         LOG.info('Adding device %s to %s...', device, self.group)
         payload = DeviceResolver()
@@ -126,11 +139,14 @@ class Discover(IcontrolRestCommand):  # @IgnorePep8
         payload.update(self.options)
 
         resp = self.api.post(self.uri, payload=payload)
-        return wait_args(self.api.get, func_args=[resp.selfLink],
+        resp = wait_args(self.api.get, func_args=[resp.selfLink],
                          condition=lambda x: x.state not in DeviceResolver.PENDING_STATES,
                          progress_cb=lambda x: 'Discovery pending...',
                          timeout=self.timeout,
                          timeout_message="Discovery task did not complete in {0} seconds")
+        if self.v >= 'bigiq 4.5':
+            self.wait_for_availability(resp, self.timeout)
+        return resp
 
     def refresh_one(self, device, state):
         LOG.info('Refreshing device %s in %s...', device, self.group)
@@ -188,6 +204,7 @@ class Discover(IcontrolRestCommand):  # @IgnorePep8
 
         theirs_set = set() if self.refresh else set([x for x in theirs
                                                      if theirs[x].state == 'ACTIVE'])
+        self.v = self.ifc.version
 
         # Add any devices that are not already discovered.
         # Discovery of multiple devices at once is not supported by API.
@@ -353,7 +370,11 @@ class DeleteCloud(Delete):  # @IgnorePep8
         self.group = DEFAULT_CLOUD_GROUP
 
     def set_uri(self):
-        self.uri = ManagedDeviceCloud.URI
+        if self.ifc.version >= "bigiq 4.5.0":
+            super(DeleteCloud, self).set_uri()
+        else:
+            LOG.debug("Using old URI...")
+            self.uri = ManagedDeviceCloud.URI
 
     def remove_one(self, device, uri):
         LOG.info('Delete started for %s...', device)
@@ -463,11 +484,11 @@ class DiscoverAsm(DiscoverSecurity):  # @IgnorePep8
 
         if self.ifc.version < 'bigiq 4.5':
             msg = "ASM DMA task did not complete in {0} seconds. Last status: {1.overallStatus}"
-            return dma.wait(self.api, task, timeout=self.timeout, interval=5,
+            return dma.wait(self.api, task, timeout=self.timeout,
                             timeout_message=msg)
         else:
             msg = "ASM DMA task did not complete in {0} seconds. Last status: {1.status}"
-            return dma.wait_status(self.api, task, timeout=self.timeout, interval=5,
+            return dma.wait_status(self.api, task, timeout=self.timeout,
                                    timeout_message=msg)
 
     def completed(self, device, ret):
@@ -523,8 +544,10 @@ class DiscoverAdc(Discover):  # @IgnorePep8
              interval=1)
 
         odata = Options(orderby='lastUpdateMicros desc', top=1)
-        ret = self.api.get(RefreshCurrentConfig.URI, odata_dict=odata)['items'][0]
-        assert ret.status == 'FINISHED', 'Most recent RefreshCurrentConfig task failed: {0.status}:{0.errorMessage}'.format(ret)
+        tasks = self.api.get(RefreshCurrentConfig.URI, odata_dict=odata)['items']
+        if tasks:
+            ret = tasks[0]
+            assert ret.status == 'FINISHED', 'Most recent RefreshCurrentConfig task failed: {0.status}:{0.errorMessage}'.format(ret)
 
         resp = self.api.get(self.uri)
         theirs = dict([(IPAddress(x.address), x) for x in resp['items']])
@@ -633,3 +656,116 @@ class CleanDgCerts(IcontrolRestCommand):  # @IgnorePep8
             DiscoverSecurity(self.bips).run()
 
         return ret
+
+discover_access = None
+class DiscoverAccess(Discover):  # @IgnorePep8
+    """Makes sure all devices are discovered.
+
+    @param devices: A list of f5test.interfaces.config.DeviceAccess instances.
+    @param refresh: A bool flag, if set it will re-discover existing devices.
+    @rtype: None
+    """
+    group = DEFAULT_ACCESS_GROUP
+    task = access.DeviceManagerTask
+    URI = '/mgmt/cm/access/device-manager'
+
+    def __init__(self, *args, **kwargs):
+        super(DiscoverAccess, self).__init__(*args, **kwargs)
+        self.group = self.__class__.group
+        self.uri = access.DeviceManagerTask.URI
+        self.timeout = ACCESS_DISCOVERY_TIMEOUT
+
+    def set_uri(self):
+        self.uri = DeviceGroup.DEVICES_URI % DEFAULT_ACCESS_GROUP
+
+    def setup(self):
+        # get all discovered Access devices from big-iq
+        # check requested devices that some of them was not discovered in Access module:
+        # - discovered in access     => skip
+        # - not discovered in Access => discover
+        # TODO: re-discover is not implemented
+
+        discovered_devices = self.api.get(DeviceGroup.DEVICES_URI % DEFAULT_ACCESS_GROUP)
+        ours = dict([(IPAddress(x.get_discover_address()), x) for x in self.devices])
+        theirs = dict([(IPAddress(x.address), x) for x in discovered_devices['items']])
+
+        LOG.info(ours)
+        LOG.info(theirs)
+
+        for address in set(theirs) - set(ours):
+            theirs.pop(address)
+
+        theirs_set = set([x for x in theirs if theirs[x].state == 'ACTIVE'])
+        self.set_uri()
+        # Add any devices that are not already discovered.
+        # Discovery of multiple devices at once is not supported by API.
+        for address in set(ours) - theirs_set:
+            device = ours[address]
+
+            delay = VIPRION_DISCOVERY_DELAY \
+                if device.specs.get('is_cluster', False) \
+                else DEFAULT_DISCOVERY_DELAY
+
+            if device.specs.has_tmm_restarted:
+                diff = datetime.datetime.now() - device.specs.has_tmm_restarted
+                if diff < datetime.timedelta(seconds=delay) \
+                   and device.get_discover_address() != device.get_address():
+                    delay -= diff.seconds
+                    LOG.info('XXX: Waiting %d seconds for tmm to come up...' % delay)
+                    time.sleep(delay)
+
+            if address in theirs:
+                # Device already discovered
+                # TODO: rediscover/refresh
+                pass
+            else:
+                ret = self.add_one(device)
+                self.completed(device, ret)
+
+        return self.post_discovery_steps()
+
+    def add_one(self, device):
+        # uri for device manager task
+        uri = access.DeviceManagerTask.URI
+        # sends a request to devices-manager to discover Access device
+        # waits for status "Finished" for the task
+        LOG.info('Adding device %s to %s...', device, self.group)
+        dma = self.task()
+        # Access "device-manager"  worker is able to process several
+        # devices in one request. let's add only one device per requests.
+        # setup() will invoke add_one() and pass only one device, then will
+        # check the task status and check that device was discovered properly
+        # TODO: discover multiple devices in one request
+        dma.devices[0].deviceIp = device.get_discover_address()
+        dma.devices[0].deviceUsername = device.get_admin_creds().username
+        dma.devices[0].devicePassword = device.get_admin_creds().password
+        dma.devices[0].rootUser = device.get_root_creds().username
+        dma.devices[0].rootPassword = device.get_root_creds().password
+        dma.devices[0].automaticallyUpdateFramework = True
+        dma.update(self.options)
+        task = self.api.post(uri, payload=dma)
+        return dma.wait(self.ifc, task, timeout=self.timeout,
+                        timeout_message="Access 'device-manager' task did not complete in {0} seconds")
+
+    def completed(self, device, ret):
+
+        assert ret.status in ['FINISHED'], \
+                'Discovery of {0} failed: {1}:{2}'.format(device, ret.status,
+                                                          ret.selfLink)
+        for item in ret.devices:
+            assert item.deviceReference, 'Discovery of {0} failed: {1}'.format(device, item.errorMessage)
+        return ret.devices
+
+
+delete_access = None
+class DeleteAccess(Delete):  # @IgnorePep8
+    group = DEFAULT_ACCESS_GROUP
+    task = access.RemoveManagementAuthorityTask
+
+    def remove_one(self, device, uri):
+        LOG.info('Remove-management-authority task started for %s...', device)
+        rma = self.task()
+        rma.deviceOrGroupReference.link = uri
+        task = self.api.post(self.task.URI, payload=rma)
+        return rma.wait(self.ifc, task, timeout=ACCESS_DELETE_TIMEOUT,
+                        timeout_message="Access 'remove-management-authority' task did not complete in {0} seconds")

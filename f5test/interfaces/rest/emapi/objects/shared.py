@@ -234,6 +234,7 @@ class LicensePool(BaseApiObject):
     WAITING_STATE_MANUAL = 'WAITING_FOR_LICENSE_TEXT'
     FAIL_STATE = 'FAILED'
     LICENSE_STATE = 'LICENSED'
+    AUTO_METHOD = 'AUTOMATIC'
 
     def __init__(self, *args, **kwargs):
         super(LicensePool, self).__init__(*args, **kwargs)
@@ -322,14 +323,14 @@ class EventAggregationTasks(BaseApiObject):
                                  #                      "sig_ids"]
                                  ))
         self.setdefault('eventSourcePollingIntervalMillis', 1000)
-        self.setdefault('itemCountCommitThreshold', 100)
+        self.setdefault('itemCountCommitThreshold', 100)  # mandatory see BZ521994
         self.setdefault('isIndexingRequired', True)
         self.setdefault('name', 'test-aggregation-task01')
         self.setdefault('kind', 'shared:analytics:event-aggregation-tasks:eventaggregationstate')
         self.setdefault('description', 'Test.EAT')
         # self.setdefault('generation', 0)
         # self.setdefault('lastUpdateMicros', 0)
-        # self.setdefault('expirationMicros', 1400194354500748)
+        self.setdefault('eventExpirationMicros', 31536000000000)  # Since GF - 365 days - is backwards compatible
 
 
 # Ref - https://peterpan.f5net.com/twiki/bin/view/Cloud/AnalyticsDesign
@@ -559,9 +560,40 @@ class AuthnLocalGroups(BaseApiObject):
 class DiagnosticsRuntime(BaseApiObject):
     URI = '/mgmt/shared/diagnostics/runtime'
 
-
 # Ref - https://confluence.pdsea.f5net.com/display/PDBIGIQPLATFORM/Task+Scheduler#
 # Ref - https://confluence.pdsea.f5net.com/display/PDCLOUD/TaskSchedulerAPI
+
+
+class Diagnostics(BaseApiObject):
+    URI = '/mgmt/shared/diagnostics'
+
+    def __init__(self, *args, **kwargs):
+        super(Diagnostics, self).__init__(*args, **kwargs)
+        self.setdefault('operationTracingLevel', 'FINE')
+        self.setdefault('traceLimitPerWorker', 100)
+        self.setdefault('frameworkLogLevel', 'FINE')
+        self.setdefault('workerLogLevel', 'INFO')
+        self.setdefault('isRestartRequest', True)
+
+
+class DiagnosticsTraces(BaseApiObject):
+    URI = '/mgmt/shared/diagnostics/traces'
+
+    def __init__(self, *args, **kwargs):
+        super(DiagnosticsTraces, self).__init__(*args, **kwargs)
+        self.setdefault('operationTracingLevel', 'FINE')
+        self.setdefault('traces', '')
+        self.setdefault('traceLimitPerWorker', 100)
+
+
+class DiagnosticsLogs(BaseApiObject):
+    URI = '/mgmt/shared/diagnostics/logs'
+
+
+class DiagnosticsTopAggrTraceStats(BaseApiObject):
+    URI = '/mgmt/shared/diagnostics/top-aggregated-trace-stats'
+
+
 class TaskScheduler(BaseApiObject):
     """defauults on the Task Schedule Payload"""
     URI = '/mgmt/shared/task-scheduler/scheduler'
@@ -631,13 +663,13 @@ class AvrTask(Task):
                    timeout_message=timeout_message,
                    condition=lambda x: x.status not in ('STARTED',),
                    progress_cb=lambda x: 'Status: {0}'.format(x.status))
-        assert ret.status == 'FINISHED', "{0.status}:{0.error}".format(ret)
+        assert ret.status == 'FINISHED', "{0.status}:{0.errorMessage}".format(ret)
         return ret
 
 
 # Ref - https://confluence.pdsea.f5net.com/display/PDCLOUD/AnalyticsDesign
 class AvrAggregationTasks(BaseApiObject):
-# avrAggregationTask is a singleton created by restjavad. It's created at startup and no need to delete it
+    # avrAggregationTask is a singleton created by restjavad. It's created at startup and no need to delete it
     URI = "/mgmt/shared/analytics/avr-aggregation-tasks"
     ITEM_URI = "/mgmt/shared/analytics/avr-aggregation-tasks/%s"
 
@@ -654,6 +686,7 @@ class GroupTask(Task):
         self.setdefault('taskReference', Reference())
         self.setdefault('taskBody', {})
 
+
 class WorkingLtmNode(BaseApiObject):
     URI = '/mgmt/cm/shared/config/working/ltm/node'
 
@@ -666,6 +699,7 @@ class WorkingLtmNode(BaseApiObject):
         self.setdefault('deviceReference', Reference())
         self.setdefault('monitor', '/Common/icmp')
 
+
 class WorkingLtmPool(BaseApiObject):
     URI = '/mgmt/cm/shared/config/working/ltm/pool'
 
@@ -676,6 +710,7 @@ class WorkingLtmPool(BaseApiObject):
         self.setdefault('partition', '')
         self.setdefault('deviceReference', Reference())
         self.setdefault('monitor', '/Common/http')
+
 
 class WorkingLtmPoolMember(BaseApiObject):
     URI = '/mgmt/cm/shared/config/working/ltm/pool/%s/members'
@@ -690,10 +725,23 @@ class WorkingLtmPoolMember(BaseApiObject):
         self.setdefault('nodeReference', Reference())
         self.setdefault('monitor', 'default')
 
+class WorkingLtmVirtualAddress(BaseApiObject):
+    URI = '/mgmt/cm/shared/config/working/ltm/virtual-address'
+
+    def __init__(self, *args, **kwargs):
+        super(WorkingLtmVirtualAddress, self).__init__(*args, **kwargs)
+        self.setdefault('name', '')
+        self.setdefault('address', '')
+        self.setdefault('mask', '')
+        self.setdefault('subPath', '')
+        self.setdefault('partition', '')
+        self.setdefault('deviceReference', Reference())
+
 class SourceAddressTranslation(AttrDict):
     def __init__(self, *args, **kwargs):
         super(SourceAddressTranslation, self).__init__(*args, **kwargs)
         self.setdefault('type', 'automap')
+
 
 class WorkingLtmVip(BaseApiObject):
     URI = '/mgmt/cm/shared/config/working/ltm/virtual'
@@ -711,7 +759,16 @@ class WorkingLtmVip(BaseApiObject):
         self.setdefault('enabled', True)
         self.setdefault('translateAddress', 'enabled')
         self.setdefault('translatePort', 'enabled')
-        self.setdefault('sourceAddressTranslation', SourceAddressTranslation())
+        self.setdefault('sourceAddressTranslation', SourceAddressTranslation()),
+        # the following are added for virtual server modeling
+        self.setdefault('ipProtocol', ''),
+        self.setdefault('iRuleReferences', ReferenceList()),
+        self.setdefault('isMirrorEnabled', False),
+        self.setdefault('virtualAddressReference', Reference()),
+        self.setdefault('destinationPort', ''),
+        self.setdefault('subPath', ''),
+        self.setdefault('mask', '')
+
 
 class SnapshotTask(Task):
     URI = "/mgmt/shared/snapshot-task"
@@ -720,6 +777,7 @@ class SnapshotTask(Task):
         super(SnapshotTask, self).__init__(*args, **kwargs)
         self.setdefault('name', '')
         self.setdefault('collectionReferences', ReferenceList())
+
 
 class ConfigDeploy(Task):
     """ This can be used to do ADC deployment """
@@ -733,6 +791,14 @@ class ConfigDeploy(Task):
         self.setdefault('kindTransformMappings', [])
         self.setdefault('deviceReference', Reference())
 
+class RefreshCurrentConfig(Task):
+    URI = '/mgmt/cm/shared/config/refresh-current-config'
+
+    def __init__(self, *args, **kwargs):
+        super(RefreshCurrentConfig, self).__init__(*args, **kwargs)
+        self.setdefault('configPaths', [])
+        self.setdefault('deviceReference', Reference())
+
 class RefreshWorkingConfig(Task):
     URI = '/mgmt/cm/shared/config/refresh-working-config'
 
@@ -741,3 +807,9 @@ class RefreshWorkingConfig(Task):
         self.setdefault('configPaths', [])
         self.setdefault('deviceReference', Reference())
 
+
+class DeviceAvailability(BaseApiObject):
+    URI = '/mgmt/shared/device-availability'
+
+    def __init__(self, *args, **kwargs):
+        super(DeviceAvailability, self).__init__(*args, **kwargs)

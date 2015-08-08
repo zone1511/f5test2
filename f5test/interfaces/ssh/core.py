@@ -44,6 +44,10 @@ class SSHInterface(Interface):
             raise SSHInterfaceError('Operation not permitted on a closed interface.')
         return self.api.run(command)
 
+    def __repr__(self):
+        name = self.__class__.__name__
+        return "<{0}: {1.username}:{1.password}@{1.address}:{1.port}/?timeout={1.timeout}&key_filename={1.key_filename}>".format(name, self)
+
     def is_opened(self):
         return self.api and self.api.is_connected()
 

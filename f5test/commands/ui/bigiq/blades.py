@@ -33,6 +33,10 @@ class Activate(SeleniumCommand):  # @IgnorePep8
         module = b.find_element_by_id('navMenuCurrentLink').text
         submodule = b.find_element_by_css_selector('#navMenuSublinks .active').text
         path = "%s|%s" % (module, submodule)
+        bits = self.name.split('|')
+        if len(bits) > 1 and bits[1] == '+':
+            self.name = bits[0]
+            self.add = True
         if version >= 'bigiq 4.4' and path not in ('Cloud|Overview',
                                                    'Security|Web Application Security') \
            or version >= 'bigiq 4.5' and path not in ('Security|Web Application Security'):
@@ -41,18 +45,19 @@ class Activate(SeleniumCommand):  # @IgnorePep8
             header = blade.find_element_by_css_selector('.panelHeader')
             if blade.tag_name == 'dockedpanel':
                 header.jquery_click()
-                #b.execute_script("return arguments[0].click()", header)
             blade = b.wait("//panel[div[descendant::*[contains(@class, 'panelHeader ') and descendant::*[text()='%s']]]]" % self.name, By.XPATH)
 
             if self.add:
+                bits = [] if self.add is True else self.add.split('|')
                 plus = blade.find_element_by_css_selector('.panelAddButton')
                 plus.jquery_click()
-                #b.jquery_click("return arguments[0].click()", plus)
-                menu = blade.wait('.dropdown-menu', By.CSS_SELECTOR)
+                if len(bits) > 1:
+                    menu = blade.wait('.dropdown-menu', By.CSS_SELECTOR)
 
-                item = menu.find_element_by_css_selector('a.fntSemibold')
-                item.click()
+                    item = menu.find_element_by_xpath("//a[text()='%s']" % bits[1])
+                    item.click()
                 blade.wait("flyout", By.CSS_SELECTOR)
+
         else:
             blade_xpath = "//div[contains(@class, 'blade ') and descendant::div[contains(@class, 'headerLabel') and text()='%s']]"
             blade = b.find_element_by_xpath(blade_xpath % self.name)

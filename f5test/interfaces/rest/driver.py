@@ -98,6 +98,11 @@ class BaseRestResource(Resource):
     default_content_type = 'application/json'
     verbose = False
 
+    def __init__(self, *args, **kwargs):
+        self.default_params = None
+        self.default_params_condition = None
+        return super(BaseRestResource, self).__init__(*args, **kwargs)
+
     @staticmethod
     def _parse_json(data):
         if not json or isinstance(data, basestring):
@@ -115,8 +120,23 @@ class BaseRestResource(Resource):
         common_indent = {
             'application/json': RestResource._parse_json,
             'application/xml': RestResource._parse_xml,
+            'multipart/form-data': lambda x: x,
         }
         return common_indent.get(mimetype, str)(data)
+
+    def patch(self, path=None, payload=None, headers=None,
+              params_dict=None, **params):
+        """HTTP PATCH
+
+        See POST for params description.
+        """
+        return self.request("PATCH", path=path, payload=payload,
+                            headers=headers, params_dict=params_dict, **params)
+
+    def set_default_params(self, condition=None, **params):
+        if callable(condition):
+            self.default_params_condition = condition
+        self.default_params = params
 
     def request(self, method, path=None, payload=None, headers=None,
                 params_dict=None, raw=False, **params):
@@ -138,6 +158,14 @@ class BaseRestResource(Resource):
                 else mimetype_from_headers(headers)
             payload = BaseRestResource._parse(mimetype, payload)
 
+        if self.default_params is not None:
+            condition = True
+            if self.default_params_condition is not None:
+                condition = self.default_params_condition(path)
+            if condition:
+                params_dict = params_dict or {}
+                params_dict.update(self.default_params)
+
         wrapped_response = response = None
         try:
             response = super(BaseRestResource, self).request(method, path=path,
@@ -157,10 +185,11 @@ class BaseRestResource(Resource):
                 credentials = ''
             log = STDOUT if self.verbose else LOG
             if response is not None:
-                log.debug(CURL_LOG.format(method=method, uri=self.uri,
-                                          path=path, url=response.final_url,
-                                          credentials=credentials,
-                                          payload=(response.request.body or '').replace("'", "\\'"))[:MAX_LINE_LENGTH])
+                if isinstance(response.request.body, (type(None), basestring)):
+                    log.debug(CURL_LOG.format(method=method, uri=self.uri,
+                                              path=path, url=response.final_url,
+                                              credentials=credentials,
+                                              payload=(response.request.body or '').replace("'", "\\'"))[:MAX_LINE_LENGTH])
             if wrapped_response is not None:
                 log.debug(wrapped_response.body[:MAX_LINE_LENGTH])
 

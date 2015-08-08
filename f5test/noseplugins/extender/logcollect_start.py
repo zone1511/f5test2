@@ -3,6 +3,8 @@ Created on Sep 4, 2014
 
 This plugin collects logs from all devices used during a failed/errored test.
 
+IT: The MemoryHandler needs a lot of rework.
+
 @author: jono
 '''
 import base64
@@ -13,6 +15,8 @@ import os
 import sys
 import threading
 import traceback
+import jinja2
+import re
 
 from nose.plugins import logcapture
 from nose.plugins.base import Plugin
@@ -28,7 +32,9 @@ LOG = logging.getLogger(__name__)
 STDOUT = logging.getLogger('stdout')
 CONSOLE_LOG = 'console.log'
 SESSION_LOG = 'session.log'
-TEST_LOG = 'test.log'
+TEST_HTML = 'test_log.html'
+SAFE_LEVEL = 1
+HREF_TMPL = r'<a href="https://indexing.f5net.com/source/xref/emtest/\2#\3">\1</a>'
 INC_TEST_ATTRIBUTES = ('author', 'rank')
 CONTEXT_NAME = __name__
 
@@ -48,6 +54,28 @@ class MyFileHandler(logging.FileHandler):
     def filter(self, record):
         if self.filterset.allow(record.name):
             return super(MyFileHandler, self).filter(record)
+
+
+class RawMemoryHandler(logcapture.MyMemoryHandler):
+    TEMPLATE = 'log_html.tmpl'
+
+    def __init__(self, level=logging.NOTSET):
+        logging.Handler.__init__(self, level)
+        self.buffer = []
+        loader = jinja2.PackageLoader(__package__)
+        env = jinja2.Environment(loader=loader, autoescape=True)
+        self.template = env.get_template(self.TEMPLATE)
+
+    def filter(self, record):
+        return logging.Handler.filter(self, record)
+
+    def emit(self, record):
+        self.buffer.append(record)
+
+    def commit(self, filename):
+        text = self.template.render(buffer=self.buffer)
+        with open(filename, "wt") as f:
+            f.write(text.encode('utf-8'))
 
 
 class LoggingProxy(object):
@@ -211,7 +239,9 @@ class LogCollect(ExtendedPlugin):
                     f = f.f_back
                     continue
                 rv = (co.co_filename, f.f_lineno, co.co_name)
-                logger.name = getmodule(f).__name__
+                module = getmodule(f)
+                if module:
+                    logger.name = module.__name__
                 break
             return rv
 
@@ -245,17 +275,16 @@ class LogCollect(ExtendedPlugin):
         for handler in root_logger.handlers[:]:
             if isinstance(handler, logcapture.MyMemoryHandler):
                 root_logger.handlers.remove(handler)
-        root_logger.addHandler(self.handler)
+        root_logger.addHandler(self.handler_html)
         # to make sure everything gets captured
         loglevel = getattr(self, "loglevel") or "NOTSET"
         root_logger.setLevel(getattr(logging, loglevel))
 
     def formatLogRecords(self):
-        return map(safe_str, self.handler.buffer)
+        return map(safe_str, self.handler_html.buffer)
 
     def start(self):
-        self.handler = logcapture.MyMemoryHandler(self.logformat, self.logdatefmt,
-                                                  self.filters)
+        self.handler_html = RawMemoryHandler()
         self.setupLoghandler()
 
     def begin(self):
@@ -280,7 +309,6 @@ class LogCollect(ExtendedPlugin):
         handler.setFormatter(fmt)
         root_logger.addHandler(handler)
 
-        #STDOUT.info('Session path: %s', log_dir)
         session = cfgifc.get_session()
         url = session.get_url()
         if url:
@@ -333,7 +361,7 @@ class LogCollect(ExtendedPlugin):
             test_name = test.id()
 
         ih = InterfaceHelper()
-        ih._setup(test_name)
+        ih._setup(test_name.split(':', 1)[0])
         interfaces = ih.get_container(container=INTERFACES_CONTAINER).values()
         extra_files = ih.get_container(container=LOGCOLLECT_CONTAINER)
 
@@ -351,7 +379,6 @@ class LogCollect(ExtendedPlugin):
             return
 
         # Save the test log
-        LOG.debug('Collecting logs...')
         test_root, created = self._get_or_create_dirs(test_name)
         if not created:
             i = 1
@@ -359,7 +386,6 @@ class LogCollect(ExtendedPlugin):
                 test_root, created = self._get_or_create_dirs("%s.%d" % (test_name, i))
                 i += 1
         records = self.formatLogRecords()
-        filename = os.path.join(test_root, TEST_LOG)
         self.context.set_data('test_root', test_root)
         if records:
             # I wish there was a better way to dump a whole "attr container",
@@ -367,19 +393,21 @@ class LogCollect(ExtendedPlugin):
             tmp = test.context if isinstance(test, ContextSuite) else test.test
             test_meta = ["%s: %s" % (k, getattr(tmp, k, None))
                          for k in INC_TEST_ATTRIBUTES]
-            with open(filename, "wt") as f:
-                f.write('\n'.join(records))
-                f.write('\n\n')
 
-                f.write("Test attributes:\n")
-                f.write('\n'.join(test_meta))
-                f.write('\n\n')
+            tmp = "\nTest attributes:\n" + '\n'.join(test_meta) + '\n'
+            LOG.log(SAFE_LEVEL, tmp)
 
-                if err[0] is StageError:
-                    for line in err[1].format_errors():
-                        f.write(line)
-                else:
-                    f.write(''.join(traceback.format_exception(*err)))
+            tmp = ''
+            if err[0] is StageError:
+                for line in err[1].format_errors():
+                    tmp += line
+            else:
+                tmp += ''.join(traceback.format_exception(*err))
+                tmp = re.sub(r'(File ".*?/((?:tests|tests-latest|src)/.*?\.py)", line (\d+))', HREF_TMPL, tmp)
+            LOG.log(SAFE_LEVEL, tmp)
+
+        filename = os.path.join(test_root, TEST_HTML)
+        self.handler_html.commit(filename)
 
         # Sort interfaces by priority.
         interfaces.sort(key=lambda x: x._priority if hasattr(x, '_priority')
@@ -387,6 +415,7 @@ class LogCollect(ExtendedPlugin):
 
         # Tests may define extra files to be picked up by the logcollect plugin
         # in case of a failure.
+        LOG.debug('Collecting logs...')
         for item, local_name in extra_files.iteritems():
             if isinstance(item, tuple):
                 ifc, src = item
@@ -523,12 +552,12 @@ class LogCollect(ExtendedPlugin):
     def startContext(self, context):
         """Clear buffers and handlers before test.
         """
-        self.handler.truncate()
+        self.handler_html.truncate()
 
     def afterTest(self, test):
         sys.stdout.flush()
         sys.stderr.flush()
-        self.handler.truncate()
+        self.handler_html.truncate()
 
     def _logging_leak_check(self, root_logger):
         LOG.debug("Logger leak check...ugh!")

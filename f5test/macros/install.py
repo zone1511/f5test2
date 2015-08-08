@@ -104,8 +104,9 @@ class InstallSoftware(Macro):
 
         timeout = self.options.timeout
         try:
-            SCMD.ssh.GetPrompt(ifc=ssh).run_wait(lambda x: x not in ('INOPERATIVE', '!'),
-                                                 timeout=timeout)
+            SCMD.ssh.GetPrompt(ifc=ssh).\
+                run_wait(lambda x: x not in ('INOPERATIVE', '!'), timeout=timeout,
+                         timeout_message="Timeout ({0}s) waiting for a non-inoperative prompt.")
             SCMD.ssh.FileExists('/var/run/mcpd.pid', ifc=ssh).\
                 run_wait(lambda x: x,
                          progress_cb=lambda x: 'mcpd not up...',
@@ -395,7 +396,8 @@ class InstallSoftware(Macro):
 
             LOG.info('Wait for image to be imported %s', base)
             ICMD.software.GetSoftwareImage(filename=base, ifc=icifc) \
-                         .run_wait(is_available, timeout=timeout)
+                .run_wait(is_available, timeout=timeout,
+                          timeout_message="Timeout ({0}s) while waiting for the software image to be imported.")
 
         if hfiso:
             images = ICMD.software.get_software_image(ifc=icifc, is_hf=True)
@@ -415,7 +417,7 @@ class InstallSoftware(Macro):
 
                 LOG.info('Wait for image to be imported %s', hfbase)
                 ICMD.software.GetSoftwareImage(filename=hfbase, ifc=icifc, is_hf=True) \
-                             .run_wait(is_available)
+                    .run_wait(is_available, timeout_message="Timeout ({0}s) while waiting for the hotfix image to be imported.")
 
         def is_still_removing(items):
             return not any(filter(lambda x: x['status'].startswith('removing'),
@@ -449,6 +451,7 @@ class InstallSoftware(Macro):
                       # CAVEAT: tracks progress only for the first blade
                       progress_cb=lambda x: x[0]['status'],
                       timeout=timeout,
+                      timeout_message="Timeout ({0}s) while waiting software install to finish.",
                       stabilize=10)
 
         LOG.info('Resetting the global DB vars...')
@@ -491,11 +494,9 @@ class InstallSoftware(Macro):
         LOG.info('Wait for box to be ready...')
         ICMD.system.IsServiceUp('MCPD', ifc=icifc).\
             run_wait(timeout=timeout,
-                     timeout_message="Target doesn't seem to be willing to come back up "
-                     "after {0} seconds.")
+                     timeout_message="Timeout ({0}s) while waiting for MCPD to come up")
         ICMD.system.IsServiceUp('TMM', ifc=icifc).\
-            run_wait(timeout_message="Target "
-                     "doesn't seem to be willing to come back up after {0} seconds.")
+            run_wait(timeout_message="Timeout ({0}s) while waiting for TMM to come up")
 
         ICMD.management.GetDbvar('Configsync.LocalConfigTime', ifc=icifc).\
             run_wait(lambda x: int(x) > 0,
@@ -580,7 +581,7 @@ class InstallSoftware(Macro):
                 LOG.info("Found: %s", build)
 
         if self.options.image:
-            filename = self.options.image
+            filename = self.options.image.strip()
         else:
             base_build = None if self.options.phf else build
             filename = cm.isofile(identifier=identifier, build=base_build,
@@ -588,7 +589,7 @@ class InstallSoftware(Macro):
                                   root=self.options.build_path)
 
         if self.options.hfimage:
-            hfiso = self.options.hfimage
+            hfiso = self.options.hfimage.strip()
         elif self.options.phf:
             hfiso = cm.isofile(identifier=identifier, build=build,
                                hotfix=self.options.phf,

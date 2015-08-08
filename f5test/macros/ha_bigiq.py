@@ -8,12 +8,14 @@ from f5test.macros.base import Macro
 from f5test.base import Options
 from f5test.interfaces.rest.emapi import EmapiInterface
 from f5test.interfaces.ssh import SSHInterface
-import f5test.commands.rest as RCMD
-import f5test.commands.shell as SCMD
 from f5test.interfaces.config import (DeviceAccess, DeviceCredential,
                                       ADMIN_ROLE, ROOT_ROLE)
+from f5test.interfaces.rest.emapi.objects.shared import NetworkDiscover
 from f5test.defaults import DEFAULT_PORTS
+import f5test.commands.rest as RCMD
+import f5test.commands.shell as SCMD
 import logging
+import netaddr
 
 DEFAULT_DG = RCMD.device.DEFAULT_ALLBIGIQS_GROUP
 LOG = logging.getLogger(__name__)
@@ -104,8 +106,23 @@ class HABigiqMacro(Macro):
             self.peers = temp
 
     def setup_ha(self):
+        # Setting HA communication address
+        for device in [self.default] + self.peers:
+            LOG.info("Setting up HA Communication: {}".format(device))
+            with EmapiInterface(device=device) as rstifc:
+                self_addr = netaddr.IPAddress(device.get_discover_address())
+                payload = NetworkDiscover()
+                payload.discoveryAddress = self_addr.format(netaddr.
+                                                            ipv6_full)
+                rstifc.api.put(NetworkDiscover.URI, payload=payload)
+
         with EmapiInterface(device=self.default) as rstifc:
-            RCMD.cloud.setup_ha(self.peers, ifc=rstifc)
+            if self.options.ha_passive:
+                LOG.info("Setting up Active/Passive HA")
+                RCMD.system.setup_ha(self.peers, ifc=rstifc)
+            else:
+                LOG.info("Setting up Active/Active HA")
+                RCMD.cloud.setup_ha(self.peers, ifc=rstifc)
 
         with SSHInterface(device=self.default) as sshifc:
             SCMD.bigiq.ha.wait_ha([self.default] + self.peers,
@@ -164,6 +181,10 @@ def main():
                  help="Usage: '<ip1>:<port number>, <ip2>:<port number>'")
     p.add_option("--ssh-ports", type="string", default='',
                  help="Usage: '<ip1>:<port number>, <ip2>:<port number>'")
+
+    p.add_option("", "--ha-passive",
+                 action="store_true",
+                 help="Active/Passive (4.6.0+) Active/Standby (pre-4.6.0) HA?")
 
     options, args = p.parse_args()
 

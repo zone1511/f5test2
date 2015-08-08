@@ -28,11 +28,13 @@ STATUS_NEW = 'NEW'
 STATUS_RESOLVED = 'Resolved'
 OPEN_BUG_STATES = ['New', 'Accepted', 'Reopened']
 FOUND_BY = 'Test Automation'
+TYPE = 'Test Case'
 BZ_KEYWORD = 'TestRunnerFailure'
 REPRODUCIBLE = 'Always'
 MAINTAINER = 'i.turturica@f5.com'
 DEFAULT_RUN_TYPE = 'Adhoc'
 BZ_REGEX = '((?:BZ|BUG)\s*(\d{6}))'
+MAX_LENGTH = 32768
 
 
 def isfail(cls, error_classes):
@@ -61,8 +63,9 @@ class Bugzilla(ExtendedPlugin):
         self.context = ContextHelper(CONTEXT_NAME)
 
         s = options.site
-        self.bzifc = BugzillaInterface(s.url, s.login, s.password, debug=0)
-        self.blocking = set()
+        if s:
+            self.bzifc = BugzillaInterface(s.url, s.login, s.password, debug=0)
+            self.blocking = set()
 
     def guess_component(self, test):
         o = self.options
@@ -114,13 +117,18 @@ class Bugzilla(ExtendedPlugin):
             var.test_url = var.url
         var.config = cfgifc.api
         var.author = author
-        var.traceback = ''.join(traceback.format_exception(*err))
+        var.traceback = ''.join(traceback.format_exception(*err))[:MAX_LENGTH]
         var.maintainer = MAINTAINER
 
         # Search for an existing OPEN bug first.
         payload = AttrDict()
         # payload.token = self.bzifc.token  # For Bugzilla 4.4.6+
-        payload.version = o.version.get(dut.version.version, DEFAULT_VERSION)
+        for pattern, field_value in o.version.items():
+            if re.search(pattern, str(dut.version)):
+                payload.version = field_value
+                break
+        else:
+            payload.version = DEFAULT_VERSION
 
         payload.status = OPEN_BUG_STATES + [STATUS_RESOLVED]
         # Using a hidden/unused custom field to store a hash that describes the
@@ -179,7 +187,7 @@ class Bugzilla(ExtendedPlugin):
             payload.classification = o.classification
             payload.severity = o.severity
             payload.priority = o.priority
-            payload.cf_branch = self.data.dut.get('project', DEFAULT_BRANCH)
+            #payload.cf_branch = self.data.dut.get('project', DEFAULT_BRANCH)
             payload.url = session.get_url()
             payload.cc = o.cc
             payload.assigned_to = author
@@ -190,8 +198,10 @@ class Bugzilla(ExtendedPlugin):
             payload.cf_foundon = payload.version
             payload.cf_build = self.data.dut.version.build
             payload.cf_foundby = FOUND_BY
+            payload.cf_type = TYPE
             payload.cf_reproducible = REPRODUCIBLE
             try:
+                LOG.debug("payload: %s", payload)
                 ret = self.bzifc.api.Bug.create(payload)
                 LOG.info("Bug {} created.".format(ret.id))
             except xmlrpclib.Fault, e:

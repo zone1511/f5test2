@@ -8,6 +8,7 @@ import logging
 from nose.config import _bool
 
 import f5test.commands.shell as SCMD
+import f5test.commands.rest as RCMD
 
 from ...interfaces.ssh import SSHInterface
 from ...macros.base import Macro
@@ -90,3 +91,54 @@ class TweaksStage(Stage, Macro):
                 for command in commands:
                     ret = sshifc.api.run(command)
                     LOG.debug(ret)
+
+
+class RebootStage(Stage, Macro):
+    """
+    Reboot a device and wait for mcpd/prompt to come back. Optionally wait for
+    restjavad to come up.
+    """
+    name = 'reboot'
+    timeout = 180
+
+    def __init__(self, device, specs=None, *args, **kwargs):
+        self.device = device
+        self.specs = specs
+        self._context = specs.get('_context')
+        super(RebootStage, self).__init__(*args, **kwargs)
+
+    def _wait_after_reboot(self, device):
+        ssh = SSHInterface(device=device)
+
+        timeout = self.timeout
+        try:
+            SCMD.ssh.GetPrompt(ifc=ssh).\
+                run_wait(lambda x: x not in ('INOPERATIVE', '!'), timeout=timeout,
+                         timeout_message="Timeout ({0}s) waiting for a non-inoperative prompt.")
+            SCMD.ssh.FileExists('/var/run/mcpd.pid', ifc=ssh).\
+                run_wait(lambda x: x,
+                         progress_cb=lambda x: 'mcpd not up...',
+                         timeout=timeout)
+            SCMD.ssh.FileExists('/var/run/mprov.pid', ifc=ssh).\
+                run_wait(lambda x: x is False,
+                         progress_cb=lambda x: 'mprov still running...',
+                         timeout=timeout)
+            SCMD.ssh.FileExists('/var/run/grub.conf.lock', ifc=ssh).\
+                run_wait(lambda x: x is False,
+                         progress_cb=lambda x: 'grub.lock still running...',
+                         timeout=timeout)
+            version = SCMD.ssh.get_version(ifc=ssh)
+        finally:
+            ssh.close()
+        return version
+
+    def setup(self):
+        super(RebootStage, self).setup()
+        LOG.info('Reboot stage for: %s', self.device)
+        SCMD.ssh.reboot(device=self.device)
+
+        if self.specs.mcpd and _bool(self.specs.mcpd):
+            self._wait_after_reboot(self.device)
+
+        if self.specs.restjavad and _bool(self.specs.restjavad):
+            RCMD.system.wait_restjavad([self.device])

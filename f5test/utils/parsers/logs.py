@@ -1,12 +1,15 @@
 '''
 Created on Jan 4, 2012
-Modified on: $DateTime: 2014/12/18 13:47:22 $
+Modified on: $DateTime: 2015/05/11 10:06:16 $
 
 @author: jono
 '''
 import re
 import logging
 from f5test.utils.wait import wait
+from f5test.base import AttrDict
+from f5test.interfaces.ssh import SSHInterface
+
 LOG = logging.getLogger(__name__)
 
 
@@ -48,6 +51,52 @@ class LogTester(object):
 
             ret = ssh.run('tail --bytes={0} {1}'.format(delta, self.filename))
             return self.testcb(ret.stdout, self._post_stats)
+
+        if self.timeout:
+            return wait(callback, timeout=self.timeout)
+        else:
+            return callback()
+
+
+class LogsTester(LogTester):
+    """The LogsTester class inherits LogTester and allow you to look at logs
+    from multiple devices.
+    """
+
+    def __init__(self, filename, testcb, devices, timeout=0):
+        self.filename = filename
+        self.testcb = testcb
+        self.timeout = timeout
+        self.devices = devices
+
+    def setup(self):
+        self._pre_stats = AttrDict()
+        for device in self.devices:
+            with SSHInterface(device=device) as ifc:
+                ssh = ifc.api
+                self._pre_stats[device] = ssh.stat(self.filename)
+        return self
+
+    def teardown(self):
+        def callback():
+            ret = AttrDict()
+            self._post_stats = AttrDict()
+
+            for device in self.devices:
+                with SSHInterface(device=device) as ifc:
+                    ssh = ifc.api
+                    self._post_stats[device] = ssh.stat(self.filename)
+
+                    size_before = self._pre_stats[device].st_size
+                    size_after = self._post_stats[device].st_size
+                    delta = size_after - size_before
+                    LOG.debug('delta: %d', delta)
+
+                    resp = ssh.run('tail --bytes={0} {1}'.format(delta,
+                                                                 self.filename))
+                    ret[device] = resp.stdout
+
+            return self.testcb(ret, self._post_stats)
 
         if self.timeout:
             return wait(callback, timeout=self.timeout)

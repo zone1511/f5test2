@@ -9,20 +9,24 @@ import logging
 import os
 import traceback
 import unittest
-from itertools import chain
 
 from ...base import Options
 from . import ExtendedPlugin, PLUGIN_NAME
 
 LOG = logging.getLogger(__name__)
 DEFAULT_FILENAME = 'results.json'
+FAIL = 'FAIL'
+ERROR = 'ERROR'
+PASSED = 'PASSED'
+SKIP = 'SKIP'
+INCLUDE_ATTR = ['module', 'uimode', 'hamode', 'scenario', 'doc']
 
 
 class GarysTool(ExtendedPlugin):
     """
     Generate a json report.
     """
-    enabled = True
+    enabled = False
 
     def options(self, parser, env):
         """Register commandline options."""
@@ -37,7 +41,6 @@ class GarysTool(ExtendedPlugin):
         super(GarysTool, self).configure(options, noseconfig)
         self.filename = options.get('filename', DEFAULT_FILENAME)
         self.data = ContextHelper().set_container(PLUGIN_NAME)
-        self.enabled = noseconfig.options.with_garystool
 
     def report_results(self):
         LOG.info("Reporting results for Gary's tool...")
@@ -47,16 +50,22 @@ class GarysTool(ExtendedPlugin):
         path = d.session.path
         result = d.test_result
         output = Options()
+        total = Options()
 
         def testcases(seq):
             return [x[0] for x in seq if isinstance(x[0], unittest.TestCase)]
 
+        total.failures = result.failures + [(x[0], x[1]) for x in result.blocked.get(FAIL, [])]
+        total.errors = result.errors + [(x[0], x[1]) for x in result.blocked.get(ERROR, [])]
+        total.skipped = result.skipped + [(x[0], x[1]) for x in result.blocked.get(SKIP, [])]
+        if hasattr(result, 'known_issue'):
+            total.failures += result.known_issue
+
         output.summary = Options()
         output.summary.total = result.testsRun
-        output.summary.failed = len(testcases(result.failures))
-        output.summary.errors = len(testcases(result.errors))
-        output.summary.blocked = len(testcases(chain(*result.blocked.values())))
-        output.summary.skipped = len(testcases(result.skipped))
+        output.summary.failed = len(testcases(total.failures))
+        output.summary.errors = len(testcases(total.errors))
+        output.summary.skipped = len(testcases(total.skipped))
 
         output.duration = d.time.delta.total_seconds()
         output.start = int(d.time.start.strftime('%s'))
@@ -73,11 +82,10 @@ class GarysTool(ExtendedPlugin):
         output.testrun_data = d.config.testrun
 
         output.results = []
-        for result, status in [(result.failures, 'FAILED'),
-                               (result.errors, 'ERROR'),
-                               (map(lambda x: x[:2], chain(*result.blocked.values())), 'BLOCKED'),
-                               (result.skipped, 'SKIPPED'),
-                               (d.result.passed, 'PASSED')]:
+        for result, status in [(total.failures, FAIL),
+                               (total.errors, ERROR),
+                               (total.skipped, SKIP),
+                               (d.result.passed, PASSED)]:
             for test, err in result:
                 if not isinstance(test, unittest.TestCase):
                     continue
@@ -104,6 +112,10 @@ class GarysTool(ExtendedPlugin):
                 r.status = status
                 r.author = getattr(test.test, 'author', None)
                 r.rank = getattr(test.test, 'rank', None)
+                r.attrbutes = {}
+                for key in INCLUDE_ATTR:
+                    if hasattr(test.test, key):
+                        r.attrbutes[key] = getattr(test.test, key)
                 r.message = message
                 r.traceback = tb
                 r.loc = loc

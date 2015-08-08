@@ -9,6 +9,16 @@ from f5test.utils.version import Product, Version
 import re
 
 
+def sanitize_atom_path(path):
+    # ATOM sometimes passes ISOs that are not available in Seattle
+    # Example: /build/bigip/project/tmos-bugs/daily/build755.200/BIGIP-tmos-bugs-12.0.0.0.0.755.iso
+    # Convert it to: /build/bigip/project/tmos-bugs/daily/build755.0/BIGIP-tmos-bugs-12.0.0.0.0.755.iso
+    SEATTLE_SUFFIX = '0'
+    if not path:
+        return path
+    return re.sub(r'/build(\d+)\.\d+/', r'/build\1.%s/' % SEATTLE_SUFFIX, path)
+
+
 def file_validator(value, **kwargs):
     return value and os.path.exists(value) or 'File not found'
 
@@ -63,7 +73,9 @@ def min_version_validator(value=None, project=None, hotfix=None, product=Product
                           iso=None, min_ver='bigip 11.4.0', **kwargs):
     if hotfix and 'eng' == hotfix.lower() and not value:
         return 'Invalid ENG hotfix build'
-    if value and project:
+    if iso:
+        isofile = sanitize_atom_path(iso)
+    elif value and project:
         try:
             project2, hotfix2 = split_hf(project)
             isofile = create_finder(identifier=project2, build=value,
@@ -72,8 +84,6 @@ def min_version_validator(value=None, project=None, hotfix=None, product=Product
             if hotfix:
                 return 'Invalid build for {0} hotfix {1}'.format(project, hotfix)
             return 'Invalid build for %s' % project
-    elif iso:
-        isofile = iso
     else:
         raise NotImplementedError('Need build and project or iso')
     iso_version = version_from_metadata(isofile)

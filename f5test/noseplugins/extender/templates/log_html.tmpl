@@ -1,0 +1,78 @@
+<html>
+<head>
+	<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"">
+	<title>Test report</title>
+
+<link rel="stylesheet" href="/media/highlight.js/styles/arta.css">
+<script src="/media/jquery/jquery-1.11.0.min.js"></script>
+<script src="/media/highlight.js/highlight.pack.js"></script>
+
+<style type="text/css">
+body {
+  margin: 0;
+  background: #222;
+}
+
+pre code
+{
+  display: block;
+  padding: 1.5em;
+  background: #222;
+  /*height: 100%;*/
+
+  color: #aaa;
+  border: none;
+  line-height: 20px;
+  font-family: Monaco, Menlo, Consolas, "Courier New", monospace;
+  font-size: 12px;
+}
+
+code.logs > code {
+  min-height: 32px;
+}
+
+code.logs .INFO {
+  color: #00F078;
+}
+
+code.logs .WARNING {
+  color: #FF8033;
+}
+
+code.logs .ERROR {
+  color: #FF0A0A;
+}
+
+code.logs .location {
+  color: #BAD;
+}
+
+code a {
+  color: inherit;
+  text-decoration: inherit;
+}
+
+pre .number {
+  color: #74C2BF;
+}
+pre .keyword {
+  color: #AAAAAA;
+}
+</style>
+</head>
+
+<body>
+<pre class="code"><code class="logs">
+{%- for record in buffer -%}<span class="{{ record.name }}"><span>{{ record.asctime }}</span> <span class="{{ record.levelname }}">{{ record.levelname.rjust(10) }}</span> <span class="location">{{ record.name }}:{{ record.lineno }}</span> <span class="message language-python">{{ record.message|safe if record.levelno < 10 else record.message }}</span></span>
+{% endfor -%}
+</code>
+</pre>
+
+<script>
+$('.message').each(function(i, block) {
+  hljs.highlightBlock(block);
+});
+</script>
+
+</body>
+</html>

@@ -88,3 +88,24 @@ class DeviceGroup(BaseApiObject):
 
     def __init__(self, *args, **kwargs):
         super(DeviceGroup, self).__init__(*args, **kwargs)
+
+
+class VirtualServer(BaseApiObject):
+    URI = '/mgmt/tm/ltm/virtual'
+
+    def __init__(self, *args, **kwargs):
+        super(VirtualServer, self).__init__(*args, **kwargs)
+
+
+class Node(BaseApiObject):
+    URI = '/mgmt/tm/ltm/node'
+
+    def __init__(self, *args, **kwargs):
+        super(Node, self).__init__(*args, **kwargs)
+
+
+class IApp(BaseApiObject):
+    URI = '/mgmt/tm/cloud/services/iapp'
+
+    def __init__(self, *args, **kwargs):
+        super(IApp, self).__init__(*args, **kwargs)

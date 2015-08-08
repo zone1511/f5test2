@@ -27,6 +27,8 @@ from f5test.commands.shell import WIPE_STORAGE
 import logging
 import re
 import sys
+import os
+import csv
 
 __version__ = 2.0
 
@@ -50,30 +52,7 @@ LOG = logging.getLogger(__name__)
 
 # All known 172.27.XXX.0/24 subnets tangent to the VLAN1011.
 # This is used for VS address allocation.
-SUBNET_MAP = dict([(y, x) for x, y in enumerate(('172.27.27.0/24',
-                                                 '172.27.58.0/24',
-                                                 '172.27.62.0/24',
-                                                 '172.27.63.0/24',
-                                                 '172.27.65.0/24',
-                                                 '172.27.90.0/24',
-                                                 '172.27.91.0/24',
-                                                 '172.27.92.0/24',
-                                                 '172.27.93.0/24',
-                                                 '172.27.94.0/24',
-                                                 '172.27.95.0/24',
-                                                 '172.27.96.0/24',
-                                                 '172.27.97.0/24',
-                                                 '172.27.59.0/24',
-                                                 '172.27.11.0/24',
-                                                 '172.27.29.0/24',
-                                                 '10.145.192.0/18',  # XXX: Overlaps the next ones!
-                                                 '172.27.98.0/24',
-                                                 '172.27.76.0/24',
-                                                 '172.31.0.0/20',  # EC2_AD
-                                                 '172.31.16.0/20',  # EC2_AD
-                                                 '172.31.32.0/20',  # EC2_AD
-                                                 '172.27.66.128/25',  # ESX4
-                                                 ))])
+SUBNET_MAP = dict([(y, x) for x, y in enumerate([])])
 
 
 class ConfigPlacer(Macro):
@@ -132,6 +111,50 @@ class ConfigPlacer(Macro):
         self.has.lvm = has_lvm
 
         super(ConfigPlacer, self).__init__(*args, **kwargs)
+
+    def csv_provider(self, mgmtip):
+        """
+        Get the static data for a device with a given mgmtip from a CSV file.
+        """
+        venv_path = os.environ['VIRTUAL_ENV']
+        csv_location = venv_path + self.options.csv
+
+        data = O()
+        with open(csv_location, 'rb') as csvfile:
+            reader = csv.DictReader(csvfile)
+
+            device_row = None
+            for row in reader:
+                # Clean up whitespaces
+                row = {x.strip(): y.strip() for x, y in row.iteritems()}
+                if IPAddress(mgmtip) == IPNetwork(row['mgmtip']).ip:
+                    device_row = row
+                    break
+
+            if device_row:
+                if 'hostname' in device_row and device_row['hostname']:
+                    data.hostname = device_row['hostname']
+
+                data.licenses = {}
+                if 'reg_key' in device_row and device_row['reg_key']:
+                    data.licenses.reg_key = [device_row['reg_key']]
+
+                data.selfip = {}
+                if 'internal' in device_row and device_row['internal']:
+                    data.selfip.internal = IPNetwork(device_row['internal'])
+                if 'external' in device_row and device_row['external']:
+                    data.selfip.external = IPNetwork(device_row['external'])
+
+                if 'gateway' in device_row and device_row['gateway']:
+                    data.gateway = IPAddress(device_row['gateway'])
+
+                data.mgmtip = IPNetwork(device_row['mgmtip'])
+
+            else:
+                LOG.warning("No devices with mgmtip=%s found in CSV." % mgmtip)
+
+            LOG.debug(data)
+            return data
 
     def irack_provider(self, address, username, apikey, mgmtip, timeout=120):
         """Get the static data for a device with a given mgmtip from iRack."""
@@ -204,6 +227,7 @@ class ConfigPlacer(Macro):
         ctx.status = SCMD.ssh.GetPrompt(ifc=self.sshifc)\
             .run_wait(lambda x: x not in ('INOPERATIVE',),
                       progress_cb=lambda x: 'Still %s...' % x,
+                      timeout_message="Timeout ({0}s) waiting for an non-inoperative prompt.",
                       timeout=self.options.timeout)
 
         if self.can.provision(ctx.version):
@@ -485,9 +509,9 @@ class ConfigPlacer(Macro):
         LOG.info('Waiting for Active prompt...')
         s = SCMD.ssh.GetPrompt(ifc=self.sshifc)\
             .run_wait(lambda x: x in ('Active', 'Standby', 'ForcedOffline',
-                                      'restjavad DOWN',  # TODO: Remove when BZ506400 is fixed!
                                       'RESTART DAEMONS', 'REBOOT REQUIRED'),
                       progress_cb=lambda x: 'Still not active (%s)...' % x,
+                      timeout_message="Timeout ({0}s) waiting for an 'Active' prompt.",
                       timeout=timeout)
 
         if s == 'RESTART DAEMONS':
@@ -594,12 +618,13 @@ class ConfigPlacer(Macro):
             LOG.info('Skipping auto VIP generation.')
             return
 
-        if not isinstance(selfip_external, IPNetwork):
-            selfip_external = IPNetwork(selfip_external)
+        if selfip_external:
+            if not isinstance(selfip_external, IPNetwork):
+                selfip_external = IPNetwork(selfip_external)
 
-        if selfip_external.prefixlen == 32:
-                LOG.info('Self IP external has no prefix. Assuming /16.')
-                selfip_external.prefixlen = 16
+            if selfip_external.prefixlen == 32:
+                    LOG.info('Self IP external has no prefix. Assuming /16.')
+                    selfip_external.prefixlen = 16
 
         if vip_start is None:
             # '1.1.1.1/24' -> '1.1.1.0/24'
@@ -635,8 +660,8 @@ class ConfigPlacer(Macro):
                             'Provide --license <regkey>')
 
         # Status could be '' in some situations when the license is invalid.
-        if regkey and \
-           ctx.status in ['LICENSE INOPERATIVE', 'NO LICENSE', '']:
+        if regkey and (ctx.status in ['LICENSE INOPERATIVE', 'NO LICENSE', '']
+                       or self.options.get('force_license')):
             LOG.info('Licensing...')
             self.call('SOAPLicenseClient --verbose --basekey %s' % regkey)
             # We need to re-set the modules based on the new license
@@ -673,13 +698,18 @@ class ConfigPlacer(Macro):
             self.call(WIPE_STORAGE)
 
     def setup(self):
-        irack = O()
-        if not self.options.no_irack:
-            irack = self.irack_provider(address=self.options.irack_address,
-                                        username=self.options.irack_username,
-                                        apikey=self.options.irack_apikey,
-                                        mgmtip=self.address,
-                                        timeout=self.options.timeout)
+        provider = O()
+        if not self.options.no_irack and not self.options.csv:
+            LOG.info("Using data from iRack")
+            provider = self.irack_provider(address=self.options.irack_address,
+                                           username=self.options.irack_username,
+                                           apikey=self.options.irack_apikey,
+                                           mgmtip=self.address,
+                                           timeout=self.options.timeout)
+        elif self.options.csv:
+            LOG.info("Using data from CSV: %s" % self.options.csv)
+            provider = self.csv_provider(mgmtip=self.address)
+
         ctx = self.make_context()
 
         # System
@@ -692,20 +722,20 @@ class ConfigPlacer(Macro):
         o.ntpservers = NTP_SERVERS if self.options.ntp_servers is None else \
             self.options.ntp_servers
         o.smtpserver = 'mail.f5net.com'
-        o.hostname = self.options.hostname or irack.get('hostname')
+        o.hostname = self.options.hostname or provider.get('hostname')
         o.timezone = self.options.timezone
         self.set_networking(o)
         self.set_provisioning(o)
         self.set_users(o)
-        if irack.mgmtip and (o.mgmtip.ip != irack.mgmtip.ip or
-                             o.mgmtip.cidr != irack.mgmtip.cidr):
-            LOG.warning('Management address mismatch. iRack has {0} but found {1}. iRack will take precedence.'.format(irack.mgmtip, o.mgmtip))
-            o.mgmtip = irack.mgmtip
+        if provider.mgmtip and (o.mgmtip.ip != provider.mgmtip.ip or
+                                o.mgmtip.cidr != provider.mgmtip.cidr):
+            LOG.warning('Management address mismatch. iRack/CSV has {0} but found {1}. iRack/CSV will take precedence.'.format(provider.mgmtip, o.mgmtip))
+            o.mgmtip = provider.mgmtip
         mgmtip = o.mgmtip
 
-        if irack.gateway and o.gateway != irack.gateway:
-            LOG.warning('Default gateway address mismatch. iRack has {0} but found {1}. iRack will take precedence.'.format(irack.gateway, o.gateway))
-            o.gateway = irack.gateway
+        if provider.gateway and o.gateway != provider.gateway:
+            LOG.warning('Default gateway address mismatch. iRack/CSV has {0} but found {1}. iRack/CSV will take precedence.'.format(provider.gateway, o.gateway))
+            o.gateway = provider.gateway
         tree = self.SystemConfig(self.context, **o).run()
 
         if self.options.clean:
@@ -719,7 +749,7 @@ class ConfigPlacer(Macro):
             # Licensing may need to resolve the license server hostname.
             if self.can.tmsh(ctx.version):
                 self.call('tmsh modify sys dns name-servers add { %s }' % ' '.join(o.nameservers))
-            self.license(ctx, self.options.license or irack and irack.licenses.reg_key[0])
+            self.license(ctx, self.options.license or provider and provider.licenses.reg_key[0])
 
         if self.options.clean:
             self.reset_trust()
@@ -730,8 +760,8 @@ class ConfigPlacer(Macro):
         o.tree = tree
         self.set_vlans(o)
         o.selfips = {}
-        selfip_internal = self.options.selfip_internal or irack and irack.selfip.internal
-        selfip_external = self.options.selfip_external or irack and irack.selfip.external
+        selfip_internal = self.options.selfip_internal or provider and provider.selfip.internal
+        selfip_external = self.options.selfip_external or provider and provider.selfip.external
         if selfip_internal:
             o.selfips.internal = [O(address=selfip_internal)]
             # o.selfips.internal.append(O(address=ip4to6(selfip_internal), name='int_6'))
@@ -869,6 +899,8 @@ def main(*args, **kwargs):
         p.add_option("", "--license", metavar="REGKEY",
                      type="string",
                      help="Set the license")
+        p.add_option("", "--force_license", action="store_true", default=False,
+                     help="License using a provided reg key. (default: no)")
         p.add_option("", "--timezone", metavar="ZONE",
                      type="string",
                      help="Set the timezone. (e.g. 'America/Los Angeles')")
@@ -907,6 +939,9 @@ def main(*args, **kwargs):
         p.add_option("", "--no-irack",
                      action="store_true",
                      help="Don't attempt to connect to iRack. Useful when network connectivity is not available.")
+        p.add_option("", "--csv",
+                     type="string", default="",
+                     help="Specify the CSV file you want to use. Ex. /config/users/shared/my_file.csv")
         p.add_option("", "--timeout",
                      default=DEFAULT_TIMEOUT, type="int",
                      help="The SSH timeout. (default: %d)" % DEFAULT_TIMEOUT)

@@ -356,6 +356,7 @@ class Connection(paramiko.SSHClient):
             mode = 'w'
 
         if not found:
+            LOG.debug('Doing key exchange...')
             f = sftp.open(filename, mode)
             f.write('\n%s %s %s' % (key.get_name(), hkey, name))
             f.close()

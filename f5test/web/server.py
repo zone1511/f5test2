@@ -11,7 +11,9 @@ from celery.backends.cache import get_best_memcache
 from f5test.base import AttrDict
 from f5test.defaults import ADMIN_USERNAME
 from f5test.web.tasks import nosetests, add, confgen, install, ictester, MyAsyncResult
-from f5test.web.validators import validators, min_version_validator
+from f5test.web.validators import validators, min_version_validator, sanitize_atom_path
+from f5test.utils.cm import isofile, version_from_metadata
+from f5test.utils.exbuilder.python import Literal, String, In, Or
 
 
 # from gevent import monkey; monkey.patch_all()
@@ -100,6 +102,12 @@ def bvt_deviso_view(task_id=None):
     return AttrDict(name='Hello world')
 
 
+@app.get('/bvt/emdeviso')
+@bottle.jinja2_view('bvt_emdeviso', template_lookup=TEMPLATE_DIR)
+def bvt_emdeviso_view(task_id=None):
+    return AttrDict(name='Hello world')
+
+
 @app.get('/tester/icontrol')
 @bottle.jinja2_view('tester_icontrol', template_lookup=TEMPLATE_DIR)
 def tester_icontrol_view(task_id=None):
@@ -117,6 +125,26 @@ def config_view(task_id=None):
 @bottle.jinja2_view('install', template_lookup=TEMPLATE_DIR)
 def install_view(task_id=None):
     return AttrDict(name='Hello world')
+
+
+@app.get('/deobfuscator')
+@bottle.jinja2_view('deobfuscator', template_lookup=TEMPLATE_DIR)
+def simple_decrypter_view():
+    return AttrDict(name='Hello world')
+
+
+@app.post('/deobfuscator')
+def simple_decrypter_post():
+    from Crypto.Cipher import DES
+    from base64 import b64decode
+    unpad = lambda s: s[0:-ord(s[-1])]  # @IgnorePep8
+    data = AttrDict(bottle.request.json)
+    try:
+        i = data.input.decode('unicode_escape')
+        ret = unpad(DES.new('GhVJDUfx').decrypt(b64decode(i)))
+    except Exception, e:
+        return dict(input=str(e))
+    return dict(input=ret)
 
 
 @app.post('/add')
@@ -322,15 +350,11 @@ def bvt_bigiq_post():
 
     args.append('--tc-file={VENV}/%s' % CONFIG_FILE)
     args.append('--tc=stages.enabled:1')
-    # For bigtime
-    # args.append('--attr=status=CONFIRMED,priority=1')
-    # args.append('--eval-attr=status is not "DISABLED"')
     # For chuckanut++
     args.append('--eval-attr=rank >= 5 and rank <= 10')
     args.append('--with-email')
     args.append('--with-bvtinfo')
     args.append('--with-irack')
-    # args.append('{VENV}/%s' % TEST_ROOT_STABLE)
     args.append('{VENV}/%s' % CONFIG.paths.tc)
 
     v = plugins.email.variables
@@ -356,23 +380,12 @@ def bvt_deviso_post():
               'dev-cloud': '%s/cloud/external/restservicebus.py' % CONFIG.paths.current
               }
     CONFIG_FILE = 'config/shared/web_deviso_request.yaml'
-    # BIGIP_VERSION = '11.5.0'
-    # BIGIP_HOTFIX = None
-    # BIGIP_BUILD = None
 
     # For people who don't like to set the application/json header.
     data = AttrDict(json.load(bottle.request.body))
     # data = bottle.request.json
     data._referer = bottle.request.url
 
-#    with IrackInterface(address=CONFIG.irack.address,
-#                        timeout=30,
-#                        username=CONFIG.irack.username,
-#                        password=CONFIG.irack.apikey,
-#                        ssl=False) as irack:
-#        config_dir = os.path.dirname(CONFIG_FILE)
-#        harness_files = [os.path.join(config_dir, x) for x in CONFIG.web.harnesses]
-#        our_config = RCMD.irack.pick_best_harness(harness_files, ifc=irack)
     our_config = AttrDict(yaml.load(open(get_harness('bigiq')).read()))
 
     # Prepare placeholders in our config
@@ -387,34 +400,134 @@ def bvt_deviso_post():
     plugins.email.to.extend(CONFIG.web.recipients)
 
     # Set version and build in the install stage
-    if data['iso']:
+    v = None
+    if data.get('iso'):
         params = our_config.stages.main.setup['install'].parameters
         params['custom iso'] = data['iso']
+        v = version_from_metadata(data['iso'])
 
-    # params = our_config.stages.main.setup['install-bigips'].parameters
-    # params.version = BIGIP_VERSION
-    # params.hotfix = BIGIP_HOTFIX
-    # params.build = BIGIP_BUILD
+    if data.get('hfiso'):
+        params = our_config.stages.main.setup['install'].parameters
+        params['custom hf iso'] = data['hfiso']
+        v = version_from_metadata(data['hfiso'])
+        # Find the RTM ISO that goes with this HF image.
+        if not data.get('iso'):
+            params['custom iso'] = isofile(v.version, product=str(v.product))
 
     args = []
     args[:] = NOSETESTS_ARGS
 
+    rank = Literal('rank')
+    expr = (rank > Literal(0)) & (rank < Literal(11))
+    # Include all migrated tests, example: functional/standalone/security/migrated/...
+    # Assumption is that all tests are rank=505
+    expr |= rank == Literal(505)
+    # Only Greenflash tests have extended attributes
+    if v is None or v >= 'bigiq 4.5':
+        # build hamode argument
+        if data.ha:
+            hamode = Literal('hamode')
+            expr2 = Or()
+            for x in data.ha:
+                if x != 'standalone':
+                    expr2 += [In(String(x.upper()), hamode)]
+            if 'standalone' in data.ha:
+                expr &= (~hamode | expr2)
+            else:
+                expr &= hamode & expr2
+
+        if data.ui:
+            uimode = Literal('uimode')
+            if data.ui == 'api':
+                expr &= ~uimode
+            elif data.ui == 'ui':
+                expr &= uimode & (uimode > Literal(0))
+            else:
+                raise ValueError('Unknown value {}'.format(data.ui))
+
+        if data.module:
+            module = Literal('module')
+            expr2 = Or()
+            for x in data.module:
+                expr2 += [In(String(x.upper()), module)]
+            expr &= (module & expr2)
+
     args.append('--tc-file={VENV}/%s' % CONFIG_FILE)
 
     # Default is our BVT suite.
-    suite = SUITES[data.get('suite', DEFAULT_SUITE)]
+    if v:
+        suite = os.path.join(CONFIG.suites.root, CONFIG.suites[v.version])
+    else:
+        suite = SUITES[data.get('suite', DEFAULT_SUITE)]
     args.append('--tc=stages.enabled:1')
     # XXX: No quotes around the long argument value!
-    if data.get('suite') == DEFAULT_SUITE:
-        args.append('--eval-attr=rank > 0 and rank < 11')
+    args.append('--eval-attr={}'.format(str(expr)))
     args.append('--with-email')
-    # args.append('--with-bvtinfo')
+    # args.append('--collect-only')
     args.append('--with-irack')
     args.append('{VENV}/%s' % suite)
 
     v = plugins.email.variables
     v.args = args
-    v.iso = data['iso']
+    v.iso = data.iso
+    v.module = data.module
+
+    result = nosetests.delay(our_config, args, data)  # @UndefinedVariable
+    link = app.router.build('status', task_id=result.id)
+    return dict(status=result.status, id=result.id, link=link)
+
+
+@app.route('/bvt/emdeviso', method='POST')
+def bvt_emdeviso_post():
+    """Handles requests from BIGIP teams.
+
+    All the logic needed to translate the user input into what makes sense to
+    us happens right here.
+    """
+    CONFIG_FILE = 'config/shared/web_emdeviso_request.yaml'
+
+    # For people who don't like to set the application/json header.
+    data = AttrDict(json.load(bottle.request.body))
+    data._referer = bottle.request.url
+
+    our_config = AttrDict(yaml.load(open(get_harness('em')).read()))
+
+    # Prepare placeholders in our config
+    our_config.update({'stages': {'main': {'setup': {'install': {'parameters': {}}}}}})
+    our_config.update({'plugins': {'email': {'to': [], 'variables': {}}}})
+
+    plugins = our_config.plugins
+
+    # Append submitter's email to recipient list
+    if data.get('email'):
+        plugins.email.to.append(data['email'])
+    plugins.email.to.extend(CONFIG.web.recipients)
+
+    # Set version and build in the install stage
+    v = None
+    if data.get('iso'):
+        params = our_config.stages.main.setup['install'].parameters
+        params['custom iso'] = data['iso']
+        v = version_from_metadata(data['iso'])
+
+    if data.get('hfiso'):
+        params = our_config.stages.main.setup['install'].parameters
+        params['custom hf iso'] = data['hfiso']
+        v = version_from_metadata(data['hfiso'])
+        # Find the RTM ISO that goes with this HF image.
+        if not data.get('iso'):
+            params['custom iso'] = isofile(v.version, product=str(v.product))
+
+    args = []
+    args[:] = NOSETESTS_ARGS
+
+    args.append('--tc-file={VENV}/%s' % CONFIG_FILE)
+    args.append('--tc=stages.enabled:1')
+    args.append('--eval-attr=rank > 0 and rank < 11')
+    args.append('--with-email')
+    #args.append('--with-bvtinfo')
+    args.append('--with-irack')
+    args.append('{VENV}/%s' % CONFIG.paths.em)
 
     result = nosetests.delay(our_config, args, data)  # @UndefinedVariable
     link = app.router.build('status', task_id=result.id)
@@ -507,10 +620,10 @@ def bvt_basic_post2():
     # Prepare placeholders in our config
     our_config.update({'stages': {'main': {'setup': {'install-bigips': {'parameters': {}}}}}})
     our_config.update({'plugins': {'email': {'to': [], 'variables': {}}}})
-    our_config.update({'plugins': {'atom': {'bigip': {}}}})
+    our_config.update({'plugins': {'atom': {'bigip': {}}, 'bvtinfo': {}}})
 
     plugins = our_config.plugins
-    # Set BVTInfo data
+    # Set ATOM data
     plugins.atom.bigip.request_id = data.content.id
     plugins.atom.bigip.name = HOOK_NAME
 
@@ -522,16 +635,21 @@ def bvt_basic_post2():
     # Set version and build in the install stage
     params = our_config.stages.main.setup['install-bigips'].parameters
 
-    if data.content.build.iso:
-        params['custom iso'] = data.content.build.iso
+    branch = data.content.build.branch
+    version = data.content.build.version
+    params['version'] = branch.name
+    params['build'] = version.primary
+    if int(version.level):
+        params['hotfix'] = version.level
+        params['custom hf iso'] = sanitize_atom_path(data.content.build.iso)
     else:
-        branch = data.content.build.branch
-        version = data.content.build.version
-        params['version'] = branch.name
-        params['build'] = version.primary
-        if int(version.level):
-            params['hotfix'] = version.level
-        params.product = 'bigip'
+        params['custom iso'] = sanitize_atom_path(data.content.build.iso)
+    params.product = 'bigip'
+
+    # TODO: Remove this when bvtinfo goes offline
+    # Set BVTInfo data
+    plugins.bvtinfo.project = branch.name
+    plugins.bvtinfo.build = version.old_build_number
 
     args = []
     args[:] = NOSETESTS_ARGS
@@ -547,6 +665,7 @@ def bvt_basic_post2():
         args.append('--eval-attr=rank > 0 and rank < 11')
         args.append('--with-email')
         args.append('--with-atom')
+        args.append('--with-bvtinfo')
         if not min_version_validator(params.build, params.version, params.hotfix,
                                      params.product, iso=data.content.build.iso,
                                      min_ver=CONFIG.supported):
@@ -575,21 +694,21 @@ def bvt_bigiq_post2():
     All the logic needed to translate the user input into what makes sense to
     us happens right here.
     """
-    HOOK_NAME = 'bigiq-bvt'
+    HOOK_NAME = 'big-iq-bvt'
     CONFIG_FILE = 'config/shared/web_bvt_request_bigiq.yaml'
 
     data = AttrDict(json.load(bottle.request.body))
     data._referer = bottle.request.url
 
-    our_config = AttrDict(yaml.load(open(get_harness('em')).read()))
+    our_config = AttrDict(yaml.load(open(get_harness('bigiq-tmos')).read()))
 
     # Prepare placeholders in our config
     our_config.update({'stages': {'main': {'setup': {'install-bigips': {'parameters': {}}}}}})
     our_config.update({'plugins': {'email': {'to': [], 'variables': {}}}})
-    our_config.update({'plugins': {'atom': {'bigip': {}}}})
+    our_config.update({'plugins': {'atom': {'bigip': {}}, 'bvtinfo': {}}})
 
     plugins = our_config.plugins
-    # Set BVTInfo data
+    # Set ATOM data
     plugins.atom.bigip.request_id = data.content.id
     plugins.atom.bigip.name = HOOK_NAME
 
@@ -601,16 +720,21 @@ def bvt_bigiq_post2():
     # Set version and build in the install stage
     params = our_config.stages.main.setup['install-bigips'].parameters
 
-    if data.content.build.iso:
-        params['custom iso'] = data.content.build.iso
+    branch = data.content.build.branch
+    version = data.content.build.version
+    params['version'] = branch.name
+    params['build'] = version.primary
+    if int(version.level):
+        params['hotfix'] = version.level
+        params['custom hf iso'] = sanitize_atom_path(data.content.build.iso)
     else:
-        branch = data.content.build.branch
-        version = data.content.build.version
-        params['version'] = branch.name
-        params['build'] = version.primary
-        if int(version.level):
-            params['hotfix'] = version.level
-        params.product = 'bigip'
+        params['custom iso'] = sanitize_atom_path(data.content.build.iso)
+    params.product = 'bigip'
+
+    # TODO: Remove this when bvtinfo goes offline
+    # Set BVTInfo data
+    plugins.bvtinfo.project = branch.name
+    plugins.bvtinfo.build = version.old_build_number
 
     args = []
     args[:] = NOSETESTS_ARGS
@@ -621,6 +745,7 @@ def bvt_bigiq_post2():
     args.append('--eval-attr=rank >= 5 and rank <= 10')
     args.append('--with-email')
     args.append('--with-atom')
+    args.append('--with-bvtinfo')
     if not min_version_validator(params.build, params.version, params.hotfix,
                                  params.product, iso=data.content.build.iso,
                                  min_ver=CONFIG.supported):

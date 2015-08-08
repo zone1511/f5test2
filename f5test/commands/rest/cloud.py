@@ -11,7 +11,7 @@ from ...interfaces.rest.emapi.objects.cloud import Tenant, Connector, IappTempla
     IappTemplateProperties, ConnectorProperty
 from ...interfaces.testcase import ContextHelper
 from ...interfaces.rest.emapi.objects.base import Link, Reference, ReferenceList
-from ...interfaces.rest.emapi.objects.shared import DeviceResolver
+from ...interfaces.rest.emapi.objects.shared import DeviceResolver, LicensePool
 from .device import DEFAULT_ALLBIGIQS_GROUP, DEFAULT_CLOUD_GROUP, \
                     ASM_ALL_GROUP, FIREWALL_ALL_GROUP, DEFAULT_AUTODEPLOY_GROUP, \
                     SECURITY_SHARED_GROUP, Discover
@@ -144,6 +144,8 @@ class AddIappTemplate(IcontrolRestCommand):  # @IgnorePep8
     @type name: string
     @param itype: Defaults to "http" #optional
     @type itype: string
+    @param provider: Defaults to None # optional
+    @type provider: string 
     @param template_path: the relative path in depo #optional
     @type template_path: string
     @param file_name: file name of the template file #optional
@@ -163,6 +165,7 @@ class AddIappTemplate(IcontrolRestCommand):  # @IgnorePep8
                  file_name=None,
                  specs=None,
                  itype="f5.http",
+                 provider=None,
                  *args, **kwargs):
         super(AddIappTemplate, self).__init__(*args, **kwargs)
         specs = Options(specs)
@@ -172,6 +175,9 @@ class AddIappTemplate(IcontrolRestCommand):  # @IgnorePep8
         content = None
         if template_path and file_name:
             content = IappTemplate().from_file(template_path, file_name)
+        elif itype=="f5.http" and provider and provider=="f5.http:ssl-offload":
+            content = IappTemplate()
+            content.update(self.api.get(IappTemplate.HTTP_OFFLOAD_EXAMPLE))
         else:
             content = IappTemplate()
             content.update(self.api.get(IappTemplate.EXAMPLE_URI % itype))
@@ -224,6 +230,49 @@ class AddIappTemplate(IcontrolRestCommand):  # @IgnorePep8
                  .format(self.name))
         return resp
 
+
+add_pool_license = None
+class AddPoolLicense(IcontrolRestCommand):  #@IgnorePep8
+    """ Adds a pool license to Big-IQ
+    
+    @param name: pool license name #mandatory
+    @type name: string
+    
+    @param regkey: regkey #mandatory
+    @type regkey: string
+    
+    @param method: pool license activation method #mandatory
+    @type method: string
+    
+    """
+    
+    def __init__(self, name, regkey,
+                 method,
+                 *args, **kwargs):
+        super(AddPoolLicense, self).__init__(*args, **kwargs)
+        self.name = name
+        self.regkey = regkey
+        self.method = method
+    
+    def setup(self):
+        if self.method == LicensePool.AUTO_METHOD:
+            payload = LicensePool(name=self.name,
+                              baseRegKey=self.regkey, method=self.method)
+            lic_pool = self.api.post(LicensePool.POOLS_URI, payload=payload)
+            LOG.debug('Getting EULA...')
+            LicensePool.wait(self.api, lic_pool, automatic=True, timeout=60)
+            resp = LicensePool.wait(self.api, lic_pool, True, timeout=30)
+            if resp.state in ['WAITING_FOR_EULA_ACCEPTANCE']:
+                LOG.debug('Need to accept EULA...')
+                LOG.debug('Adding EULA Text to Payload...')
+                payload = LicensePool(eulaText=resp.eulaText, state='ACCEPTED_EULA')
+                self.api.patch(resp.selfLink, payload=payload)
+                wait(lambda: self.api.get(LicensePool.POOL_URI % resp.uuid),
+                     condition=lambda temp: temp.state == 'LICENSED',
+                     progress_cb=lambda temp: 'State: {0} '.format(temp.state),
+                     timeout=10, interval=1)
+                LOG.info('EULA Accepted...')
+            return resp
 
 add_connector = None
 class AddConnector(IcontrolRestCommand):  # @IgnorePep8

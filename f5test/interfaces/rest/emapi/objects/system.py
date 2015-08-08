@@ -69,6 +69,12 @@ class BackupRestoreTask(Task):
                   'RESTORE_REQUESTED', 'RESTORE_GET_DEVICE',
                   'RESTORE_UPLOAD_BACKUP', 'RESTORE_RESTORE_BACKUP',
                   'RESTORE_FINISHED', 'RESTORE_FAILED')
+    PENDING_STATUSES = ('BACKUP_GET_DEVICE', 'BACKUP_MAKE_BACKUP',
+                        'BACKUP_DOWNLOAD_BACKUP',
+                        'RESTORE_REQUESTED', 'RESTORE_GET_DEVICE',
+                        'RESTORE_UPLOAD_BACKUP', 'RESTORE_RESTORE_BACKUP')
+    FINAL_STATUSES = ('BACKUP_FINISHED', 'BACKUP_FAILED',
+                      'RESTORE_FINISHED', 'RESTORE_FAILED')
 
     def __init__(self, *args, **kwargs):
         super(BackupRestoreTask, self).__init__(*args, **kwargs)
@@ -77,17 +83,11 @@ class BackupRestoreTask(Task):
         self.setdefault('description', '')
 
     @staticmethod
-    def wait(rest, resource, timeout=120):
+    def wait(rest, resource, timeout=300):
 
-        # Wait for the task to get into a Pending state first
-        # See BZ440336
-        wait(lambda: rest.get(resource.selfLink),
-             condition=lambda x: x.status in Task.PENDING_STATUSES,
-             progress_cb=lambda x: 'State: {0}:{1}'.format(x.status,
-                                                           x.backupRestoreStatus),
-             timeout=timeout, interval=5)
         ret = wait(lambda: rest.get(resource.selfLink),
-                   condition=lambda x: x.status in Task.FINAL_STATUSES,
+                   condition=lambda x: (x.status in Task.FINAL_STATUSES and  # See BZ440336
+                                        x.backupRestoreStatus in BackupRestoreTask.FINAL_STATUSES),
                    progress_cb=lambda x: 'State: {0}:{1}'.format(x.status,
                                                                  x.backupRestoreStatus),
                    timeout=timeout, interval=5)
@@ -156,8 +156,8 @@ class SnmpTrap(BaseApiObject):
     SLEVEL = enum(ANP='authNoPriv',
                   AP='authPriv')
     VERSION = enum(V1='V1',
-                  V2C='V2C',
-                  V3='V3')
+                   V2C='V2C',
+                   V3='V3')
 
     def __init__(self, *args, **kwargs):
         super(SnmpTrap, self).__init__(*args, **kwargs)
@@ -183,6 +183,14 @@ class Certificates(AttrDict):
 
     def __init__(self, *args, **kwargs):
         super(Certificates, self).__init__(*args, **kwargs)
+
+
+class CertificateInfo(AttrDict):
+    URI = '/mgmt/cm/shared/config/current/cloud/sys/all-certificate-file-object'
+    ITEM_URI = '%s/%%s' % URI
+
+    def __init__(self, *args, **kwargs):
+        super(CertificateInfo, self).__init__(*args, **kwargs)
 
 
 # Doc: https://peterpan.f5net.com/twiki/bin/view/Cloud/SmtpDestinationsAPI
@@ -238,8 +246,8 @@ class SmtpEmail(AttrDict):
                                                 fromAddress='nobody@foo.com',
                                                 host='',
                                                 name='test',
-                                                #password='',
-                                                #userName='',
+                                                # password='',
+                                                # userName='',
                                                 port=25))
 
 
@@ -269,7 +277,7 @@ class BulkDiscovery(BaseApiObject):
 
         wait(lambda: rest.get(post_resp.selfLink), condition=all_done,
              progress_cb=lambda ret: 'Status: {0}'.format(list(x.status
-                                        for x in ret.deviceStatesMap.values())),
+                                                               for x in ret.deviceStatesMap.values())),
              *args, **kwargs)
 
         ret = wait(lambda: rest.get(post_resp.selfLink),
@@ -288,8 +296,8 @@ class BulkDiscovery(BaseApiObject):
     def cancel_wait(rest, *args, **kwargs):
 
         def all_done(ret):
-            return sum(1 for x in ret['items'] if (x.status == BulkDiscovery.START_STATE or x.status == BulkDiscovery.FINISH_STATE or \
-                    x.status == BulkDiscovery.CANCEL_STATE)) == sum(1 for x in ret['items'])
+            return sum(1 for x in ret['items'] if (x.status == BulkDiscovery.START_STATE or x.status == BulkDiscovery.FINISH_STATE or
+                                                   x.status == BulkDiscovery.CANCEL_STATE)) == sum(1 for x in ret['items'])
 
         ret = wait(lambda: rest.get(BulkDiscovery.URI),
                    condition=all_done,
@@ -309,6 +317,7 @@ class BulkDiscovery(BaseApiObject):
                    progress_cb=lambda ret: len(ret['items']),
                    *args, **kwargs)
         return ret
+
 
 # Ref- https://confluence.pdsea.f5net.com/display/BIGIQDEVICETEAM/Radius+Authentication+Providers
 class RadiusProvider(AttrDict):
@@ -371,6 +380,24 @@ class LdapProviderLogin(AttrDict):
         super(LdapProviderLogin, self).__init__(*args, **kwargs)
         self.setdefault('username', '')
         self.setdefault('password', '')
+
+
+class LocalProvider(AttrDict):
+    URI = '/mgmt/cm/system/authn/providers/local'
+    ITEM_URI = '%s/%%s' % URI
+
+    def __init__(self, *args, **kwargs):
+        super(LocalProvider, self).__init__(*args, **kwargs)
+        self.setdefault('name', '')
+
+
+class LocalProviderGroups(AttrDict):
+    URI = '/mgmt/cm/system/authn/providers/local/groups'
+    ITEM_URI = '%s/%%s' % URI
+
+    def __init__(self, *args, **kwargs):
+        super(LocalProviderGroups, self).__init__(*args, **kwargs)
+        self.setdefault('name', '')
 
 
 class AuthnLogin(AttrDict):
@@ -593,3 +620,39 @@ class FileTransfer(BaseApiObject):
                              headers=headers)
 
         return resp
+
+
+# (LFO)
+# API: https://confluence.pdsea.f5net.com/display/PDCLOUD/FileObject+(LFO)+APIs#
+# PRD: https://confluence.pdsea.f5net.com/display/PDBIGIQPLATFORM/Large+File+Object+%28LFO%29+Support#
+class FileObjectTask(BaseApiObject):
+    URI = '/mgmt/cm/system/file-object-tasks'
+    ITEM_URI = '%s/%%s' % URI
+    TYPE = enum('REMOTE_SOURCE_FILE', 'LOCAL_SOURCE_FILE')
+
+    def __init__(self, *args, **kwargs):
+        super(FileObjectTask, self).__init__(*args, **kwargs)
+        self.setdefault('requestType', FileObjectTask.TYPE.LOCAL_SOURCE_FILE)
+        self.setdefault('fileType', '')
+
+        # following must be in local type
+        # self.setdefault('localFileName', '')
+        # self.setdefault('sourceFilePath', '')
+
+        # following must be in remote type:
+        # self.setdefault('fileTransferWorkerReference', '')
+        # self.setdefault('fileInfoWorkerReference', '')
+        # self.setdefault('remoteFilePath', '')
+        # self.setdefault('deviceReference', '')
+
+        # self.setdefault('fileObjectStateReference', '')
+
+
+class FileObject(BaseApiObject):
+    URI = '/mgmt/cm/system/file-objects'
+    ITEM_URI = '%s/%%s' % URI
+
+    def __init__(self, *args, **kwargs):
+        super(FileObject, self).__init__(*args, **kwargs)
+
+

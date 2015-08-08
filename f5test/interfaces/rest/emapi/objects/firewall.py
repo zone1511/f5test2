@@ -41,7 +41,7 @@ class SecurityTaskV1(Task):
         if loop is None:
             loop = get_status
 
-        ret = wait(loop, timeout=timeout, interval=1,
+        ret = wait(loop, timeout=timeout,
                    timeout_message=timeout_message,
                    condition=lambda x: x.overallStatus not in ('NEW',),
                    progress_cb=lambda x: 'Status: {0}:{1}'.format(x.overallStatus,
@@ -72,7 +72,7 @@ class SecurityTaskV2(Task):
 
         # Backwards compatibility
         if isinstance(rstifc, RestInterface) and rstifc.version >= 'bigiq 4.4.0':
-            wait(loop, timeout=timeout, interval=1,
+            wait(loop, timeout=timeout,
                  timeout_message=timeout_message,
                  condition=lambda x: x.status not in ('CREATED',),
                  progress_cb=lambda x: 'Wait until out of CREATED state...')
@@ -82,13 +82,13 @@ class SecurityTaskV2(Task):
                        condition=lambda x: x.status not in ('STARTED',),
                        progress_cb=lambda x: 'Status: {0}'.format(x.currentStep))
 
-            if ret.status != 'FINISHED' or ret.currentStep != 'DONE':
+            if ret.status != 'FINISHED' or ret.currentStep not in ('DONE', 'DISTRIBUTE_CONFIG'):
                 msg = json.dumps(ret, sort_keys=True, indent=4,
                                  ensure_ascii=False)
                 raise TaskError("Task failed:\n%s" % msg)
 
         else:
-            ret = wait(loop, timeout=timeout, interval=1,
+            ret = wait(loop, timeout=timeout,
                        timeout_message=timeout_message,
                        condition=lambda x: x.overallStatus not in ('NEW',),
                        progress_cb=lambda x: 'Status: {0}:{1}'.format(x.overallStatus,

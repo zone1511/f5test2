@@ -1,6 +1,7 @@
 from .. import base
 from ...interfaces.rest import RestInterface
 from ...interfaces.rest.emapi import EmapiInterface
+from ...interfaces.rest.netx import NetxInterface
 import logging
 
 LOG = logging.getLogger(__name__)
@@ -66,3 +67,7 @@ class RestCommand(base.Command):
 
 class IcontrolRestCommand(RestCommand):
     ifc_class = EmapiInterface
+
+
+class NetxCommand(RestCommand):
+    ifc_class = NetxInterface

@@ -4,11 +4,14 @@ from .selenium import SeleniumInterface, DEFAULT_SELENIUM
 from .ssh import SSHInterface
 from .icontrol import IcontrolInterface, EMInterface
 from .rest import RestInterface
+from .rest.apic import ApicInterface
 from .rest.emapi import EmapiInterface
+from .rest.netx import NetxInterface
 from .snmp import SnmpInterface
 from .aws import AwsInterface
 import logging
 import os
+import re
 from unittest.case import _AssertRaisesContext
 
 
@@ -185,7 +188,7 @@ class InterfaceHelper(object):
         container = root.setdefault(container, Options())
         del container[key]
 
-    def get_interface(self, name_or_class, name=None, *args, **kwargs):
+    def get_interface(self, klass, reuse=True, *args, **kwargs):
         """
         Get a previously stored interface or create a new one. If the optional
         parameter name is given then the created interface will be stored as a
@@ -198,25 +201,33 @@ class InterfaceHelper(object):
         interface instance.
         :type name: string
         """
-        if isinstance(name_or_class, basestring):
-            interface = self.get_data(name_or_class,
-                                      container=INTERFACES_CONTAINER)
-            assert interface, 'Interface %s was not found.' % name_or_class
-            return interface
-        else:
-            interface = name_or_class(*args, **kwargs)
-            interface.open()
+        if isinstance(klass, basestring):
+            raise ValueError(klass)
 
-        if name is None:
+        interface = klass(*args, **kwargs)
+        name = repr(interface)
+        found = False
+        if reuse:
+            previous = self.get_data(name, container=INTERFACES_CONTAINER)
+            if previous:
+                #LOG.debug("reusing %s" % previous)
+                interface = previous
+                found = True
+            else:
+                interface.open()
+
+            if not found:
+                self.set_data(name, interface, container=INTERFACES_CONTAINER)
+        else:
+            interface.open()
             name = id(interface)
 
-        self.set_data(name, interface, container=INTERFACES_CONTAINER)
         return interface
 
     def get_config(self, *args, **kwargs):
         return self.get_interface(ConfigInterface, *args, **kwargs)
 
-    def get_selenium(self, name_or_class=DEFAULT_SELENIUM, *args, **kwargs):
+    def get_selenium(self, *args, **kwargs):
         """
         Historically get_selenium() would be called from the majority of tests
         without any arguments, in which case it should reuse a previously opened
@@ -225,9 +236,6 @@ class InterfaceHelper(object):
         As things got reworked in this class, the name/signature of these
         methods became obsolete.
         """
-        return self.get_interface(name_or_class, *args, **kwargs)
-
-    def get_selenium_anon(self, *args, **kwargs):
         return self.get_interface(SeleniumInterface, *args, **kwargs)
 
     def get_ssh(self, *args, **kwargs):
@@ -253,6 +261,12 @@ class InterfaceHelper(object):
 
     def get_aws(self, *args, **kwargs):
         return self.get_interface(AwsInterface, *args, **kwargs)
+
+    def get_apic(self, *args, **kwargs):
+        return self.get_interface(ApicInterface, *args, **kwargs)
+
+    def get_netx(self, *args, **kwargs):
+        return self.get_interface(NetxInterface, *args, **kwargs)
 
 
 class ContextHelper(InterfaceHelper):
@@ -311,6 +325,8 @@ class InterfaceTestCase(InterfaceHelper, TestCase):
                            callable_obj=None, *args, **kwargs):
         """Add the msg argument"""
         msg = kwargs.pop('msg', None)
+        if isinstance(expected_regexp, basestring):
+            expected_regexp = re.compile(expected_regexp)
         context = AssertRaisesContext(expected_exception, self, expected_regexp,
                                       msg)
         if callable_obj is None:

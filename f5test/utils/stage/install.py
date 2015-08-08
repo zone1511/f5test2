@@ -47,7 +47,8 @@ class InstallSoftwareStage(Stage, InstallSoftware):
         super(InstallSoftwareStage, self).prep()
         if not self.specs.get('no reset password before'):
             LOG.info('Resetting password before install...')
-            ICMD.system.SetPassword(device=self.options.device, keyset=KEYSET_COMMON).run_wait(timeout=120)
+            ICMD.system.SetPassword(device=self.options.device, keyset=KEYSET_COMMON).\
+                run_wait(timeout=120, timeout_message="Timeout ({0}s) while trying to reset the admin/root passwords pre-install.")
 
         if not self.specs.get('no remove em certs'):
             LOG.info('Removing EM certs...')
@@ -58,7 +59,8 @@ class InstallSoftwareStage(Stage, InstallSoftware):
 
         if not self.specs.get('no reset password after'):
             LOG.info('Resetting password after install...')
-            ICMD.system.SetPassword(device=self.options.device).run_wait(timeout=60)
+            ICMD.system.SetPassword(device=self.options.device).\
+                run_wait(timeout=60, timeout_message="Timeout ({0}s) while trying to reset the admin/root passwords post-install.")
 
         if not self.has_essential_config:
             # This variable exists only on 11.0+. Used for 10.x -> 11.x HA upgrades.

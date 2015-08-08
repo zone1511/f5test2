@@ -129,12 +129,16 @@ def wait_for_text_in_webel(text, xpath=None, did=None, css=None,
                            prop=None,
                            negated=False, timeout=10,
                            usedin=None,
+                           interval=1,
                            *args, **kwargs):
     """Wait for a text (or multiple text) to appear within a list of elements
 
     @param text: Mandatory. String to search for.
-                If regex_transform is used, it will break it down based on
-                normal separators and will try to match substrings one after the other.
+                -In the special case where you would like to see if a multi-element
+                 xpath returns at least one visible element, you can pass an empty text
+                 with visibleonly=True
+                -If regex_transform is used, it will break it down based on
+                 normal separators and will try to match substrings one after the other.
     @type text: string
 
     @param xpath, css, did: At least one Mandatory. defaulting to xpath.
@@ -190,10 +194,10 @@ def wait_for_text_in_webel(text, xpath=None, did=None, css=None,
         prop = ['text', 'is_displayed']
     if not prop:
         prop = []
-    if visibleonly:
-        prop.append('is_displayed')
     if not attr:
         attr = []
+    if visibleonly and 'is_displayed' not in prop:
+        prop.append('is_displayed')
     ftext = None
     if mtm:
         # Matches one or more non-alphanumeric characters or "_" or space:
@@ -310,9 +314,14 @@ def wait_for_text_in_webel(text, xpath=None, did=None, css=None,
         except Exception, e:
             LOG.debug("{0}Error:".format(usedin))
             raise e
-    wait(to_appear, interval=1, timeout=timeout,
-         progress_cb=lambda x: '{0}. Still looking for text "{1}"...'.format(usedin, text),
-         timeout_message="%s. Did Not Find text '%s' in {0}s" % (usedin, text))
+    wait(to_appear, interval=interval, timeout=timeout,
+         progress_cb=lambda x: '{0}Still looking for text "{1}"{2}...'.format(usedin,
+                                                                              text,
+                                                                              " (negated)" if negated else ""),
+         timeout_message="%s. '%s %s%s' in {0}s" % (usedin,
+                                                    "Did Not Find text" if not negated else "Still Found",
+                                                    text,
+                                                    "[negated]" if negated else ""))
     return x
 
 
@@ -496,3 +505,116 @@ class WebelClick(SeleniumCommand):  # @IgnorePep8
                                    negated=self.negated, timeout=self.timeout,
                                    ifc=self.ifc)
         return self.s
+
+
+def wait_for_webel(xpath=None, did=None, css=None,
+                   negated=False, timeout=10, interval=1,
+                   usedin=None,
+                   *args, **kwargs):
+    """Wait for an element or a suite of elements (defined by xpath/css/did)
+       to appear or disappear.
+
+    @param xpath, css, did: At least one Mandatory. Defaulting to xpath.
+                takes an xpath, css or an webel id to click on
+    @type xpath, css, did: str
+        @type negated: bool
+    @param negated: to wait for the element(s) to not be there anymore
+    """
+
+    usedin = "{0}/waitforwebel/".format(usedin if usedin else "")
+
+    prop = ['text', 'is_displayed']
+
+    def to_be():
+        x = webel_grab(xpath=xpath, did=did, css=css,
+                       prop=prop,
+                       *args, **kwargs)
+        return (x == [] and negated) or (x and not negated)
+
+    wait(to_be, interval=interval, timeout=timeout,
+         progress_cb=lambda x: '{0}Still looking for els...'.format(usedin),
+         timeout_message="%sDid Not Find els in {0}s" % (usedin))
+    LOG.debug("{0}Waited for elements in [{1}]{2}...".format(usedin,
+                                                             xpath or css or did,
+                                                             "/negated" if negated else ""))
+
+input_send = None
+class InputSend(SeleniumCommand):  # @IgnorePep8
+    """Sends text(s) to input(s) (regular or js).
+       Returns the web element or a list if more identifiers were passed
+
+    @type xpath,css,did: str or list of str
+    @param xpath,css,did: takes one or more xpath, css class or webel id
+
+    @type text: string or list of strings
+    @param text: what to send
+
+    @type add_it: bool
+    @param add_it: Default False. To add to existing text instead of clearing first.
+
+    @type use_js: bool
+    @param use_js: Default False. To use js to send text
+
+    """
+    def __init__(self, xpath=None, did=None, css=None, text=None,
+                 add_it=False,
+                 use_js=False,
+                 *args, **kwargs):
+        super(InputSend, self).__init__(*args, **kwargs)
+
+        if not xpath and not did and not css or not text:
+            raise WrongParameterPassedMethodCheck("/input_send/misuse - "
+                                                  "one param: xpath/css/did and text.")
+        self.using = None
+        if isinstance(text, basestring):
+            text = [text]
+        if xpath:
+            if isinstance(xpath, basestring):
+                xpath = [xpath]
+            if len(xpath) != len(text):
+                raise WrongParameterPassedMethodCheck("/input_send/xpath passed [{0}]"
+                                                      " vs [{1}] texts passed as param."
+                                                      .format(len(xpath), len(text)))
+        elif did:
+            if isinstance(did, basestring):
+                did = [did]
+            if len(did) != len(text):
+                raise WrongParameterPassedMethodCheck("/input_send/did passed [{0}]"
+                                                      " vs [{1}] texts passed as param."
+                                                      .format(len(did), len(text)))
+        elif css:
+            if isinstance(css, basestring):
+                css = [css]
+            if len(css) != len(text):
+                raise WrongParameterPassedMethodCheck("/input_send/css passed [{0}]"
+                                                      " vs [{1}] texts passed as param."
+                                                      .format(len(xpath), len(text)))
+        self.xpath = xpath
+        self.did = did
+        self.css = css
+        self.text = text
+        self.use_js = use_js
+        self.add_it = add_it
+
+    def setup(self):
+        s = self.api
+        to_return = []
+        # To Do: Validate is input el
+        for finder, text in zip(self.xpath or self.did or self.css, self.text):
+            if self.xpath:
+                this_input = s.find_element_by_xpath(finder)
+            elif self.css:
+                this_input = s.find_element_by_css_selector(finder)
+            elif self.did:
+                this_input = s.find_element_by_id(finder)
+            if not self.use_js:
+                if not self.add_it:
+                    this_input.clear()
+                this_input.send_keys(text)
+            else:
+                if self.add_it:
+                    text = this_input.get_attribute('value') + text
+                s.execute_script("return arguments[0].value = arguments[1]",
+                                 this_input, text)
+            to_return.append(this_input)
+        return to_return[0] if len(to_return) == 1 else to_return

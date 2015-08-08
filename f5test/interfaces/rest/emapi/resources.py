@@ -7,6 +7,7 @@ from ..core import RestInterface, AUTH
 from .objects.system import AuthnLogin
 from .objects.shared import DeviceInfo
 from ..driver import BaseRestResource, WrappedResponse
+from ...config import ADMIN_ROLE
 from ....utils.querydict import QueryDict
 from restkit import ResourceError, RequestError
 import urlparse
@@ -59,15 +60,6 @@ class EmapiResourceError(ResourceError):
 class EmapiRestResource(BaseRestResource):
     api_version = 1
     verbose = False
-
-    def patch(self, path=None, payload=None, headers=None,
-              params_dict=None, **params):
-        """HTTP PATCH
-
-        See POST for params description.
-        """
-        return self.request("PATCH", path=path, payload=payload,
-                            headers=headers, params_dict=params_dict, **params)
 
     def request(self, method, path=None, payload=None, headers=None,
                 params_dict=None, odata_dict=None, **params):
@@ -122,6 +114,7 @@ class EmapiInterface(RestInterface):
       Ex: {"link": "https://localhost/mgmt/cm/system/authn/providers/radius/5fb32248-722c-4ab4-8e6b-e223027e9d22/login"}
     """
     api_class = EmapiRestResource
+    creds_role = ADMIN_ROLE
 
     class TokenHeaderFilter(object):
         """ Simple filter to manage iControl REST token authentication"""
@@ -143,10 +136,18 @@ class EmapiInterface(RestInterface):
     @property
     def version(self):
         from ....utils.version import Version
-        ret = self.api.get(DeviceInfo.URI)
+        tmp = self.api.default_params
+        self.api.default_params = None
+        try:
+            ret = self.api.get(DeviceInfo.URI)
+        finally:
+            self.api.default_params = tmp
         return Version("{0.product} {0.version} {0.build}".format(ret))
 
     def open(self):  # @ReservedAssignment
+        if self.is_opened():
+            return self.api
+
         if self.auth != AUTH.TOKEN:
             return super(EmapiInterface, self).open()
         else:

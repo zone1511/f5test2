@@ -9,6 +9,7 @@ import optparse
 import re
 import sys
 import warnings
+from f5test.noseplugins.extender.known_issue import KnownIssueTest
 
 # Monkey patch for Python 2.7.9 CERT_REQUIRED enforcing.
 # TODO: Update HTTPS clients to pass CERT_NONE explicitly, then remove this.
@@ -36,11 +37,22 @@ class TestCase(unittest.TestCase):
         super(TestCase, self).__init__(*args, **kwargs)
         self.error_context = None
 
+    def has_failed(self):
+        """Returns true if the current test has failed.
+        To be used in tearDown()"""
+        for test, _ in self._resultForDoCleanups.errors + self._resultForDoCleanups.failures:
+            if test.id() == self.id():
+                return True
+        return False
+
     def id(self):
         ret = super(TestCase, self).id()
         if self.error_context:
             return "%s:%s" % (ret, self.error_context)
         return ret
+
+    def fail_ki(self, message):
+        raise KnownIssueTest(message)
 
     def run(self, result=None):
         """This is the original method from unittest.TestCase modified to

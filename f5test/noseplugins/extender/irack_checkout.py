@@ -19,7 +19,7 @@ from ...utils.wait import wait, StopWait
 DEFAULT_TIMEOUT = 60
 POLL_INTERVAL = 60
 DEFAULT_HOSTNAME = 'irack.mgmt.pdsea.f5net.com'
-DEFAULT_RESERVATION_TIME = datetime.timedelta(hours=4)
+DEFAULT_RESERVATION_TIME = datetime.timedelta(hours=6)
 URI_USER_NOBODY = '/api/v1/user/2/'
 URI_RESERVATION = '/api/v1/reservation/'
 LOG = logging.getLogger(__name__)

@@ -93,6 +93,9 @@ class AssignRoleToUser(IcontrolRestCommand):  # @IgnorePep8
 
         user_resp = self.api.get(UserCredentialData.ITEM_URI % (self.username))
         payload.userReferences.append(user_resp)
+        # Give everyone access to DeviceInfo worker to be able to get the version of the DUT.
+        resource = AttrDict(resourceMask=DeviceInfo.URI, restMethod="GET")
+        payload.resources.append(resource)
 
         resp = self.api.put(UserRoles.URI % self.rolename, payload=payload)
         LOG.info("Assigned role '{0}' to user '{1}'. further results in debug."
@@ -154,7 +157,7 @@ class SetupHa(IcontrolRestCommand):  # @IgnorePep8
 
     def prep(self):
         self.context = ContextHelper(__file__)
-        WaitRestjavad(self.peers).run()
+        WaitRestjavad(self.peers, ifc=self.ifc).run()
 
     def cleanup(self):
         self.context.teardown()
@@ -168,31 +171,34 @@ class SetupHa(IcontrolRestCommand):  # @IgnorePep8
         ret = api.get(DeviceResolver.DEVICES_URI % self.group)
         peer_ips = set(IPAddress(x.get_discover_address()).format(ipv6_full) for x in self.peers)
 
-        active_full_ip = IPAddress(active_device.get_discover_address()).format(ipv6_full)
-
-        LOG.info('Set relativeRank=0 on active_device...')
-        self_device = next(x for x in ret['items'] if x.address == active_full_ip)
-        payload = Options()
-        payload.properties = Options()
-        payload.properties[PARAMETER] = Options()
-        payload.properties[PARAMETER].relativeRank = 0
-        api.patch(self_device.selfLink, payload=payload)
+        if self.ifc.version < 'bigiq 4.6.0':
+            LOG.info('Set relativeRank=0 on active_device...')
+            active_full_ip = IPAddress(active_device.get_discover_address()).format(ipv6_full)
+            self_device = next(x for x in ret['items'] if x.address == active_full_ip)
+            payload = Options()
+            payload.properties = Options()
+            payload.properties[PARAMETER] = Options()
+            payload.properties[PARAMETER].relativeRank = 0
+            api.patch(self_device.selfLink, payload=payload)
 
         options = Options()
         options.automaticallyUpdateFramework = False
-        Discover(self.peers, group=DEFAULT_ALLBIGIQS_GROUP).run()
+        Discover(self.peers, group=DEFAULT_ALLBIGIQS_GROUP, options=options,
+                 ifc=self.ifc).run()
 
-        # Wait until until peer BIG-IQs are added to the device groups.
+        # Wait until peer BIG-IQs are added to the device groups.
         # This should remove the 'expect down' code that was here.
         for device_group in SetupHa.DEVICE_GROUPS:
             if self.ifc.version < 'bigiq 4.5.0' and device_group == 'cm-websafe-logging-nodes-trust-group':
                 LOG.info('Skipping wait for {0} as this is older than 4.5.0'.format(device_group))
                 continue
 
-            wait(lambda: self.api.get(DeviceResolver.DEVICES_URI % device_group),
-                 condition=lambda ret: len(peer_ips) == len(peer_ips.intersection(set(x.address for x in ret['items']))),
-                 progress_cb=lambda ret: 'Waiting until {0} appears in {1}'.format(peer_ips, device_group),
-                 interval=10, timeout=600)
+            # Skip the wait if A/S is setup using 4.5.1 or higher.
+            if self.ifc.version < 'bigiq 4.5.1':
+                wait(lambda: api.get(DeviceResolver.DEVICES_URI % device_group),
+                     condition=lambda ret: len(peer_ips) == len(peer_ips.intersection(set(x.address for x in ret['items']))),
+                     progress_cb=lambda ret: 'Waiting until {0} appears in {1}'.format(peer_ips, device_group),
+                     interval=10, timeout=300)
 
         WaitRestjavad(self.peers).run()
 
@@ -408,7 +414,7 @@ class AggregationTaskStats(IcontrolRestCommand):  # @IgnorePep8
     @rtype: attr dict json
     """
     def __init__(self, eagt_id, expectmincount=None, delay=None,
-                 timeout=45,
+                 timeout=90,
                  *args, **kwargs):
         super(AggregationTaskStats, self).__init__(*args, **kwargs)
         if not delay:
@@ -1176,6 +1182,9 @@ class WaitScheduleHistory(IcontrolRestCommand):  # @IgnorePep8
     @param timeout: wait function timeout in s
     @type timeout: int
 
+    @param exactcheck: default True, check exact no of history or at least (false)
+    @type exactcheck: bool
+
     """
 
     # FAILED_STATES = ["FAILED", "CANCELED"]
@@ -1184,6 +1193,7 @@ class WaitScheduleHistory(IcontrolRestCommand):  # @IgnorePep8
                  account_for_false_runs=False,
                  interval=2,
                  timeout=20,
+                 exactcheck=True,
                  *args, **kwargs):
         super(WaitScheduleHistory, self).__init__(*args, **kwargs)
         self.s_id = s_id
@@ -1192,8 +1202,11 @@ class WaitScheduleHistory(IcontrolRestCommand):  # @IgnorePep8
         self.account_for_false_runs = account_for_false_runs
         self.interval = interval
         self.timeout = timeout
+        self.exactcheck = exactcheck
 
     def setup(self):
+
+        self.goodhistory = None
 
         def is_task_history(no, expect, account_for_false_runs):
             self.goodhistory = []
@@ -1217,9 +1230,10 @@ class WaitScheduleHistory(IcontrolRestCommand):  # @IgnorePep8
                         self.goodhistory = historynow
                     return self.goodhistory
         wait_args(is_task_history, [self.no, self.expect, self.account_for_false_runs],
-                  condition=lambda goodhistory: len(goodhistory) == self.no,
+                  condition=lambda goodhistory: (len(goodhistory) == self.no if self.exactcheck else len(goodhistory) >= self.no),
                   progress_cb=lambda x: "History [count/status: [{0}] vs. "
                   "expected [{1}/{2}]...Retry.."
                   .format(len(x) if x else "?/Not {0}".format(self.expect), self.no, self.expect),
                   timeout=self.timeout, interval=self.interval,
                   timeout_message="History count received was not [%s] or status not [%s], after {0}s." % (str(self.no), self.expect))
+        return self.goodhistory

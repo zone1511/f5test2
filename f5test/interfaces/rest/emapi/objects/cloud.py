@@ -113,7 +113,6 @@ class TenantService(BaseApiObject):
     URI = Tenant.URI + '/%s/services/iapp'
     TenantTemplateReferenceURI = '/mgmt/cm/cloud/tenant/templates/iapp'
     ITEM_URI = Tenant.URI + '/%s/services/iapp/%s'
-    PENDING = 0.5
 
     def __init__(self, *args, **kwargs):
         super(TenantService, self).__init__(*args, **kwargs)
@@ -125,21 +124,52 @@ class TenantService(BaseApiObject):
         self.setdefault('properties', [])
 
     @staticmethod
-    def wait(rest, tenant, service, timeout=DEFAULT_TIMEOUT, *args, **kwargs):
+    def wait(rest, tenant, service, health_stats="MINIMUM", *args, **kwargs):
+        '''
+            @param rest: the REST interface to use
+            @type rest: icontrol rest interface
+            @param tenant: the tenant that is being used
+            @type tenant: str
+            @param service: the iApp name
+            @type service: str
+            @param health_stats: What health stats to check. Defaults to just
+                                 health.summary.placement
+            @type health_stats: If argument is something other then MINIMUM,
+                                check all health related stats.
+        '''
         from .....commands.rest.device import DEFAULT_ALLBIGIQS_GROUP
 
+        # If we use fake nodes as web servers, health.summary will return a legit error message
+        # Upon using fake nodes consider only health.summary.placement
+
+        health_stats = ["health.summary.placement"] if health_stats == "MINIMUM"\
+            else ["health.app", "health.placement", "health.summary",
+                  "health.summary.app", "health.summary.placement"]
+
+        def is_done(ret):
+            resp = []
+            for key in ret.entries.keys():
+                if key in health_stats and not ret.entries[key].value.is_integer():
+                    resp.append(ret.entries[key])
+            return len(resp) == 0
+
         ret = wait(lambda: rest.get(TenantService.ITEM_URI % (tenant, service) + '/stats'),
-                   condition=lambda ret: ret.entries['health.placement'].value != TenantService.PENDING,
+                   condition=is_done,
                    progress_cb=lambda ret: 'Waiting until iApp is placed...',
-                   timeout=timeout, interval=2, *args, **kwargs)
+                   interval=2, *args, **kwargs)
 
-        if ret.entries['health.placement'].value != 1:
-            rest.get(TenantPlacement.URI)
-            rest.get(DeviceResolver.DEVICES_URI % DEFAULT_ALLBIGIQS_GROUP)
-            msg = json.dumps(ret.entries['health.placement'], sort_keys=True,
-                             indent=4, ensure_ascii=False)
-            raise TaskError("iApp deploy failed.\n%s" % msg)
-
+        for key in ret.entries.keys():
+            if key in health_stats and ret.entries[key].value != 1:
+                resp = rest.get(TenantPlacement.URI)
+                # The above URI can return a huge response. Below will show
+                # response from the item of interest.
+                for item in resp['items']:
+                    if service in item.appName:
+                        rest.get(item.selfLink)
+                rest.get(DeviceResolver.DEVICES_URI % DEFAULT_ALLBIGIQS_GROUP)
+                msg = json.dumps(ret.entries, sort_keys=True,
+                                 indent=4, ensure_ascii=False)
+                raise TaskError("iApp deploy failed.\n%s" % msg)
         return ret
 
 
@@ -272,6 +302,7 @@ class IappTemplate(BaseApiObject):
     URI = '/mgmt/cm/cloud/provider/templates/iapp'
     ITEM_URI = '/mgmt/cm/cloud/provider/templates/iapp/%s'
     HTTP_EXAMPLE = '/mgmt/cm/cloud/templates/iapp/f5.http/providers/example'
+    HTTP_OFFLOAD_EXAMPLE = '/mgmt/cm/cloud/templates/iapp/f5.http/providers/f5.http:ssl-offload'
     EXAMPLE_URI = '/mgmt/cm/cloud/templates/iapp/%s/providers/example'
 
     class Variable(AttrDict):
@@ -421,3 +452,125 @@ class ProviderActivities(AttrDict):
         self.setdefault('resourceReferences', ReferenceList())
         self.setdefault('title', '')
         self.setdefault('message', '')
+
+class VcmpGuest(AttrDict):
+    """VCMPguest class to create a payload to create guests"
+    """
+    COLLECTION_URI = "/mgmt/cm/cloud/connectors/vcmp/%s/nodes"
+    ITEM_URI = "/mgmt/cm/cloud/connectors/vcmp/%s/nodes/%s"
+
+    def __init__(self, *args, **kwargs):
+        super(VcmpGuest, self).__init__(*args, **kwargs)
+
+        self.setdefault('ipAddress', '127.0.0.1/32')
+        self.setdefault('providerOnly', True)
+        self.setdefault('properties', [])
+        self.setdefault('networkInterfaces', [])
+        self.init_default_properties()
+        self.init_default_interfaces()
+
+    def init_default_properties(self):
+        """ Setting up the the default config properties and interfaces"""
+        # All the below properties required exceptt the slots optional
+        self.add_property("NodeName", "DefaultGuest")
+        self.add_property("NodeTemplateName", "BIGIP-12.6.0.0.0.401.iso")
+        self.add_property("RequestedState", "deployed")
+        self.add_property("DeviceMgmtUser", "admin")
+        self.add_property("DeviceMgmtPassword", "admin")
+        self.add_property("NumberOfCoresPerSlot", "2")
+        self.add_property("Slots", "1")
+        self.add_property("DeviceCreatedWithDefaultCredentials", "true")
+
+    def init_default_interfaces(self):
+        # All the below interfaces are required
+        self.add_localInterface("127.0.0.1", "127.0.0.254", "127.0.0.1/22")
+        self.add_vlanInterface("internal", "127.0.0.1", "127.0.0.1/24")
+
+    def add_property(self, name, value):
+        """Method to create a property and assign it a value
+        @param name: name of the property ->id
+        @param value: value of that property -> value
+        @return: None
+         """
+        new_property = AttrDict()
+        new_property['id'] = name
+        new_property['value'] = value
+        self['properties'].append(new_property)
+
+    def set_property(self, name, value):
+        """Method to set a property value
+        @param name: name of the property ->id
+        @param value: value of that property -> value
+        @return: True on success, otherwise False
+        """
+        for n, each in enumerate(self['properties']):
+            if each['id'] == name:
+                self['properties'][n]['value'] = value
+                return True
+        return False
+
+    def set_properties(self, adict):
+        """Method to set many properties at once
+        @param adict: a dictionary with all the properties needed to be set
+        @return: None
+        """
+        assert isinstance(adict, dict)
+        for n, each in enumerate(self['properties']):
+            value = adict.get(each['id'], None)
+            if value is not None:
+                self['properties'][n]['value'] = value
+
+    def add_localInterface(self, laddr, gwaddr, subaddr):
+        """Method to create local interface and assign it a value
+        @param laddr: local address ipv4 format
+        @param gwaddr: gateway address ipv4 format
+        @param subaddr: subnet mask ipv4 format/netmask
+        @return: None
+         """
+        # we may assert valid_ip(laddr) however no need
+        new_item = AttrDict()
+        new_item['localAddress'] = laddr
+        new_item['gatewayAddress'] = gwaddr
+        new_item['subnetAddress'] = subaddr
+        self['networkInterfaces'].append(new_item)
+
+    def add_vlanInterface(self, vname, vladdr, vsubaddr):
+        new_item = AttrDict()
+        new_item['name'] = vname
+        new_item['localAddress'] = vladdr
+        new_item['subnetAddress'] = vsubaddr
+        self['networkInterfaces'].append(new_item)
+
+    def set_localInterface(self, laddr, gwaddr, subaddr):
+        for n, each in enumerate(self['networkInterfaces']):
+            if each.get('gatewayAddress', False):
+                self['networkInterfaces'].__delitem__(n)
+                break
+        self.add_localInterface(laddr, gwaddr, subaddr)
+
+    def set_VlanInterface(self, vname, vladdr, vsubaddr):
+        for n, each in enumerate(self['networkInterfaces']):
+            if each.get('gatewayAddress', False):
+                self['networkInterfaces'].__delitem__(n)
+                break
+        self.add_vlanInterface(vname, vladdr, vsubaddr)
+
+    def set_networkInterface(self, interfaces_list):
+        for new_int in interfaces_list:
+            if 'mgmt' == new_int['name']:
+                self['networkInterfaces'][0]['gatewayAddress'] = new_int['gateway']
+                self['networkInterfaces'][0]['localAddress'] = new_int['local']
+                self['networkInterfaces'][0]['subnetAddress'] = new_int['subnet']
+            else:
+                target = -1
+                for n, interface in enumerate(self['networkInterfaces']):
+                    if new_int['name'] == interface.get('name', False):
+                        target = n
+                if (target > -1):
+                    self['networkInterfaces'][target]['name'] = new_int['name']
+                    self['networkInterfaces'][target]['localAddress'] = new_int['local']
+                    self['networkInterfaces'][target]['subnetAddress'] = new_int['subnet']
+                else:
+                    self.add_vlanInterface(new_int['name'], \
+                                           new_int['local'], \
+                                           new_int['subnet'])

@@ -3,7 +3,7 @@ Created on May 16, 2011
 
 @author: jono
 '''
-from ..config import ConfigInterface, DeviceAccess
+from ..config import ConfigInterface, DeviceAccess, DEFAULT_ROLE
 from ...base import Interface
 from ...defaults import DEFAULT_PORTS
 from .driver import RestResource
@@ -16,6 +16,7 @@ AUTH = enum('NONE', 'BASIC', 'TOKEN')
 
 class RestInterface(Interface):
     api_class = RestResource
+    creds_role = DEFAULT_ROLE
 
     def __init__(self, device=None, address=None, username=None, password=None,
                  port=None, proto='https', timeout=90, auth=AUTH.BASIC, url=None,
@@ -50,9 +51,9 @@ class RestInterface(Interface):
 
         if self.device:
             if username is None:
-                username = self.device.get_admin_creds().username
+                username = self.device.get_creds(self.creds_role).username
             if password is None:
-                password = self.device.get_admin_creds().password
+                password = self.device.get_creds(self.creds_role).password
             if address is None:
                 address = self.device.address
             if port is None:
@@ -66,8 +67,12 @@ class RestInterface(Interface):
         self.timeout = timeout
         self.auth = auth
 
+    def __repr__(self):
+        name = self.__class__.__name__
+        return "<{0}: {1.proto}://{1.username}:{1.password}@{1.address}:{1.port}/?timeout={1.timeout}&auth={1.auth}>".format(name, self)
+
     def open(self):  # @ReservedAssignment
-        if self.api:
+        if self.is_opened():
             return self.api
 
         if self.auth == AUTH.BASIC:

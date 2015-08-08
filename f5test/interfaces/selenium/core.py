@@ -57,7 +57,10 @@ class SeleniumInterface(Interface):
 
     def __repr__(self):
         name = self.__class__.__name__
-        credentials = self.get_credentials()
+        if not self.is_opened():
+            credentials = self.credentials
+        else:
+            credentials = self.get_credentials()
         return "<{0}: {1.username}:{1.password}@{1.address}:{1.port}>".format(name, credentials)
 
     @property

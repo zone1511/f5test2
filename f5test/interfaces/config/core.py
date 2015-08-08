@@ -223,6 +223,10 @@ class ConfigInterface(Interface):
 
         super(ConfigInterface, self).__init__()
 
+    def __repr__(self):
+        name = self.__class__.__name__
+        return "<{0}>".format(name, self)
+
     def get_config(self):
         return self.config
 
@@ -281,7 +285,7 @@ class ConfigInterface(Interface):
 
         if device is None:
             device = self.get_default_key(self.config.get(CFG_DEVICES))
-            if device is None:
+            if not device:
                 LOG.debug("No default device found. Check your test configuration.")
                 return
 

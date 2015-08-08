@@ -143,8 +143,9 @@ class ImportAsmPolicy(IcontrolRestCommand):  # @IgnorePep8
         # Policy can only be deleted after it's deactived and deassociated from ltm virtual,
         # thus delete its selflink in assign_asm_policy_to_virtual
         AsmTask().wait_status(self.rstifc, resp, interval=2, timeout=90,
-                              timeout_message="Import policy timed out after {0}, last status is %s"\
-                                              % resp.status)
+                              timeout_message="Import policy timed out after {0}, "\
+                                              "last status is {1.status}, "\
+                                              "result is \"{1.result}\"")
         resp = self.rstifc.get(resp.selfLink)
         policy_selflink = resp.result.policyReference.link
         resp  = self.rstifc.get(policy_selflink)
@@ -181,8 +182,8 @@ class ApplyAsmPolicy(IcontrolRestCommand):  # @IgnorePep8
         payload.policyReference = policy_reference
         resp = self.rstifc.post(URL_TM_ASM_APPLY_POLICY, payload)
         AsmTask().wait_status(self.rstifc, resp, interval=2, timeout=90,
-                              timeout_message="Apply policy timed out after {0}, last status is %s"\
-                                              % resp.status)
+                              timeout_message="Apply policy timed out after {0}, "\
+                                              "last status is {1.status}")
         ret = resp
 
 # TODO: put in test

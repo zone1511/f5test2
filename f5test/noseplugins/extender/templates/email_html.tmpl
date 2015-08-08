@@ -8,6 +8,8 @@
 <pre>
 Good:    {{ result.bars.good }}
 Bad:     {{ result.bars.bad }}
+{% if result.bars.ki -%}KI:      {{ result.bars.ki }}
+{% endif -%}
 Skipped: {{ result.bars.unknown }}
 
 {% if time %}Duration: {{ time.delta_str }}{% endif %}
@@ -44,7 +46,7 @@ Blocking:
 
 Bad:
 ====
-{% for test, err in test_result.failures + test_result.errors -%}
+{% for test, err in test_result.failures + test_result.errors + test_result.known_issue -%}
 <b>*</b> {{ test.id() }}
 Author: {{ test.test and test.test.author }} 
 {{ err.1|string|trim|truncate(10000, true)|indent(2, true)|bzify  }}

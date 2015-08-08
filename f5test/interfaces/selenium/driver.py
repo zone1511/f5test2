@@ -3,9 +3,11 @@ from selenium.webdriver.remote.webdriver import WebDriver as RemoteWebDriver
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.remote.command import Command
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys  # @UnusedImport
 from selenium.common.exceptions import (NoSuchElementException,
-    StaleElementReferenceException, NoSuchWindowException)
+                                        StaleElementReferenceException, NoSuchWindowException)
+
 from ...utils.wait import Wait, wait
 from ...base import Options
 import copy
@@ -137,6 +139,14 @@ class WebElementWrapper(WebElement):
         """A click() method that works on invisible elements without hovering.
         jQuery lib is required!"""
         self.parent.execute_script("return arguments[0].click()", self)
+        return self.parent
+
+    def double_click(self, *args, **kwargs):
+        ActionChains(self.parent).double_click(self).perform()
+        return self.parent
+
+    def show(self, style='inline'):
+        self.parent.execute_script("return arguments[0].style.display='%s'" % style, self)
         return self.parent
 
     def submit(self, *args, **kwargs):

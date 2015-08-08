@@ -55,6 +55,19 @@ def customfilter_bzify(string):
     return result if result == string else jinja2.filters.do_mark_safe(result)
 
 
+def customfilter_product(duts, product='bigip'):
+    if duts is None or isinstance(duts, jinja2.Undefined) or\
+            not isinstance(duts, list) or not isinstance(product, basestring):
+        return duts
+
+    result = list()
+    for dut in duts:
+        if dut.version.product.product == product:
+            result.append(dut)
+
+    return result
+
+
 class Email(ExtendedPlugin):
     """
     Send email report.
@@ -76,6 +89,10 @@ class Email(ExtendedPlugin):
         self.data = ContextHelper().set_container(PLUGIN_NAME)
         self.enabled = noseconfig.options.with_email
 
+        if self.enabled and noseconfig.options.collect_only:
+            LOG.warn('Email reporting not supported in --collect-only mode.')
+            self.enabled = False
+
     def make_bars(self):
         self.data.result.bars = {}
         b = self.data.result.bars
@@ -85,6 +102,7 @@ class Email(ExtendedPlugin):
                              - result.notFailCount())
         b.bad = ProgressBar(result.testsRun, result.failCount())
         b.unknown = ProgressBar(result.testsRun, result.notFailCount())
+        b.ki = ProgressBar(result.testsRun, len(result.known_issue))
 
         # New progress bars for when Skipped tests should be ignored.
         b.good_no_skips = ProgressBar(result.testsRun
@@ -154,6 +172,7 @@ class Email(ExtendedPlugin):
             env.filters['ljust'] = customfilter_ljust
             env.filters['rjust'] = customfilter_rjust
             env.filters['bzify'] = customfilter_bzify
+            env.filters['product'] = customfilter_product
 
             template_subject = env.get_template('email_subject.tmpl')
             headers['Subject'] = template_subject.render(self.data, spec=spec)
@@ -199,6 +218,7 @@ class Email(ExtendedPlugin):
             self.dump_text(email)
         except Exception, e:
             LOG.error('Email report failed: %s', e)
+            raise
         finally:
             if server:
                 server.quit()

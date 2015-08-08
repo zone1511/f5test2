@@ -15,7 +15,7 @@ import sys
 import time
 
 
-class ProgressBar:
+class ProgressBar(object):
     def __init__(self, duration, start=None):
         self.duration = duration
         self.prog_bar = '[]'
@@ -54,6 +54,9 @@ class ProgressBar:
 
     def __str__(self):
         return str(self.prog_bar)
+
+    def __nonzero__(self):
+        return bool(self.percent_done)
 
 
 if __name__ == '__main__':

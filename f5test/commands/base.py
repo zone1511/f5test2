@@ -176,8 +176,8 @@ class ContextManagerCommand(Command):
         return self.ifc.api
 
     def __exit__(self, type, value, traceback):  # @ReservedAssignment
-        if value:
-            try:
+        try:
+            if value:
                 self.revert()
-            finally:
-                self.cleanup()
+        finally:
+            self.cleanup()

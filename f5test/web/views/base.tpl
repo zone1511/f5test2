@@ -50,7 +50,8 @@
 		                  <li class=""><a href="/bvt/basic">BIG-IP: EM Request</a></li>
 		                  <li class=""><a href="/bvt/bigiq">BIG-IP: BIG-IQ Request</a></li>
 		                  <li class=""><a href="/bvt/deviso">BIG-IQ User Build Request</a></li>
-		                  <li class="disabled"><a href="#">Advanced</a></li>
+		                  <li class=""><a href="/bvt/emdeviso">EM User Build Request</a></li>
+		                  <!-- <li class="disabled"><a href="#">Advanced</a></li> -->
 		              </ul>
 		          </li>
 		        </ul>

@@ -8,7 +8,7 @@ from __future__ import absolute_import
 from f5test.macros.base import Macro, MacroError
 from f5test.interfaces.ssh import SSHInterface
 from f5test.interfaces.config import ConfigInterface
-from f5test.interfaces.rest.emapi import EmapiInterface
+from f5test.interfaces.rest.emapi import EmapiInterface, EmapiResourceError
 from f5test.commands.shell import WIPE_STORAGE
 from f5test.base import Options as O
 from f5test.defaults import (ROOT_USERNAME, ROOT_PASSWORD, ADMIN_USERNAME,
@@ -39,6 +39,7 @@ class ScaleCheck(Macro):
         self.options = O(options)
 
         self.options.setifnone('timeout', DEFAULT_TIMEOUT)
+        self.options.setifnone('skip_ping', False)
 
         if self.options.device:
             self.device = ConfigInterface().get_device(options.device)
@@ -102,20 +103,40 @@ class ScaleCheck(Macro):
         return ret
 
     def clean_storage(self, ctx):
+        has_restjavad = None
+        with EmapiInterface(device=self.device,
+                            username=self.options.admin_username,
+                            password=self.options.admin_password,
+                            port=self.options.ssl_port,
+                            address=self.address) as rstifc:
+            try:
+                if ctx.version < "bigip 11.5.0":
+                    has_restjavad = rstifc.api.get(DeviceResolver.URI)
+            except EmapiResourceError:
+                LOG.warning("This pre 11.5.0 device hasn't had latest"
+                            " REST Framework upgrades")
+                pass
+
         self.call("rm -rf /var/log/rest*")
+        self.call("find /var/log -name '*.gz' -exec rm {} \;")
+#         # Remove all files that are: blabla.1.blabla or blabla.1
+#         self.call("find /var/log -regex '.*[.][1-9].*' -exec rm '{}' \\;")
         self.call(WIPE_STORAGE)
+
         # Because of a bug where restjavad not knowing about icrd, BZ504333.
-        self.call("bigstart restart icrd")
+        if self.sshifc.version.product.is_bigip:
+            self.call("bigstart restart icrd")
 
         with EmapiInterface(device=self.device,
                             username=self.options.admin_username,
                             password=self.options.admin_password,
                             port=self.options.ssl_port,
                             address=self.address) as rstifc:
-            wait_args(rstifc.api.get, func_args=[DeviceResolver.URI],
-                      progress_message="Waiting for restjavad...",
-                      timeout=60, interval=5,
-                      timeout_message="restjavad never came back up after {0}s")
+            if has_restjavad:
+                wait_args(rstifc.api.get, func_args=[DeviceResolver.URI],
+                          progress_message="Waiting for restjavad...",
+                          timeout=300,
+                          timeout_message="restjavad never came back up after {0}s")
 
     def relicense(self, ctx):
         if ctx.status != 'NO LICENSE':
@@ -128,8 +149,8 @@ class ScaleCheck(Macro):
             expire_date = datetime.datetime.strptime(license_date, date_format)
             delta = expire_date - datetime.datetime.now()
 
-            if delta > datetime.timedelta(days=5):
-                LOG.debug("%s is NOT within 5 days of being expired. "
+            if delta > datetime.timedelta(days=15):
+                LOG.debug("%s is NOT within 15 days of being expired. "
                           "Expiration date: %s" % (self.device, license_date))
             else:
                 LOG.info("Re-licensing %s. Expiration date: %s" %
@@ -185,7 +206,7 @@ class ScaleCheck(Macro):
     def setup(self):
         ctx = self.make_context()
 
-        LOG.info("Deleting logs and wiping storage")
+        LOG.info("Deleting rest logs, *.gz files, and wiping storage")
         if ctx.version.product.is_bigip:
             self.clean_storage(ctx)
 
@@ -193,7 +214,8 @@ class ScaleCheck(Macro):
         self.relicense(ctx)
 
         # Check if BIG-IQ can reach BIG-IP
-        self.ping_check()
+        if not self.options.skip_ping:
+            self.ping_check()
 
         # bigstart restart if BIG-IP is something else other than 'Active'
         LOG.info("State: %s" % ctx.status)

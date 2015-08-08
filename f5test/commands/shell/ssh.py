@@ -518,6 +518,10 @@ class CollectLogs(SSHCommand):  # @IgnorePep8
         or v.product.is_bigiq:
             files.append('/var/log/auditd/audit.log')
 
+        # ASM
+        if v.product.is_bigip and v >= 'bigip 11.5':
+            files.append('/var/log/asm')
+
         if v.product.is_bigiq and v >= 'bigiq 4.4':
             files.append('/var/log/restjavad*.0.log')
 
@@ -853,22 +857,32 @@ class PortRedirector(SSHCommand, ContextManagerCommand):  # @IgnorePep8
     <execute your code>
     $ kill $!
     """
-    def __init__(self, port, local_port=8100, *args, **kwargs):
+    def __init__(self, port, dest_host='localhost', dest_port=8100,
+                 proto='TCP4-LISTEN', dest_proto='TCP4',
+                 *args, **kwargs):
         super(PortRedirector, self).__init__(*args, **kwargs)
         self.port = port
-        self.local_port = local_port
+        self.dest_host = dest_host
+        self.dest_port = dest_port
+        self.proto = proto
+        self.dest_proto = dest_proto
         self.shell = None
+        self.pid = None
 
     def prep(self):
         super(PortRedirector, self).prep()
         shell = self.ifc.api.interactive()
-        shell.sendline('socat -d -d -ls TCP4-LISTEN:{0},fork,reuseaddr TCP4:localhost:{1} &'.
-                       format(self.port, self.local_port))
+        shell.sendline('socat -d -d -ls {0.proto}:{0.port},fork,reuseaddr {0.dest_proto}:{0.dest_host}:{0.dest_port} &'.
+                       format(self))
+        # TODO: check for failure to start
+        shell.expect('\[\d+\] (\d+)')
+        self.pid = int(shell.match.groups()[0])
         self.shell = shell
 
     def cleanup(self):
         try:
-            self.shell.send('kill $!')
+            self.shell.expect('#')
+            self.shell.sendline('kill {0} && wait {0}'.format(self.pid))
         finally:
             self.shell.close()
 
@@ -1050,3 +1064,25 @@ class WaitForYear(SSHCommand):  # @IgnorePep8
                   progress_cb=lambda x: "Year still not changed...Got: [{0}]".format(self.now),
                   timeout=60, interval=1,
                   timeout_message="Check year failed, tried for {0}s..")
+
+scan_for_error_threshold = None
+class ScanForErrorThreshold(SSHCommand):  # @IgnorePep8
+    def __init__(self, level="WARNING", threshold=1000, *args, **kwargs):
+        super(ScanForErrorThreshold, self).__init__(*args, **kwargs)
+        self.level = level
+        self.command = 'grep "{}" /var/log/restjavad.*.log'.format(level)
+        self.threshold = threshold
+        self.errormsg = "Found %s {0} messages, threshold is {1}".format(level, threshold)
+
+    def setup(self):
+        ssh_response = self.api.run(self.command)
+        # grep returns a non-zero exit status if it doesn't find the search pattern. Won't complain
+        # if log files are missing, but will be logged as a warning by ssh.driver. Add
+        # "and ssh_response.stderr != ''" check here if that becomes a problem for some reason.
+        if ssh_response.status != 0:
+            LOG.info("No {} messages found.".format(self.level))
+            return
+        errors = ssh_response.stdout.strip()
+        LOG.debug(errors)
+        errorcount = len(errors.split('\n'))
+        assert (errorcount < self.threshold), self.errormsg % errorcount

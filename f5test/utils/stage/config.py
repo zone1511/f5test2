@@ -56,6 +56,7 @@ class ConfigStage(Stage, ConfigPlacer):
                           node_start=specs.get('node start'),
                           vip_start=specs.get('vip start'),
                           no_irack=specs.get('no irack'),
+                          csv=specs.get('csv'),
                           hostname=specs.get('hostname'),
                           dns_servers=specs.get('dns servers',
                                                 common.get('dns servers')),
@@ -63,7 +64,8 @@ class ConfigStage(Stage, ConfigPlacer):
                                                  common.get('dns suffixes')),
                           ntp_servers=specs.get('ntp servers',
                                                 common.get('ntp servers')),
-                          clean=specs.get('clean', False))
+                          clean=specs.get('clean', False),
+                          force_license=specs.get('force license', False))
 
         if config.irack:
             options.irack_address = config.irack.address

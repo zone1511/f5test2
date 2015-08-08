@@ -124,7 +124,7 @@ class Report(ExtendedPlugin):
         result.descriptions = 0
         result.getDescription = lambda y: nose_selector(y)  # @IgnorePep8
 
-    def startTest(self, test, blocking_context):
+    def startTest(self, test, blocking_context=None):
         """Initializes a timer before starting a test."""
         # No-op when current test is blocked
         if not self.data.duts:
@@ -161,6 +161,6 @@ class Report(ExtendedPlugin):
         d.time.stop = datetime.datetime.now()
         d.time.delta = d.time.stop - d.time.start
         d.time.delta_str = timesince(d.time.start)
-        # In case startTest() is never executed (e.g. 0 tests found)
-        if not self.data.duts:
-            self.set_duts_stats(expand_devices(self.duts))
+        # In case of upgrade the version of the DUTs change between the 1st test
+        # to the last. We need to gather the version info again here.
+        self.set_duts_stats(expand_devices(self.duts))

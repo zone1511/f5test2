@@ -32,7 +32,7 @@ class DutLogCheck(ExtendedPlugin):
         self.tests = []
         self.data = ContextHelper().set_container(PLUGIN_NAME)
 
-    def startTest(self, test, blocking_context):
+    def startTest(self, test, blocking_context=None):
         """Set up log checker for main dut log"""
 
         # Watch log for warnings and severe messages

@@ -29,6 +29,7 @@ class ScaleCheckStage(Stage, ScaleCheck):
 
         options = Options(device=device,
                           device_biq=biq_default,
+                          skip_ping=specs.get('skip ping'),
                           timeout=specs.get('timeout'))
 
         super(ScaleCheckStage, self).__init__(options, *args, **kwargs)

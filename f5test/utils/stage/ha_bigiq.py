@@ -26,7 +26,9 @@ class HABigiqStage(Stage, HABigiqMacro):
         default = next(x for x in self.devices if x.is_default())
         peers = [x for x in self.devices if x != default]
 
-        options = Options(reset=specs.reset, timeout=specs.timeout)
+        options = Options(reset=specs.get("reset"),
+                          timeout=specs.get("timeout"),
+                          ha_passive=specs.get("ha_passive"))
         self._context = specs.get('_context')
 
         super(HABigiqStage, self).__init__(options, default=default,
